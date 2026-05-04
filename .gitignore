@@ -24,6 +24,7 @@ data/processed/
 # Trained models (too large for git; tracked via models/registry.json)
 models/**/weights.pt
 models/**/*.bin
+models/**/*.task
 
 # Environment
 .env
