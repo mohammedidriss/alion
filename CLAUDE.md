@@ -109,7 +109,8 @@ alion/
 
 ## Caveats and known limits
 
-- **Live webcam capture does NOT work inside Docker on macOS** (no `/dev/video0` passthrough). Use `scripts/record_live.py` on the host for that. MP4 upload + processing works in-container.
+- **CV processing (MediaPipe + OpenCV) does NOT run in the default Docker image.** MediaPipe publishes no `linux/aarch64` wheels, so it can't install on Apple Silicon Docker. The container is API + DB + dashboard only; capture and pose extraction happen on the macOS host via `scripts/record_live.py` or `scripts/process_video.py` (where the native macOS wheel works fine). The API container still serves session/event endpoints and the dashboard. To force-include CV (x86_64 hosts only): `docker compose build --build-arg INCLUDE_CV=1 api`.
+- **Live webcam capture is host-only regardless of platform** (no `/dev/video0` passthrough on macOS Docker).
 - **LM Studio runs on the host.** Apple Metal acceleration is unavailable inside Docker; the API container talks to `host.docker.internal:1234`.
 - **MediaPipe model is downloaded on first use** into `models/mediapipe/pose_landmarker_lite.task` (~5.5 MB). It's gitignored.
 - **Encryption-at-rest is deferred to Phase 8.** Until SQLCipher lands, only synthetic / self-test data should hit the DB. See `decisions/002-encryption-deferred.md`.

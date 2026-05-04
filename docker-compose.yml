@@ -9,6 +9,12 @@ services:
     build:
       context: .
       dockerfile: Dockerfile.api
+      args:
+        # Set to "1" to bundle MediaPipe + OpenCV inside the image. Only works
+        # on x86_64 hosts (or Apple Silicon with Rosetta + platform: linux/amd64).
+        # On arm64 alone, MediaPipe has no wheel and the build will fail —
+        # leave at "0" and run capture on the macOS host instead.
+        INCLUDE_CV: "0"
     image: alion-api:latest
     ports:
       - "8000:8000"

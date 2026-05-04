@@ -1,7 +1,15 @@
 # Multi-stage Dockerfile for the Alion API.
-# Includes capture-headless extras so MP4 upload + processing works in-container.
-# Live webcam capture does NOT work in Docker on macOS (no /dev/video passthrough)
-# — for that, use the host-side scripts/record_live.py.
+#
+# What runs in the container: FastAPI + SQLite/Postgres adapter + composition root.
+# What does NOT run in the container: MediaPipe pose extraction + OpenCV.
+#
+# Why: MediaPipe ships no linux/aarch64 wheels, so it can't install on Apple
+# Silicon Docker. CV processing is host-only — use scripts/record_live.py or
+# scripts/process_video.py on the Mac host where the native macOS wheel works.
+# The API container still serves the session/event endpoints, dashboard, etc.
+#
+# To force-enable CV inside the container (x86_64 hosts only):
+#   docker build --build-arg INCLUDE_CV=1 ...
 
 ARG PYTHON_VERSION=3.11
 
@@ -13,10 +21,7 @@ ENV PYTHONDONTWRITEBYTECODE=1 \
     UV_LINK_MODE=copy \
     UV_PYTHON=python3.11
 
-# System deps that opencv-python-headless and mediapipe need at runtime.
 RUN apt-get update && apt-get install -y --no-install-recommends \
-        libgl1 \
-        libglib2.0-0 \
         ca-certificates \
         curl \
     && rm -rf /var/lib/apt/lists/*
@@ -28,9 +33,15 @@ WORKDIR /app
 
 # ---------- builder: resolve + install deps into /app/.venv ----------
 FROM base AS builder
+ARG INCLUDE_CV=0
 COPY pyproject.toml uv.lock ./
 RUN --mount=type=cache,target=/root/.cache/uv \
-    uv sync --frozen --extra capture-headless --extra postgres --no-dev
+    if [ "$INCLUDE_CV" = "1" ]; then \
+        apt-get update && apt-get install -y --no-install-recommends libgl1 libglib2.0-0 && rm -rf /var/lib/apt/lists/* && \
+        uv sync --frozen --extra capture-headless --extra postgres --no-dev; \
+    else \
+        uv sync --frozen --extra postgres --no-dev; \
+    fi
 
 # ---------- runtime ----------
 FROM base AS runtime

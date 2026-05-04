@@ -22,7 +22,7 @@ To swap SQLite for Postgres without touching application code:
 docker compose --profile postgres up --build
 ```
 
-Live webcam capture does **not** work inside Docker on macOS. MP4 upload + processing works fully in-container; for live capture, use the host-side script described in Option B.
+**Container scope:** The Docker image runs API + DB + dashboard only. CV processing (MediaPipe + OpenCV) runs on the macOS host — MediaPipe publishes no `linux/aarch64` wheels. For both live webcam capture and MP4 processing, use the host-side scripts in Option B; the dashboard (containerized) will show the resulting sessions.
 
 ### Option B — Native (development)
 
