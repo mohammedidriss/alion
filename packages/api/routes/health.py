@@ -1,6 +1,8 @@
-"""Health check — used by CI, dashboard, and pre-flight scripts."""
+"""Health checks — used by CI, dashboard, and pre-flight scripts."""
 
 from __future__ import annotations
+
+import importlib.util
 
 from fastapi import APIRouter
 from pydantic import BaseModel
@@ -15,6 +17,41 @@ class HealthResponse(BaseModel):
     schema_version: str
 
 
+class CapabilitiesResponse(BaseModel):
+    cv_available: bool
+    cv_reason: str | None = None
+    webcam_likely: bool
+
+
+def _module_present(name: str) -> bool:
+    return importlib.util.find_spec(name) is not None
+
+
 @router.get("/health", response_model=HealthResponse)
 def health() -> HealthResponse:
     return HealthResponse(status="ok", schema_version=SCHEMA_VERSION)
+
+
+@router.get("/health/capabilities", response_model=CapabilitiesResponse)
+def capabilities() -> CapabilitiesResponse:
+    """Reports whether the API process can run CV capture.
+
+    The dashboard hides / disables capture buttons when this returns false.
+    """
+    have_cv2 = _module_present("cv2")
+    have_mp = _module_present("mediapipe")
+    cv_available = have_cv2 and have_mp
+    reason: str | None = None
+    if not cv_available:
+        missing = [n for n, ok in [("opencv-python", have_cv2), ("mediapipe", have_mp)] if not ok]
+        reason = (
+            f"Capture extras not installed: missing {', '.join(missing)}. "
+            "This is normal in the default Docker image — run capture on the host."
+        )
+    # Webcam access from a containerized API on macOS is impossible (no /dev/video
+    # passthrough). We can't probe device presence reliably; if cv is missing,
+    # webcam definitely won't work either.
+    webcam_likely = cv_available
+    return CapabilitiesResponse(
+        cv_available=cv_available, cv_reason=reason, webcam_likely=webcam_likely
+    )

@@ -122,10 +122,26 @@ def _run_capture(
                 "_ctx_punches": len(buffered_events),
             },
         )
+    except ModuleNotFoundError as e:
+        # CV deps not installed (typical in the default Docker image — MediaPipe
+        # has no linux/aarch64 wheel). Map to a user-friendly reason.
+        reason = (
+            "Video capture isn't available on this server. "
+            "MediaPipe and OpenCV aren't installed in this environment "
+            "(likely the default Docker image). Run capture on the host with "
+            "`uv run python scripts/record_live.py --fighter <id>` instead."
+        )
+        log.exception("capture.failed (cv unavailable): %s", e, extra={"_ctx_session_id": str(session_id)})
+        with db_factory() as db:
+            SessionRepo(db).update_status(
+                session_id, SessionStatus.FAILED, end=True, failure_reason=reason
+            )
     except Exception as e:
         log.exception("capture.failed: %s", e, extra={"_ctx_session_id": str(session_id)})
         with db_factory() as db:
-            SessionRepo(db).update_status(session_id, SessionStatus.FAILED, end=True)
+            SessionRepo(db).update_status(
+                session_id, SessionStatus.FAILED, end=True, failure_reason=str(e)
+            )
     finally:
         with _active_lock:
             _active_jobs.pop(session_id, None)

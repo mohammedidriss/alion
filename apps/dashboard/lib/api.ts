@@ -31,6 +31,13 @@ export interface Session {
   frame_count: number;
   duration_ms: number;
   notes: string | null;
+  failure_reason: string | null;
+}
+
+export interface Capabilities {
+  cv_available: boolean;
+  cv_reason: string | null;
+  webcam_likely: boolean;
 }
 
 export interface PunchEvent {
@@ -59,6 +66,7 @@ async function req<T>(path: string, init?: RequestInit): Promise<T> {
 }
 
 export const api = {
+  capabilities: () => req<Capabilities>("/health/capabilities"),
   listFighters: () => req<Fighter[]>("/fighters"),
   createFighter: (name: string, stance: Stance = "orthodox") =>
     req<Fighter>("/fighters", {

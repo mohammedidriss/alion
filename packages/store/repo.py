@@ -66,7 +66,11 @@ class SessionRepo:
         return list(self._session.exec(select(Session)).all())
 
     def update_status(
-        self, session_id: UUID, status: SessionStatus, end: bool = False
+        self,
+        session_id: UUID,
+        status: SessionStatus,
+        end: bool = False,
+        failure_reason: str | None = None,
     ) -> Session | None:
         row = self.get(session_id)
         if row is None:
@@ -74,6 +78,10 @@ class SessionRepo:
         row.status = status
         if end:
             row.ended_at = datetime.now(UTC)
+        if failure_reason is not None:
+            row.failure_reason = failure_reason
+        elif status != SessionStatus.FAILED:
+            row.failure_reason = None
         self._session.add(row)
         self._session.commit()
         self._session.refresh(row)

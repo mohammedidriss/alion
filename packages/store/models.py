@@ -78,6 +78,7 @@ class Session(SQLModel, table=True):
     frame_count: int = 0
     duration_ms: float = 0.0
     notes: str | None = None
+    failure_reason: str | None = None
 
 
 class SessionCreate(SQLModel):
@@ -95,6 +96,7 @@ class SessionRead(SQLModel):
     ended_at: datetime | None
     video_path: str | None
     pose_parquet_path: str | None
+    failure_reason: str | None = None
     frame_count: int
     duration_ms: float
     notes: str | None

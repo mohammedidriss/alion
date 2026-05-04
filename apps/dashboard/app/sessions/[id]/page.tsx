@@ -3,6 +3,7 @@
 import { useEffect, useState } from "react";
 import {
   api,
+  type Capabilities,
   type CaptureStatus,
   type PunchEvent,
   type Session,
@@ -13,6 +14,7 @@ export default function SessionPage({ params }: { params: { id: string } }) {
   const [session, setSession] = useState<Session | null>(null);
   const [status, setStatus] = useState<CaptureStatus | null>(null);
   const [events, setEvents] = useState<PunchEvent[]>([]);
+  const [caps, setCaps] = useState<Capabilities | null>(null);
   const [err, setErr] = useState<string | null>(null);
   const [uploading, setUploading] = useState(false);
 
@@ -33,6 +35,7 @@ export default function SessionPage({ params }: { params: { id: string } }) {
 
   useEffect(() => {
     refresh();
+    api.capabilities().then(setCaps).catch(() => setCaps(null));
     const t = setInterval(refresh, 1500);
     return () => clearInterval(t);
   }, [id]);
@@ -71,6 +74,12 @@ export default function SessionPage({ params }: { params: { id: string } }) {
     {} as Record<string, number>,
   );
 
+  const cvAvailable = caps?.cv_available ?? true; // assume yes if check failed
+  const showStart =
+    session.status === "pending" &&
+    (session.source === "live_webcam" ||
+      (session.source === "uploaded_video" && !!session.video_path));
+
   return (
     <main className="mx-auto max-w-3xl space-y-6 p-8">
       <header className="flex items-center justify-between">
@@ -95,6 +104,31 @@ export default function SessionPage({ params }: { params: { id: string } }) {
 
       {err && <p className="text-sm text-red-400">{err}</p>}
 
+      {!cvAvailable && (
+        <div className="rounded-lg border border-amber-700/60 bg-amber-950/40 p-4 text-sm">
+          <p className="font-medium text-amber-200">
+            Capture isn&apos;t available on this server
+          </p>
+          <p className="mt-1 text-amber-100/80">
+            {caps?.cv_reason ??
+              "MediaPipe / OpenCV are not installed in this environment."}
+          </p>
+          <p className="mt-2 text-amber-100/70">
+            Run capture on the macOS host:{" "}
+            <code className="rounded bg-black/40 px-1.5 py-0.5 font-mono text-xs">
+              uv run python scripts/{session.source === "live_webcam" ? "record_live.py" : "process_video.py"}
+            </code>
+          </p>
+        </div>
+      )}
+
+      {session.status === "failed" && session.failure_reason && (
+        <div className="rounded-lg border border-red-700/60 bg-red-950/40 p-4 text-sm">
+          <p className="font-medium text-red-200">Capture failed</p>
+          <p className="mt-1 text-red-100/80">{session.failure_reason}</p>
+        </div>
+      )}
+
       <section className="grid grid-cols-3 gap-3">
         <Stat label="Frames" value={status?.frame_count ?? 0} />
         <Stat
@@ -117,13 +151,16 @@ export default function SessionPage({ params }: { params: { id: string } }) {
         </section>
       )}
 
-      {((session.source === "live_webcam" && session.status === "pending") ||
-        (session.source === "uploaded_video" &&
-          session.video_path &&
-          session.status === "pending")) && (
+      {showStart && (
         <button
           onClick={start}
-          className="rounded bg-emerald-600 px-4 py-2 font-medium hover:bg-emerald-500"
+          disabled={!cvAvailable}
+          title={
+            cvAvailable
+              ? undefined
+              : "Disabled — capture is not available on this server. Run on the host."
+          }
+          className="rounded bg-emerald-600 px-4 py-2 font-medium hover:bg-emerald-500 disabled:cursor-not-allowed disabled:bg-neutral-700 disabled:text-neutral-400 disabled:hover:bg-neutral-700"
         >
           {session.source === "live_webcam" ? "Start live capture" : "Process video"}
         </button>
