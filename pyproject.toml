@@ -1,0 +1,101 @@
+[project]
+name = "combat-intel"
+version = "0.1.0"
+description = "Combat Sports Performance Intelligence — multi-modal AI coaching platform (DBA dissertation, GGU)"
+readme = "README.md"
+requires-python = ">=3.11,<3.12"
+authors = [{ name = "Mohamad Idriss" }]
+dependencies = [
+    "pydantic>=2.7",
+    "pydantic-settings>=2.3",
+    "fastapi>=0.115",
+    "uvicorn[standard]>=0.30",
+    "sqlmodel>=0.0.22",
+    "httpx>=0.27",
+]
+
+[project.optional-dependencies]
+dev = [
+    "pytest>=8.3",
+    "pytest-asyncio>=0.24",
+    "ruff>=0.6",
+    "mypy>=1.11",
+    "import-linter>=2.0",
+    "pre-commit>=3.8",
+]
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[tool.hatch.build.targets.wheel]
+packages = [
+    "packages/contracts",
+    "packages/common",
+    "packages/store",
+    "packages/capture",
+    "packages/analyze",
+    "packages/fusion",
+    "packages/grounding",
+    "packages/coach",
+    "packages/studies",
+    "packages/api",
+]
+
+[tool.uv]
+package = true
+
+[tool.ruff]
+line-length = 100
+target-version = "py311"
+src = ["packages", "tests"]
+
+[tool.ruff.lint]
+select = ["E", "F", "W", "I", "B", "UP", "N", "RUF"]
+# E501 — long lines handled by formatter.
+# B008 — FastAPI's `Depends()` pattern is the canonical idiom.
+# RUF001/002/003 — typographic dashes are intentional in docstrings.
+ignore = ["E501", "B008", "RUF001", "RUF002", "RUF003"]
+
+[tool.ruff.format]
+quote-style = "double"
+
+[tool.mypy]
+python_version = "3.11"
+strict = true
+mypy_path = "packages"
+namespace_packages = true
+explicit_package_bases = true
+
+[[tool.mypy.overrides]]
+module = ["tests.*"]
+disallow_untyped_decorators = false
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+pythonpath = ["packages"]
+asyncio_mode = "auto"
+
+[tool.importlinter]
+root_packages = [
+    "contracts",
+    "common",
+    "store",
+    "capture",
+    "analyze",
+    "fusion",
+    "grounding",
+    "coach",
+    "studies",
+    "api",
+]
+
+[[tool.importlinter.contracts]]
+name = "Layered architecture — feature modules can't import each other; api is the composition root"
+type = "layers"
+layers = [
+    "api",
+    "capture | analyze | fusion | grounding | coach | studies | store",
+    "common",
+    "contracts",
+]
