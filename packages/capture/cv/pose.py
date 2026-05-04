@@ -1,11 +1,19 @@
-"""MediaPipe Pose wrapper. Lazy-imports mediapipe so the module is importable
-on machines without the capture extras installed.
+"""MediaPipe Pose wrapper using the Tasks API (`mediapipe.tasks.vision`).
+
+The legacy `mediapipe.solutions.pose` module is gone in recent builds on
+Apple Silicon. The Tasks API needs a model asset downloaded once; we cache
+it under `models/mediapipe/` and gitignore it.
+
+Lazy-imports mediapipe so the module is importable on machines without the
+capture extras installed.
 """
 
 from __future__ import annotations
 
+import urllib.request
 from collections.abc import Iterator
 from contextlib import contextmanager
+from pathlib import Path
 from typing import TYPE_CHECKING, Any
 from uuid import UUID
 
@@ -20,59 +28,97 @@ else:
     Frame = Any
 
 
+_MODEL_URL = (
+    "https://storage.googleapis.com/mediapipe-models/pose_landmarker/"
+    "pose_landmarker_lite/float16/latest/pose_landmarker_lite.task"
+)
+_MODEL_DIR = Path("models/mediapipe")
+_MODEL_PATH = _MODEL_DIR / "pose_landmarker_lite.task"
+
+
+def ensure_pose_model() -> Path:
+    """Download the pose landmarker model on first use; return its path."""
+    if _MODEL_PATH.exists():
+        return _MODEL_PATH
+    _MODEL_DIR.mkdir(parents=True, exist_ok=True)
+    tmp = _MODEL_PATH.with_suffix(".task.partial")
+    urllib.request.urlretrieve(_MODEL_URL, tmp)
+    tmp.rename(_MODEL_PATH)
+    return _MODEL_PATH
+
+
 class PoseEstimator:
-    """Wraps MediaPipe Pose. Produces a `PoseFrame` per RGB frame."""
+    """Wraps MediaPipe Pose (Tasks API). Produces a `PoseFrame` per BGR frame."""
 
     def __init__(
         self,
         session_id: UUID,
         fps: float,
         *,
-        model_complexity: int = 1,
         min_detection_confidence: float = 0.5,
+        min_presence_confidence: float = 0.5,
         min_tracking_confidence: float = 0.5,
     ) -> None:
         self.session_id = session_id
         self.fps = fps
         self._frame_idx = 0
-        self._mp_pose: Any = None
+        self._landmarker: Any = None
         self._opts = {
-            "model_complexity": model_complexity,
-            "min_detection_confidence": min_detection_confidence,
-            "min_tracking_confidence": min_tracking_confidence,
-            "enable_segmentation": False,
+            "min_detection": min_detection_confidence,
+            "min_presence": min_presence_confidence,
+            "min_tracking": min_tracking_confidence,
         }
 
     @contextmanager
     def open(self) -> Iterator[PoseEstimator]:
         import mediapipe as mp
+        from mediapipe.tasks import python as mp_python
+        from mediapipe.tasks.python import vision as mp_vision
 
-        self._mp_pose = mp.solutions.pose.Pose(**self._opts)
+        model_path = ensure_pose_model()
+        options = mp_vision.PoseLandmarkerOptions(
+            base_options=mp_python.BaseOptions(model_asset_path=str(model_path)),
+            running_mode=mp_vision.RunningMode.VIDEO,
+            num_poses=1,
+            min_pose_detection_confidence=self._opts["min_detection"],
+            min_pose_presence_confidence=self._opts["min_presence"],
+            min_tracking_confidence=self._opts["min_tracking"],
+        )
+        self._landmarker = mp_vision.PoseLandmarker.create_from_options(options)
+        # Stash refs so process() can build mp.Image without re-importing.
+        self._mp = mp
         try:
             yield self
         finally:
-            self._mp_pose.close()
-            self._mp_pose = None
+            self._landmarker.close()
+            self._landmarker = None
 
     def process(self, bgr_frame: Frame) -> PoseFrame | None:
         """Run pose on one BGR frame. Returns None if no person detected."""
         import cv2
 
-        if self._mp_pose is None:
+        if self._landmarker is None:
             raise RuntimeError("PoseEstimator not opened — use `with estimator.open():`")
         rgb = cv2.cvtColor(bgr_frame, cv2.COLOR_BGR2RGB)
-        rgb.flags.writeable = False
-        result = self._mp_pose.process(rgb)
         idx = self._frame_idx
         self._frame_idx += 1
-        if result.pose_landmarks is None:
+        t_ms_int = int((idx / self.fps) * 1000.0)
+        mp_image = self._mp.Image(image_format=self._mp.ImageFormat.SRGB, data=rgb)
+        result = self._landmarker.detect_for_video(mp_image, t_ms_int)
+        if not result.pose_landmarks:
+            return None
+        first = result.pose_landmarks[0]
+        if len(first) != NUM_POSE_LANDMARKS:
             return None
         landmarks = tuple(
-            Landmark(x=lm.x, y=lm.y, z=lm.z, visibility=max(0.0, min(1.0, lm.visibility)))
-            for lm in result.pose_landmarks.landmark
+            Landmark(
+                x=lm.x,
+                y=lm.y,
+                z=lm.z,
+                visibility=max(0.0, min(1.0, getattr(lm, "visibility", 1.0) or 0.0)),
+            )
+            for lm in first
         )
-        if len(landmarks) != NUM_POSE_LANDMARKS:
-            return None
         return PoseFrame(
             session_id=self.session_id,
             frame_index=idx,

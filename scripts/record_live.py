@@ -76,10 +76,7 @@ def main() -> None:
         on_raw_frame = None
         if args.show:
             import cv2
-            import mediapipe as mp  # type: ignore[import-not-found]
 
-            mp_drawing = mp.solutions.drawing_utils
-            mp_pose = mp.solutions.pose
             cv2.namedWindow("Alion — live", cv2.WINDOW_NORMAL)
 
             def on_raw_frame(raw, pose) -> None:  # type: ignore[no-untyped-def]
@@ -105,8 +102,6 @@ def main() -> None:
                 cv2.imshow("Alion — live", raw)
                 if cv2.waitKey(1) & 0xFF == ord("q"):
                     raise KeyboardInterrupt()
-
-            _ = mp_drawing, mp_pose  # silence unused imports
 
         from pathlib import Path
 
