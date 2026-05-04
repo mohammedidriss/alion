@@ -38,9 +38,9 @@ COPY pyproject.toml uv.lock ./
 RUN --mount=type=cache,target=/root/.cache/uv \
     if [ "$INCLUDE_CV" = "1" ]; then \
         apt-get update && apt-get install -y --no-install-recommends libgl1 libglib2.0-0 && rm -rf /var/lib/apt/lists/* && \
-        uv sync --frozen --extra capture-headless --extra postgres --no-dev; \
+        uv sync --frozen --no-install-project --extra capture-headless --extra postgres --no-dev; \
     else \
-        uv sync --frozen --extra postgres --no-dev; \
+        uv sync --frozen --no-install-project --extra postgres --no-dev; \
     fi
 
 # ---------- runtime ----------
@@ -54,8 +54,8 @@ WORKDIR /app
 COPY --from=builder --chown=alion:alion /app/.venv /app/.venv
 ENV PATH="/app/.venv/bin:${PATH}"
 
-# Copy source.
-COPY --chown=alion:alion pyproject.toml uv.lock ./
+# Copy source. README.md is required by hatchling's metadata validation.
+COPY --chown=alion:alion pyproject.toml uv.lock README.md ./
 COPY --chown=alion:alion packages ./packages
 COPY --chown=alion:alion scripts ./scripts
 
