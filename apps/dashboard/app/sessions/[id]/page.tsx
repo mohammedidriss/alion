@@ -1,6 +1,6 @@
 "use client";
 
-import { use, useEffect, useState } from "react";
+import { useEffect, useState } from "react";
 import {
   api,
   type CaptureStatus,
@@ -8,8 +8,8 @@ import {
   type Session,
 } from "@/lib/api";
 
-export default function SessionPage({ params }: { params: Promise<{ id: string }> }) {
-  const { id } = use(params);
+export default function SessionPage({ params }: { params: { id: string } }) {
+  const { id } = params;
   const [session, setSession] = useState<Session | null>(null);
   const [status, setStatus] = useState<CaptureStatus | null>(null);
   const [events, setEvents] = useState<PunchEvent[]>([]);

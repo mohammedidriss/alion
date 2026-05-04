@@ -1,11 +1,18 @@
 import Link from "next/link";
-import { api } from "@/lib/api";
+import { type Fighter, type Session } from "@/lib/api";
 
 export const dynamic = "force-dynamic";
 
-async function safe<T>(fn: () => Promise<T>): Promise<T | null> {
+// Server-side fetches go through INTERNAL_API_URL (e.g. http://api:8000 in
+// docker-compose). Client-side code in /lib/api.ts uses NEXT_PUBLIC_API_URL.
+const SSR_BASE =
+  process.env.INTERNAL_API_URL ?? process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:8000";
+
+async function safeJson<T>(path: string): Promise<T | null> {
   try {
-    return await fn();
+    const r = await fetch(`${SSR_BASE}${path}`, { cache: "no-store" });
+    if (!r.ok) return null;
+    return (await r.json()) as T;
   } catch {
     return null;
   }
@@ -13,13 +20,9 @@ async function safe<T>(fn: () => Promise<T>): Promise<T | null> {
 
 export default async function Home() {
   const [health, sessions, fighters] = await Promise.all([
-    safe(() =>
-      fetch(`${process.env.NEXT_PUBLIC_API_URL}/health`, { cache: "no-store" }).then(
-        (r) => r.json() as Promise<{ status: string; schema_version: string }>,
-      ),
-    ),
-    safe(api.listSessions),
-    safe(api.listFighters),
+    safeJson<{ status: string; schema_version: string }>("/health"),
+    safeJson<Session[]>("/sessions"),
+    safeJson<Fighter[]>("/fighters"),
   ]);
 
   return (

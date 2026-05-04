@@ -37,12 +37,16 @@ services:
       context: .
       dockerfile: Dockerfile.dashboard
       args:
+        # Baked into the client bundle — the browser sees localhost.
         NEXT_PUBLIC_API_URL: http://localhost:8000
     image: alion-dashboard:latest
     ports:
       - "3000:3000"
     environment:
+      # Browser-visible base URL (must reach the host's published port).
       NEXT_PUBLIC_API_URL: http://localhost:8000
+      # SSR fetches inside the container — uses the Docker service name.
+      INTERNAL_API_URL: http://api:8000
     depends_on:
       api:
         condition: service_healthy
