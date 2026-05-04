@@ -1,0 +1,180 @@
+"""Capture runner — orchestrates a CV capture job in a background thread.
+
+Lives in `api/` (the composition root) because it pulls together `capture`,
+`analyze`, and `store`. Feature modules themselves never cross-import.
+"""
+
+from __future__ import annotations
+
+import threading
+from collections.abc import Callable
+from contextlib import AbstractContextManager
+from pathlib import Path
+from uuid import UUID
+
+from sqlmodel import Session as DBSession
+
+from analyze import HeuristicPunchDetector
+from capture.cv import CapturePipeline, FileSource, WebcamSource
+from capture.cv.sources import FrameSource
+from common import get_logger
+from contracts import PoseFrame
+from store import (
+    DetectionSourceEnum,
+    HandEnum,
+    PunchEventRepo,
+    PunchEventRow,
+    SessionRepo,
+    SessionStatus,
+)
+
+DBFactory = Callable[[], AbstractContextManager[DBSession]]
+
+log = get_logger(__name__)
+
+_active_jobs: dict[UUID, threading.Thread] = {}
+_active_lock = threading.Lock()
+
+
+def _data_dir() -> Path:
+    p = Path("data/processed")
+    p.mkdir(parents=True, exist_ok=True)
+    return p
+
+
+def _hand_to_enum(h: str) -> HandEnum:
+    return HandEnum.LEFT if h == "left" else HandEnum.RIGHT
+
+
+def is_running(session_id: UUID) -> bool:
+    with _active_lock:
+        t = _active_jobs.get(session_id)
+        return t is not None and t.is_alive()
+
+
+def _run_capture(
+    session_id: UUID,
+    source_kind: str,
+    *,
+    video_path: str | None,
+    db_factory: DBFactory,
+    max_frames: int | None,
+) -> None:
+    log.info(
+        "capture.start",
+        extra={"_ctx_session_id": str(session_id), "_ctx_source": source_kind},
+    )
+    detector = HeuristicPunchDetector()
+    buffered_events: list[PunchEventRow] = []
+
+    def on_frame(pose: PoseFrame) -> None:
+        for ev in detector.feed(pose):
+            buffered_events.append(
+                PunchEventRow(
+                    session_id=ev.session_id,
+                    t_ms=ev.t_ms,
+                    hand=_hand_to_enum(ev.hand),
+                    velocity_ms=ev.velocity_ms,
+                    detected_by=DetectionSourceEnum(ev.detected_by),
+                    confidence=ev.confidence,
+                )
+            )
+
+    parquet_path = _data_dir() / f"{session_id}.pose.parquet"
+    source: FrameSource
+    if source_kind == "live_webcam":
+        source = WebcamSource(index=0)
+    elif source_kind == "uploaded_video":
+        if not video_path:
+            raise ValueError("uploaded_video requires video_path")
+        source = FileSource(video_path)
+    else:
+        raise ValueError(f"unsupported source: {source_kind}")
+
+    try:
+        with db_factory() as db:
+            SessionRepo(db).update_status(session_id, SessionStatus.CAPTURING)
+
+        pipeline = CapturePipeline(
+            session_id=session_id,
+            source=source,
+            parquet_path=parquet_path,
+            on_frame=on_frame,
+            max_frames=max_frames,
+        )
+        result = pipeline.run()
+
+        with db_factory() as db:
+            PunchEventRepo(db).add_many(buffered_events)
+            SessionRepo(db).attach_artifacts(
+                session_id,
+                pose_parquet_path=str(result.parquet_path),
+                frame_count=result.frame_count,
+                duration_ms=result.duration_ms,
+            )
+            SessionRepo(db).update_status(session_id, SessionStatus.COMPLETED, end=True)
+
+        log.info(
+            "capture.done",
+            extra={
+                "_ctx_session_id": str(session_id),
+                "_ctx_frames": result.frame_count,
+                "_ctx_punches": len(buffered_events),
+            },
+        )
+    except Exception as e:
+        log.exception("capture.failed: %s", e, extra={"_ctx_session_id": str(session_id)})
+        with db_factory() as db:
+            SessionRepo(db).update_status(session_id, SessionStatus.FAILED, end=True)
+    finally:
+        with _active_lock:
+            _active_jobs.pop(session_id, None)
+
+
+def start_capture(
+    session_id: UUID,
+    source_kind: str,
+    db_factory: DBFactory,
+    *,
+    video_path: str | None = None,
+    max_frames: int | None = None,
+) -> bool:
+    """Spawn the capture in a background thread. Returns False if already running."""
+    with _active_lock:
+        if session_id in _active_jobs and _active_jobs[session_id].is_alive():
+            return False
+        t = threading.Thread(
+            target=_run_capture,
+            args=(session_id, source_kind),
+            kwargs={"video_path": video_path, "db_factory": db_factory, "max_frames": max_frames},
+            daemon=True,
+            name=f"capture-{session_id}",
+        )
+        _active_jobs[session_id] = t
+        t.start()
+    return True
+
+
+def run_capture_sync(
+    db: DBSession,
+    session_id: UUID,
+    source_kind: str,
+    *,
+    video_path: str | None = None,
+    max_frames: int | None = None,
+) -> None:
+    """Synchronous variant — used by CLI scripts where blocking is fine."""
+    from collections.abc import Iterator
+    from contextlib import contextmanager
+
+    @contextmanager
+    def factory() -> Iterator[DBSession]:
+        yield db
+
+    _run_capture(
+        session_id,
+        source_kind,
+        video_path=video_path,
+        db_factory=factory,
+        max_frames=max_frames,
+    )

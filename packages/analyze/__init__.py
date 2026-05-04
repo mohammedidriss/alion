@@ -1,4 +1,5 @@
-"""analyze — phase-gated module. See Combat_Intel_Build_Brief.md §5 for when this gets implemented.
+"""Analyze — per-stream analytics. Depends only on `contracts` and `common`."""
 
-Constraint: depends only on `contracts` and `common`. Never imports from sibling feature modules.
-"""
+from analyze.punch_detector_heuristic import HeuristicPunchDetector, detect_punches
+
+__all__ = ["HeuristicPunchDetector", "detect_punches"]

@@ -2,10 +2,18 @@
 
 This package is the single source of truth for inter-module data shapes.
 It depends on nothing in this repo; everything depends on it.
-
-Public API:
 """
 
+from contracts.events import (
+    NUM_POSE_LANDMARKS,
+    DetectionSource,
+    Hand,
+    Landmark,
+    PoseFrame,
+    PunchEvent,
+    SessionMeta,
+    SessionSource,
+)
 from contracts.schema import (
     SCHEMA_VERSION,
     Confidence,
@@ -18,12 +26,22 @@ from contracts.schema import (
 )
 
 __all__ = [
+    # Raw streams (Phase 1+)
+    "NUM_POSE_LANDMARKS",
+    # Fused output (Phase 4)
     "SCHEMA_VERSION",
     "CVStream",
     "Confidence",
+    "DetectionSource",
     "FusionBlock",
     "HRVStream",
+    "Hand",
     "IMUStream",
+    "Landmark",
+    "PoseFrame",
+    "PunchEvent",
     "PunchTypeCounts",
+    "SessionMeta",
+    "SessionSource",
     "SessionSummary",
 ]

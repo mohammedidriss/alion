@@ -22,6 +22,18 @@ dev = [
     "mypy>=1.11",
     "import-linter>=2.0",
     "pre-commit>=3.8",
+    "numpy>=1.26",
+    "pyarrow>=17.0",
+    "python-multipart>=0.0.9",
+]
+# Heavy CV deps — installed only on machines that capture video.
+# Core API + tests run without these.
+capture = [
+    "mediapipe>=0.10.14",
+    "opencv-python>=4.10",
+    "numpy>=1.26",
+    "pyarrow>=17.0",
+    "python-multipart>=0.0.9",
 ]
 
 [build-system]
@@ -70,6 +82,10 @@ explicit_package_bases = true
 [[tool.mypy.overrides]]
 module = ["tests.*"]
 disallow_untyped_decorators = false
+
+[[tool.mypy.overrides]]
+module = ["mediapipe.*", "cv2.*", "pyarrow.*"]
+ignore_missing_imports = true
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
