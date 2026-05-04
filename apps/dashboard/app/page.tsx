@@ -12,7 +12,7 @@ export default async function Home() {
   const health = await fetchHealth();
   return (
     <main className="mx-auto max-w-3xl p-8">
-      <h1 className="text-3xl font-semibold">Combat Intel</h1>
+      <h1 className="text-3xl font-semibold">Alion</h1>
       <p className="mt-2 text-neutral-400">Phase 0 — skeleton.</p>
       <section className="mt-8 rounded-lg border border-neutral-800 p-4">
         <h2 className="text-lg font-medium">API</h2>

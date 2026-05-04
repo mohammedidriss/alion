@@ -1,4 +1,4 @@
-# Combat Intel
+# Alion
 
 Multi-modal AI coaching platform for combat sports. Validation artifact for a DBA dissertation at Golden Gate University. Boxing is the validation domain.
 
@@ -6,7 +6,7 @@ Multi-modal AI coaching platform for combat sports. Validation artifact for a DB
 
 ## Architecture
 
-Three sensor streams (CV / IMU / HRV) → Fusion Engine → LLM Coaching Layer. See [`Combat_Intel_Build_Brief.md`](../../My%20Documents/Personal/Doctorate%20Program-Upgrad/9-Immersion%20course/Immersion1_Topic_Presentation_Boxing/Combat_Intel_Build_Brief.md) for the locked architecture.
+Three sensor streams (CV / IMU / HRV) → Fusion Engine → LLM Coaching Layer. See `Combat_Intel_Build_Brief.md` for the locked architecture.
 
 ## Module layout
 
@@ -55,6 +55,10 @@ Or run everything:
 ```bash
 make verify
 ```
+
+## Environment variables
+
+All settings use the `ALION_` prefix. See `.env.example`.
 
 ## Data & privacy
 

@@ -1,7 +1,7 @@
 [project]
-name = "combat-intel"
+name = "alion"
 version = "0.1.0"
-description = "Combat Sports Performance Intelligence — multi-modal AI coaching platform (DBA dissertation, GGU)"
+description = "Alion — multi-modal AI coaching platform for combat sports (DBA dissertation, GGU)"
 readme = "README.md"
 requires-python = ">=3.11,<3.12"
 authors = [{ name = "Mohamad Idriss" }]

@@ -11,13 +11,13 @@ from pydantic_settings import BaseSettings, SettingsConfigDict
 
 class Settings(BaseSettings):
     model_config = SettingsConfigDict(
-        env_prefix="COMBAT_INTEL_",
+        env_prefix="ALION_",
         env_file=".env",
         env_file_encoding="utf-8",
         extra="ignore",
     )
 
-    db_path: Path = Field(default=Path("./data/combat_intel.db"))
+    db_path: Path = Field(default=Path("./data/alion.db"))
     log_level: str = Field(default="INFO")
     lm_studio_url: str = Field(default="http://localhost:1234/v1")
     llm_model: str = Field(default="llama-3.1-8b-instruct")

@@ -24,9 +24,9 @@ async def lifespan(_: FastAPI) -> AsyncIterator[None]:
 
 
 app = FastAPI(
-    title="Combat Intel API",
+    title="Alion API",
     version="0.1.0",
-    description="Multi-modal AI coaching platform — DBA dissertation, GGU.",
+    description="Alion — multi-modal AI coaching platform for combat sports (DBA dissertation, GGU).",
     lifespan=lifespan,
 )
 

@@ -2,7 +2,7 @@ import type { Metadata } from "next";
 import "./globals.css";
 
 export const metadata: Metadata = {
-  title: "Combat Intel",
+  title: "Alion",
   description: "Multi-modal AI coaching dashboard",
 };
 
