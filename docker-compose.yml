@@ -1,0 +1,78 @@
+# Default profile = SQLite. Use `docker compose --profile postgres up` to swap
+# in Postgres without touching application code (DI seam in store/database.py).
+#
+# Live webcam capture is NOT supported in Docker on macOS — run scripts/record_live.py
+# on the host for that. MP4 upload + processing works fully in-container.
+
+services:
+  api:
+    build:
+      context: .
+      dockerfile: Dockerfile.api
+    image: alion-api:latest
+    ports:
+      - "8000:8000"
+    environment:
+      ALION_LOG_LEVEL: INFO
+      # Default: SQLite at the path below. Postgres profile overrides this.
+      ALION_DB_PATH: /app/data/alion.db
+    volumes:
+      - alion-data:/app/data
+      - alion-models:/app/models
+    healthcheck:
+      test: ["CMD", "curl", "-fs", "http://localhost:8000/health"]
+      interval: 10s
+      timeout: 3s
+      retries: 5
+      start_period: 15s
+
+  dashboard:
+    build:
+      context: .
+      dockerfile: Dockerfile.dashboard
+      args:
+        NEXT_PUBLIC_API_URL: http://localhost:8000
+    image: alion-dashboard:latest
+    ports:
+      - "3000:3000"
+    environment:
+      NEXT_PUBLIC_API_URL: http://localhost:8000
+    depends_on:
+      api:
+        condition: service_healthy
+
+  # Opt-in. Activate with `--profile postgres`.
+  db:
+    image: postgres:16-alpine
+    profiles: ["postgres"]
+    environment:
+      POSTGRES_USER: alion
+      POSTGRES_PASSWORD: alion
+      POSTGRES_DB: alion
+    volumes:
+      - alion-pg:/var/lib/postgresql/data
+    ports:
+      - "5432:5432"
+    healthcheck:
+      test: ["CMD", "pg_isready", "-U", "alion"]
+      interval: 5s
+      timeout: 3s
+      retries: 5
+
+  api-pg:
+    extends: api
+    profiles: ["postgres"]
+    environment:
+      ALION_LOG_LEVEL: INFO
+      ALION_DATABASE_URL: postgresql+psycopg://alion:alion@db:5432/alion
+    depends_on:
+      db:
+        condition: service_healthy
+    # Replaces the default `api` service when this profile is active.
+    ports:
+      - "8000:8000"
+
+volumes:
+  alion-data:
+  alion-models:
+  alion-pg:

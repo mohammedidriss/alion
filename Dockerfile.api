@@ -1,0 +1,65 @@
+# Multi-stage Dockerfile for the Alion API.
+# Includes capture-headless extras so MP4 upload + processing works in-container.
+# Live webcam capture does NOT work in Docker on macOS (no /dev/video passthrough)
+# — for that, use the host-side scripts/record_live.py.
+
+ARG PYTHON_VERSION=3.11
+
+FROM python:${PYTHON_VERSION}-slim-bookworm AS base
+
+ENV PYTHONDONTWRITEBYTECODE=1 \
+    PYTHONUNBUFFERED=1 \
+    PIP_NO_CACHE_DIR=1 \
+    UV_LINK_MODE=copy \
+    UV_PYTHON=python3.11
+
+# System deps that opencv-python-headless and mediapipe need at runtime.
+RUN apt-get update && apt-get install -y --no-install-recommends \
+        libgl1 \
+        libglib2.0-0 \
+        ca-certificates \
+        curl \
+    && rm -rf /var/lib/apt/lists/*
+
+# Install uv from the official static binary.
+COPY --from=ghcr.io/astral-sh/uv:0.4.20 /uv /uvx /usr/local/bin/
+
+WORKDIR /app
+
+# ---------- builder: resolve + install deps into /app/.venv ----------
+FROM base AS builder
+COPY pyproject.toml uv.lock ./
+RUN --mount=type=cache,target=/root/.cache/uv \
+    uv sync --frozen --extra capture-headless --extra postgres --no-dev
+
+# ---------- runtime ----------
+FROM base AS runtime
+
+# Non-root user.
+RUN useradd --create-home --uid 1000 alion
+WORKDIR /app
+
+# Copy the venv from the builder.
+COPY --from=builder --chown=alion:alion /app/.venv /app/.venv
+ENV PATH="/app/.venv/bin:${PATH}"
+
+# Copy source.
+COPY --chown=alion:alion pyproject.toml uv.lock ./
+COPY --chown=alion:alion packages ./packages
+COPY --chown=alion:alion scripts ./scripts
+
+# Install our own packages into the venv (editable not needed in runtime image).
+RUN --mount=type=cache,target=/root/.cache/uv \
+    uv pip install --no-deps .
+
+# data/ and models/ are bind-mounted from the host or a named volume in compose.
+RUN mkdir -p data/raw/uploaded data/processed models/mediapipe \
+    && chown -R alion:alion data models
+
+USER alion
+EXPOSE 8000
+
+HEALTHCHECK --interval=10s --timeout=3s --start-period=15s --retries=3 \
+    CMD curl -fs http://localhost:8000/health || exit 1
+
+CMD ["uvicorn", "api.main:app", "--host", "0.0.0.0", "--port", "8000"]

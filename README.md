@@ -4,61 +4,65 @@ Multi-modal AI coaching platform for combat sports. Validation artifact for a DB
 
 **Not a medical device. Not a diagnostic tool. Advisory only.**
 
-## Architecture
+> Agents and contributors: read [`CLAUDE.md`](CLAUDE.md) before making structural changes.
 
-Three sensor streams (CV / IMU / HRV) → Fusion Engine → LLM Coaching Layer. See `Combat_Intel_Build_Brief.md` for the locked architecture.
+## Quick start
 
-## Module layout
-
-All source code lives under `packages/` (Python) and `apps/` (frontend). Modules communicate only through the `contracts/` schema; cross-module imports are forbidden by `import-linter` (enforced in CI).
-
-| Module | Role |
-|---|---|
-| `contracts` | Pydantic schema — the law |
-| `common` | Settings, logging, time utils |
-| `store` | SQLModel + SQLite |
-| `capture` | CV / IMU / HRV / sync ingestion |
-| `analyze` | Pose, punch classifier, HRV metrics |
-| `fusion` | session_summary.json builder |
-| `grounding` | Hallucination harness |
-| `coach` | LLM client + prompts |
-| `studies` | Validation-study mode |
-| `api` | FastAPI — composition root |
-| `apps/dashboard` | Next.js coach UI |
-
-## Setup (fresh clone)
+### Option A — Docker (one command)
 
 ```bash
-# Python side
-uv sync --extra dev
-
-# Run tests
-uv run pytest
-
-# Lint + type check + architecture
-uv run ruff check .
-uv run ruff format --check .
-uv run mypy packages
-uv run lint-imports
-
-# API
-uv run uvicorn api.main:app --reload
-
-# Dashboard (requires pnpm: brew install pnpm)
-cd apps/dashboard
-pnpm install
-pnpm dev
+docker compose up --build
+# API:        http://localhost:8000/health
+# Dashboard:  http://localhost:3000
 ```
 
-Or run everything:
+To swap SQLite for Postgres without touching application code:
 
 ```bash
-make verify
+docker compose --profile postgres up --build
+```
+
+Live webcam capture does **not** work inside Docker on macOS. MP4 upload + processing works fully in-container; for live capture, use the host-side script described in Option B.
+
+### Option B — Native (development)
+
+Prerequisites: `uv`, Node 20, `pnpm` (`brew install pnpm`).
+
+```bash
+# Install Python deps
+uv sync --extra dev --extra capture     # capture extras = MediaPipe + OpenCV
+
+# Run the API
+uv run uvicorn api.main:app --reload    # http://localhost:8000
+
+# In another terminal: dashboard
+cd apps/dashboard && pnpm install && pnpm dev   # http://localhost:3000
+
+# Live webcam capture (with cv2 preview window)
+uv run python scripts/record_live.py --fighter <FIGHTER_UUID> --show
+```
+
+## Architecture
+
+Three sensor streams (CV / IMU / HRV) → Fusion Engine → LLM Coaching Layer. Hexagonal (ports & adapters) — see [`CLAUDE.md`](CLAUDE.md#architecture-hexagonal--ports--adapters) for the role of each `packages/*` directory.
+
+The architecture contract (no cross-imports between feature modules) is enforced by `import-linter` in pre-commit and CI.
+
+## Verify
+
+```bash
+make verify              # ruff + format + mypy --strict + import-linter + pytest
+make fresh-clone-check   # simulate a clean checkout end-to-end
 ```
 
 ## Environment variables
 
-All settings use the `ALION_` prefix. See `.env.example`.
+All settings use the `ALION_` prefix. See `.env.example`. Notable:
+
+- `ALION_DATABASE_URL` — overrides default SQLite. Set by docker-compose `postgres` profile.
+- `ALION_DB_PATH` — SQLite file path (default `./data/alion.db`).
+- `ALION_LOG_LEVEL` — INFO / DEBUG / WARNING.
+- `ALION_LM_STUDIO_URL` — for the LLM coaching layer (Phase 5+).
 
 ## Data & privacy
 
@@ -72,4 +76,4 @@ Architecture decisions are recorded in [`decisions/`](decisions/). Every non-obv
 
 ## Status
 
-**Phase 0** — skeleton complete. See the brief's §5 for the full phase plan.
+**Phase 1 Week 1** — CV capture (live webcam + MP4 upload + heuristic punch detection) complete. Up next: HRV (Polar H10 over BLE).

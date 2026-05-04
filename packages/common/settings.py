@@ -17,10 +17,20 @@ class Settings(BaseSettings):
         extra="ignore",
     )
 
+    # If set, used directly (e.g. postgresql+psycopg://user:pw@host/db).
+    # If unset, we build a sqlite URL from db_path. This is the DI seam that
+    # lets us swap SQLite for Postgres without touching the domain or adapters.
+    database_url: str | None = Field(default=None)
     db_path: Path = Field(default=Path("./data/alion.db"))
     log_level: str = Field(default="INFO")
     lm_studio_url: str = Field(default="http://localhost:1234/v1")
     llm_model: str = Field(default="llama-3.1-8b-instruct")
+
+    @property
+    def effective_database_url(self) -> str:
+        if self.database_url:
+            return self.database_url
+        return f"sqlite:///{self.db_path}"
 
 
 @lru_cache(maxsize=1)
