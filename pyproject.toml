@@ -27,26 +27,13 @@ dev = [
     "pyarrow>=17.0",
     "python-multipart>=0.0.9",
 ]
-# Heavy CV deps — installed only on machines that capture video.
-# Core API + tests run without these.
+# Heavy CV deps — install with `uv sync --extra dev --extra capture`.
 capture = [
     "mediapipe>=0.10.14",
     "opencv-python>=4.10",
     "numpy>=1.26",
     "pyarrow>=17.0",
     "python-multipart>=0.0.9",
-]
-# Headless variant for Docker (no GUI / no Qt).
-capture-headless = [
-    "mediapipe>=0.10.14",
-    "opencv-python-headless>=4.10",
-    "numpy>=1.26",
-    "pyarrow>=17.0",
-    "python-multipart>=0.0.9",
-]
-# Postgres driver — opt-in via docker-compose --profile postgres.
-postgres = [
-    "psycopg[binary]>=3.2",
 ]
 
 [build-system]

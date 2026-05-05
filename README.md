@@ -6,41 +6,30 @@ Multi-modal AI coaching platform for combat sports. Validation artifact for a DB
 
 > Agents and contributors: read [`CLAUDE.md`](CLAUDE.md) before making structural changes.
 
-## Quick start
+## Quick start (native dev)
 
-### Option A — Docker (one command)
-
-```bash
-docker compose up --build
-# API:        http://localhost:8000/health
-# Dashboard:  http://localhost:3000
-```
-
-To swap SQLite for Postgres without touching application code:
+Prerequisites: macOS, `uv`, Node 20, `pnpm` (`brew install pnpm`).
 
 ```bash
-docker compose --profile postgres up --build
-```
-
-**Container scope:** The Docker image runs API + DB + dashboard only. CV processing (MediaPipe + OpenCV) runs on the macOS host — MediaPipe publishes no `linux/aarch64` wheels. For both live webcam capture and MP4 processing, use the host-side scripts in Option B; the dashboard (containerized) will show the resulting sessions.
-
-### Option B — Native (development)
-
-Prerequisites: `uv`, Node 20, `pnpm` (`brew install pnpm`).
-
-```bash
-# Install Python deps
-uv sync --extra dev --extra capture     # capture extras = MediaPipe + OpenCV
+# Python deps (includes MediaPipe + OpenCV)
+uv sync --extra dev --extra capture
 
 # Run the API
-uv run uvicorn api.main:app --reload    # http://localhost:8000
+uv run uvicorn api.main:app --reload   # http://localhost:8000
 
 # In another terminal: dashboard
-cd apps/dashboard && pnpm install && pnpm dev   # http://localhost:3000
+cd apps/dashboard
+pnpm install
+pnpm dev                                # http://localhost:3000
 
 # Live webcam capture (with cv2 preview window)
 uv run python scripts/record_live.py --fighter <FIGHTER_UUID> --show
+
+# Or process an existing MP4
+uv run python scripts/process_video.py path/to/clip.mp4 --fighter <FIGHTER_UUID>
 ```
+
+Docker is removed for now. We'll bring it back at the end of the project once all phases are complete.
 
 ## Architecture
 
@@ -59,8 +48,8 @@ make fresh-clone-check   # simulate a clean checkout end-to-end
 
 All settings use the `ALION_` prefix. See `.env.example`. Notable:
 
-- `ALION_DATABASE_URL` — overrides default SQLite. Set by docker-compose `postgres` profile.
 - `ALION_DB_PATH` — SQLite file path (default `./data/alion.db`).
+- `ALION_DATABASE_URL` — overrides `ALION_DB_PATH`. Useful later when we point at Postgres.
 - `ALION_LOG_LEVEL` — INFO / DEBUG / WARNING.
 - `ALION_LM_STUDIO_URL` — for the LLM coaching layer (Phase 5+).
 
@@ -76,4 +65,4 @@ Architecture decisions are recorded in [`decisions/`](decisions/). Every non-obv
 
 ## Status
 
-**Phase 1 Week 1** — CV capture (live webcam + MP4 upload + heuristic punch detection) complete. Up next: HRV (Polar H10 over BLE).
+**Phase 1 Week 1** — CV capture: live webcam + MP4 upload + heuristic punch detection. In progress.

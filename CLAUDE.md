@@ -27,7 +27,7 @@ The folder names don't say "domain" or "infrastructure", but the separation is r
 
 - Python 3.11, `uv` for dependency management
 - FastAPI + SQLModel + Pydantic 2
-- SQLite by default; Postgres via `docker compose --profile postgres`
+- SQLite (DI seam exists for swapping to Postgres later via `ALION_DATABASE_URL`)
 - Next.js 14 (app router) + Tailwind, `pnpm`
 - MediaPipe Tasks API + OpenCV (lazy-imported; live in `[capture]` extras)
 - LM Studio locally for the LLM (Phase 5+); Anthropic API only as a fallback for prompt-engineering experiments
@@ -36,16 +36,12 @@ The folder names don't say "domain" or "infrastructure", but the separation is r
 ## Build commands
 
 ```bash
-# Native (host machine)
-uv sync --extra dev                    # core install
-uv sync --extra dev --extra capture    # adds MediaPipe + OpenCV
+uv sync --extra dev --extra capture    # Python deps + MediaPipe + OpenCV
 uv run uvicorn api.main:app --reload   # API on :8000
-cd apps/dashboard && pnpm install && pnpm dev   # dashboard on :3000
-
-# Docker (single command)
-docker compose up --build              # SQLite default
-docker compose --profile postgres up --build   # swap in Postgres
+cd apps/dashboard && pnpm install && pnpm dev   # Dashboard on :3000
 ```
+
+Docker has been removed for the duration of feature development. It will return at the end of the project, after all phases are complete.
 
 ## Test commands
 
@@ -80,9 +76,6 @@ alion/
 ├── decisions/               # ADRs — every non-obvious choice
 ├── data/                    # gitignored — raw + processed athlete data
 ├── models/                  # gitignored — trained weights, MediaPipe assets
-├── Dockerfile.api
-├── Dockerfile.dashboard
-├── docker-compose.yml
 ├── pyproject.toml
 └── CLAUDE.md                # this file
 ```
@@ -109,10 +102,8 @@ alion/
 
 ## Caveats and known limits
 
-- **CV processing (MediaPipe + OpenCV) does NOT run in the default Docker image.** MediaPipe publishes no `linux/aarch64` wheels, so it can't install on Apple Silicon Docker. The container is API + DB + dashboard only; capture and pose extraction happen on the macOS host via `scripts/record_live.py` or `scripts/process_video.py` (where the native macOS wheel works fine). The API container still serves session/event endpoints and the dashboard. To force-include CV (x86_64 hosts only): `docker compose build --build-arg INCLUDE_CV=1 api`.
-- **Live webcam capture is host-only regardless of platform** (no `/dev/video0` passthrough on macOS Docker).
-- **LM Studio runs on the host.** Apple Metal acceleration is unavailable inside Docker; the API container talks to `host.docker.internal:1234`.
 - **MediaPipe model is downloaded on first use** into `models/mediapipe/pose_landmarker_lite.task` (~5.5 MB). It's gitignored.
+- **Docker has been removed during feature development** — too many platform issues (no `linux/aarch64` MediaPipe wheel, no webcam passthrough on macOS) to be worth maintaining alongside the work. Will be reintroduced at the end of the project once all phases are complete.
 - **Encryption-at-rest is deferred to Phase 8.** Until SQLCipher lands, only synthetic / self-test data should hit the DB. See `decisions/002-encryption-deferred.md`.
 
 ## When asked to add a new feature
