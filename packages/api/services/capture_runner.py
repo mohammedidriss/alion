@@ -10,12 +10,14 @@ import threading
 from collections.abc import Callable
 from contextlib import AbstractContextManager
 from pathlib import Path
+from typing import Any
 from uuid import UUID
 
 from sqlmodel import Session as DBSession
 
 from analyze import HeuristicPunchDetector
 from capture.cv import CapturePipeline, FileSource, WebcamSource
+from capture.cv.overlay import draw_pose
 from capture.cv.sources import FrameSource
 from common import get_logger
 from contracts import PoseFrame
@@ -34,7 +36,16 @@ log = get_logger(__name__)
 
 _active_jobs: dict[UUID, threading.Thread] = {}
 _stop_events: dict[UUID, threading.Event] = {}
+_preview_frames: dict[UUID, bytes] = {}  # latest JPEG, written by capture thread
 _active_lock = threading.Lock()
+
+_PREVIEW_MAX_WIDTH = 480
+_PREVIEW_JPEG_QUALITY = 70
+
+
+def latest_preview(session_id: UUID) -> bytes | None:
+    with _active_lock:
+        return _preview_frames.get(session_id)
 
 
 def _data_dir() -> Path:
@@ -92,6 +103,27 @@ def _run_capture(
                 )
             )
 
+    def on_raw_frame(raw: Any, pose: PoseFrame | None) -> None:
+        """Encode a downscaled BGR frame with skeleton overlay for the preview MJPEG stream."""
+        import cv2
+
+        # Copy so we don't mutate the source frame the pipeline still cares about.
+        frame = raw.copy()
+        h, w = frame.shape[:2]
+        if w > _PREVIEW_MAX_WIDTH:
+            scale = _PREVIEW_MAX_WIDTH / w
+            frame = cv2.resize(frame, (_PREVIEW_MAX_WIDTH, int(h * scale)))
+            # Landmark coords are in normalized [0,1], so they still map
+            # correctly to the resized frame — no adjustment needed in draw_pose.
+        draw_pose(frame, pose)
+        ok, buf = cv2.imencode(
+            ".jpg", frame, [int(cv2.IMWRITE_JPEG_QUALITY), _PREVIEW_JPEG_QUALITY]
+        )
+        if not ok:
+            return
+        with _active_lock:
+            _preview_frames[session_id] = buf.tobytes()
+
     parquet_path = _data_dir() / f"{session_id}.pose.parquet"
     source: FrameSource
     if source_kind == "live_webcam":
@@ -112,6 +144,7 @@ def _run_capture(
             source=source,
             parquet_path=parquet_path,
             on_frame=on_frame,
+            on_raw_frame=on_raw_frame,
             max_frames=max_frames,
             should_stop=stop_event.is_set,
         )
@@ -161,6 +194,7 @@ def _run_capture(
         with _active_lock:
             _active_jobs.pop(session_id, None)
             _stop_events.pop(session_id, None)
+            _preview_frames.pop(session_id, None)
 
 
 def start_capture(

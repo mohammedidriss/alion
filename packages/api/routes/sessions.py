@@ -2,12 +2,14 @@
 
 from __future__ import annotations
 
-from collections.abc import Iterator
+import asyncio
+from collections.abc import AsyncIterator, Iterator
 from contextlib import contextmanager
 from pathlib import Path
 from uuid import UUID
 
 from fastapi import APIRouter, Depends, File, HTTPException, UploadFile, status
+from fastapi.responses import StreamingResponse
 from pydantic import BaseModel
 from sqlmodel import Session as DBSession
 
@@ -174,6 +176,51 @@ def capture_status(
         frame_count=row.frame_count,
         duration_ms=row.duration_ms,
         punch_count=events.count_for_session(session_id),
+    )
+
+
+@router.get("/{session_id}/preview")
+async def preview_stream(session_id: UUID) -> StreamingResponse:
+    """MJPEG stream of the latest captured frame with skeleton overlay.
+
+    Consumed natively by <img src="..."> in the dashboard. Closes when capture
+    finishes (the buffer disappears). Frame rate is bounded by both the capture
+    pipeline (~30fps) and a small server-side throttle.
+    """
+    boundary = "frame"
+
+    async def gen() -> AsyncIterator[bytes]:
+        last: bytes | None = None
+        empty_streak = 0
+        # Send a 1x1 placeholder until real frames arrive, so the browser
+        # doesn't render broken-image until capture starts producing frames.
+        while True:
+            frame = capture_runner.latest_preview(session_id)
+            if frame is None:
+                empty_streak += 1
+                # Capture finished and buffer was cleaned — close the stream.
+                if not capture_runner.is_running(session_id) and empty_streak > 5:
+                    return
+                await asyncio.sleep(0.1)
+                continue
+            empty_streak = 0
+            if frame is not last:
+                yield (
+                    (
+                        f"--{boundary}\r\n"
+                        f"Content-Type: image/jpeg\r\n"
+                        f"Content-Length: {len(frame)}\r\n\r\n"
+                    ).encode("ascii")
+                    + frame
+                    + b"\r\n"
+                )
+                last = frame
+            await asyncio.sleep(1 / 15)  # cap preview at ~15 fps
+
+    return StreamingResponse(
+        gen(),
+        media_type=f"multipart/x-mixed-replace; boundary={boundary}",
+        headers={"Cache-Control": "no-store"},
     )
 
 

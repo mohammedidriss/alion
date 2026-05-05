@@ -148,6 +148,29 @@ export default function SessionPage({ params }: { params: { id: string } }) {
         <Stat label="Punches" value={status?.punch_count ?? 0} />
       </section>
 
+      {(session.status === "capturing" || session.status === "processing") && (
+        <section className="rounded-lg border border-neutral-800 p-4">
+          <div className="flex items-center justify-between">
+            <h2 className="font-medium">Camera</h2>
+            <span className="flex items-center gap-2 text-xs text-neutral-400">
+              <span className="inline-block h-2 w-2 animate-pulse rounded-full bg-red-500" />
+              live
+            </span>
+          </div>
+          {/* eslint-disable-next-line @next/next/no-img-element */}
+          <img
+            key={session.id}
+            src={`${process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:8000"}/sessions/${session.id}/preview`}
+            alt="live capture preview with pose overlay"
+            className="mt-3 w-full rounded border border-neutral-800 bg-black"
+          />
+          <p className="mt-2 text-xs text-neutral-500">
+            Skeleton overlay drawn from MediaPipe landmarks. Frames stream at
+            ~15 fps; capture itself runs at the source&apos;s native rate.
+          </p>
+        </section>
+      )}
+
       {session.source === "uploaded_video" && !session.video_path && (
         <section className="rounded-lg border border-neutral-800 p-4">
           <h2 className="font-medium">Upload MP4</h2>
