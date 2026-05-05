@@ -1,2 +1,12 @@
+# pnpm 11+ uses this file for both workspace declarations and per-package
+# build-script approvals. We're not a multi-package workspace — `packages: ['.']`
+# makes the dashboard its own (single-package) workspace so pnpm doesn't error
+# with "packages field missing or empty".
+packages:
+  - "."
+
+# Suppresses pnpm 11's interactive prompt about transitive postinstall scripts.
+# `unrs-resolver` is pulled in by Next/Turbopack's resolver; we don't need its
+# build step. Set to true if a future pnpm flags this as needed.
 allowBuilds:
   unrs-resolver: false
