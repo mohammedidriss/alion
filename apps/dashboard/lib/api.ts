@@ -90,6 +90,7 @@ async function req<T>(path: string, init?: RequestInit): Promise<T> {
 export const api = {
   capabilities: () => req<Capabilities>("/health/capabilities"),
   listFighters: () => req<Fighter[]>("/fighters"),
+  getFighter: (id: string) => req<Fighter>(`/fighters/${id}`),
   createFighter: (name: string, stance: Stance = "orthodox") =>
     req<Fighter>("/fighters", {
       method: "POST",

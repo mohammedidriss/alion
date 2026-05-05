@@ -1,11 +1,13 @@
 "use client";
 
+import { useRouter, useSearchParams } from "next/navigation";
 import { useEffect, useState } from "react";
-import { useRouter } from "next/navigation";
 import { api, type Fighter, type SessionSource } from "@/lib/api";
 
 export default function NewSessionPage() {
   const router = useRouter();
+  const params = useSearchParams();
+  const presetFighter = params.get("fighter");
   const [fighters, setFighters] = useState<Fighter[]>([]);
   const [fighterId, setFighterId] = useState<string>("");
   const [source, setSource] = useState<SessionSource>("live_webcam");
@@ -18,10 +20,15 @@ export default function NewSessionPage() {
       .listFighters()
       .then((fs) => {
         setFighters(fs);
-        if (fs[0]) setFighterId(fs[0].id);
+        // Preselect the fighter from ?fighter=..., otherwise the first one.
+        if (presetFighter && fs.some((f) => f.id === presetFighter)) {
+          setFighterId(presetFighter);
+        } else if (fs[0]) {
+          setFighterId(fs[0].id);
+        }
       })
       .catch((e) => setErr(String(e)));
-  }, []);
+  }, [presetFighter]);
 
   const createFighter = async () => {
     if (!newFighterName.trim()) return;

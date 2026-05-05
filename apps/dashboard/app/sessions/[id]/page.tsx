@@ -88,7 +88,7 @@ export default function SessionPage({ params }: { params: { id: string } }) {
   const doDelete = async () => {
     try {
       await api.deleteSession(id);
-      router.push("/");
+      router.push(session?.fighter_id ? `/fighters/${session.fighter_id}` : "/");
     } catch (e) {
       setErr(String(e));
       setConfirmDelete(false);
@@ -118,10 +118,10 @@ export default function SessionPage({ params }: { params: { id: string } }) {
     <main className="mx-auto max-w-3xl space-y-6 p-8">
       <div className="flex items-center justify-between">
         <Link
-          href="/"
+          href={session.fighter_id ? `/fighters/${session.fighter_id}` : "/"}
           className="inline-flex items-center gap-1 text-sm text-neutral-400 hover:text-neutral-100"
         >
-          <span aria-hidden>←</span> Back to sessions
+          <span aria-hidden>←</span> Back to fighter
         </Link>
         <button
           onClick={() => setConfirmDelete(true)}
