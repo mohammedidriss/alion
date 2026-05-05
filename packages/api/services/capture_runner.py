@@ -33,6 +33,7 @@ DBFactory = Callable[[], AbstractContextManager[DBSession]]
 log = get_logger(__name__)
 
 _active_jobs: dict[UUID, threading.Thread] = {}
+_stop_events: dict[UUID, threading.Event] = {}
 _active_lock = threading.Lock()
 
 
@@ -52,6 +53,16 @@ def is_running(session_id: UUID) -> bool:
         return t is not None and t.is_alive()
 
 
+def request_stop(session_id: UUID) -> bool:
+    """Signal a running capture to stop at the next frame boundary."""
+    with _active_lock:
+        ev = _stop_events.get(session_id)
+        if ev is None:
+            return False
+        ev.set()
+        return True
+
+
 def _run_capture(
     session_id: UUID,
     source_kind: str,
@@ -59,6 +70,7 @@ def _run_capture(
     video_path: str | None,
     db_factory: DBFactory,
     max_frames: int | None,
+    stop_event: threading.Event,
 ) -> None:
     log.info(
         "capture.start",
@@ -101,6 +113,7 @@ def _run_capture(
             parquet_path=parquet_path,
             on_frame=on_frame,
             max_frames=max_frames,
+            should_stop=stop_event.is_set,
         )
         result = pipeline.run()
 
@@ -147,6 +160,7 @@ def _run_capture(
     finally:
         with _active_lock:
             _active_jobs.pop(session_id, None)
+            _stop_events.pop(session_id, None)
 
 
 def start_capture(
@@ -161,10 +175,17 @@ def start_capture(
     with _active_lock:
         if session_id in _active_jobs and _active_jobs[session_id].is_alive():
             return False
+        stop_event = threading.Event()
+        _stop_events[session_id] = stop_event
         t = threading.Thread(
             target=_run_capture,
             args=(session_id, source_kind),
-            kwargs={"video_path": video_path, "db_factory": db_factory, "max_frames": max_frames},
+            kwargs={
+                "video_path": video_path,
+                "db_factory": db_factory,
+                "max_frames": max_frames,
+                "stop_event": stop_event,
+            },
             daemon=True,
             name=f"capture-{session_id}",
         )
@@ -195,4 +216,5 @@ def run_capture_sync(
         video_path=video_path,
         db_factory=factory,
         max_frames=max_frames,
+        stop_event=threading.Event(),
     )

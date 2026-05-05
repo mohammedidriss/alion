@@ -37,6 +37,7 @@ class CapturePipeline:
         on_frame: Callable[[PoseFrame], None] | None = None,
         on_raw_frame: Callable[[Any, PoseFrame | None], None] | None = None,
         max_frames: int | None = None,
+        should_stop: Callable[[], bool] | None = None,
     ) -> None:
         self.session_id = session_id
         self.source = source
@@ -44,6 +45,7 @@ class CapturePipeline:
         self._on_frame = on_frame
         self._on_raw_frame = on_raw_frame
         self._max_frames = max_frames
+        self._should_stop = should_stop
 
     def run(self) -> CapturePipelineResult:
         writer = PoseParquetWriter(self.parquet_path)
@@ -56,6 +58,8 @@ class CapturePipeline:
             estimator = PoseEstimator(self.session_id, opened_source.fps)
             with estimator.open() as est:
                 for raw in opened_source:
+                    if self._should_stop is not None and self._should_stop():
+                        break
                     pose = est.process(raw)
                     if pose is not None:
                         writer.append(pose)

@@ -137,6 +137,27 @@ def start_capture_route(
     )
 
 
+@router.post("/{session_id}/capture/stop", response_model=CaptureStatusResponse)
+def stop_capture_route(
+    session_id: UUID,
+    repo: SessionRepo = Depends(session_repo),
+    events: PunchEventRepo = Depends(punch_event_repo),
+) -> CaptureStatusResponse:
+    row = repo.get(session_id)
+    if row is None:
+        raise HTTPException(status_code=404, detail="session not found")
+    if not capture_runner.request_stop(session_id):
+        raise HTTPException(status_code=409, detail="no capture running")
+    return CaptureStatusResponse(
+        session_id=session_id,
+        status=row.status,
+        is_running=True,  # actual stop happens at next frame boundary
+        frame_count=row.frame_count,
+        duration_ms=row.duration_ms,
+        punch_count=events.count_for_session(session_id),
+    )
+
+
 @router.get("/{session_id}/capture/status", response_model=CaptureStatusResponse)
 def capture_status(
     session_id: UUID,

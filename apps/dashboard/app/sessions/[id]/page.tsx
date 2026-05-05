@@ -62,6 +62,15 @@ export default function SessionPage({ params }: { params: { id: string } }) {
     }
   };
 
+  const stop = async () => {
+    try {
+      await api.stopCapture(id);
+      await refresh();
+    } catch (e) {
+      setErr(String(e));
+    }
+  };
+
   if (!session) {
     return (
       <main className="p-8 text-sm text-neutral-400">
@@ -164,6 +173,15 @@ export default function SessionPage({ params }: { params: { id: string } }) {
           className="rounded bg-emerald-600 px-4 py-2 font-medium hover:bg-emerald-500 disabled:cursor-not-allowed disabled:bg-neutral-700 disabled:text-neutral-400 disabled:hover:bg-neutral-700"
         >
           {session.source === "live_webcam" ? "Start live capture" : "Process video"}
+        </button>
+      )}
+
+      {(session.status === "capturing" || session.status === "processing") && (
+        <button
+          onClick={stop}
+          className="rounded bg-red-600 px-4 py-2 font-medium hover:bg-red-500"
+        >
+          Stop capture
         </button>
       )}
 

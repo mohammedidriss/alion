@@ -98,6 +98,8 @@ export const api = {
       headers: { "content-type": "application/json" },
       body: JSON.stringify({ max_frames }),
     }),
+  stopCapture: (id: string) =>
+    req<CaptureStatus>(`/sessions/${id}/capture/stop`, { method: "POST" }),
   captureStatus: (id: string) =>
     req<CaptureStatus>(`/sessions/${id}/capture/status`),
   listEvents: (id: string) => req<PunchEvent[]>(`/sessions/${id}/events`),
