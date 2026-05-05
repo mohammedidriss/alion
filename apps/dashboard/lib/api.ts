@@ -1,7 +1,12 @@
 const BASE = process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:8000";
 
 export type Stance = "orthodox" | "southpaw" | "switch";
-export type SessionSource = "live_webcam" | "uploaded_video" | "live_iphone";
+export type SessionSource =
+  | "live_webcam"
+  | "uploaded_video"
+  | "live_iphone"
+  | "polar_h10_only"
+  | "hrv_replay";
 export type SessionStatus =
   | "pending"
   | "capturing"
@@ -74,7 +79,18 @@ export const api = {
       headers: { "content-type": "application/json" },
       body: JSON.stringify({ name, stance }),
     }),
-  listSessions: () => req<Session[]>("/sessions"),
+  updateFighter: (id: string, patch: { name?: string; stance?: Stance }) =>
+    req<Fighter>(`/fighters/${id}`, {
+      method: "PATCH",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify(patch),
+    }),
+  deleteFighter: (id: string) =>
+    req<void>(`/fighters/${id}`, { method: "DELETE" }),
+  listSessions: (fighter_id?: string) =>
+    req<Session[]>(
+      fighter_id ? `/sessions?fighter_id=${fighter_id}` : "/sessions",
+    ),
   getSession: (id: string) => req<Session>(`/sessions/${id}`),
   createSession: (fighter_id: string, source: SessionSource) =>
     req<Session>("/sessions", {
@@ -82,6 +98,8 @@ export const api = {
       headers: { "content-type": "application/json" },
       body: JSON.stringify({ fighter_id, source }),
     }),
+  deleteSession: (id: string) =>
+    req<void>(`/sessions/${id}`, { method: "DELETE" }),
   uploadVideo: async (id: string, file: File) => {
     const fd = new FormData();
     fd.append("file", file);

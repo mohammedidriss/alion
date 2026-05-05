@@ -52,8 +52,12 @@ def create_session(data: SessionCreate, repo: SessionRepo = Depends(session_repo
 
 
 @router.get("", response_model=list[SessionRead])
-def list_sessions(repo: SessionRepo = Depends(session_repo)) -> list[SessionRead]:
-    return [SessionRead.model_validate(s, from_attributes=True) for s in repo.list_all()]
+def list_sessions(
+    fighter_id: UUID | None = None,
+    repo: SessionRepo = Depends(session_repo),
+) -> list[SessionRead]:
+    rows = repo.list_for_fighter(fighter_id) if fighter_id else repo.list_all()
+    return [SessionRead.model_validate(s, from_attributes=True) for s in rows]
 
 
 @router.get("/{session_id}", response_model=SessionRead)
@@ -62,6 +66,24 @@ def get_session_route(session_id: UUID, repo: SessionRepo = Depends(session_repo
     if row is None:
         raise HTTPException(status_code=404, detail="session not found")
     return SessionRead.model_validate(row, from_attributes=True)
+
+
+@router.delete("/{session_id}", status_code=status.HTTP_204_NO_CONTENT)
+def delete_session_route(session_id: UUID, repo: SessionRepo = Depends(session_repo)) -> None:
+    row = repo.get(session_id)
+    if row is None:
+        raise HTTPException(status_code=404, detail="session not found")
+    if capture_runner.is_running(session_id):
+        raise HTTPException(status_code=409, detail="capture is running — stop it first")
+    # Best-effort artifact cleanup. We don't fail the delete if a file is gone.
+    for path_str in (row.video_path, row.pose_parquet_path):
+        if path_str:
+            try:
+                Path(path_str).unlink(missing_ok=True)
+            except OSError:
+                pass
+    if not repo.delete(session_id):
+        raise HTTPException(status_code=404, detail="session not found")
 
 
 @router.post("/{session_id}/upload", response_model=SessionRead)

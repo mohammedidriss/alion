@@ -1,6 +1,7 @@
 "use client";
 
 import Link from "next/link";
+import { useRouter } from "next/navigation";
 import { useEffect, useState } from "react";
 import { PunchChart } from "@/components/PunchChart";
 import {
@@ -13,12 +14,14 @@ import {
 
 export default function SessionPage({ params }: { params: { id: string } }) {
   const { id } = params;
+  const router = useRouter();
   const [session, setSession] = useState<Session | null>(null);
   const [status, setStatus] = useState<CaptureStatus | null>(null);
   const [events, setEvents] = useState<PunchEvent[]>([]);
   const [caps, setCaps] = useState<Capabilities | null>(null);
   const [err, setErr] = useState<string | null>(null);
   const [uploading, setUploading] = useState(false);
+  const [confirmDelete, setConfirmDelete] = useState(false);
 
   const refresh = async () => {
     try {
@@ -72,6 +75,16 @@ export default function SessionPage({ params }: { params: { id: string } }) {
     }
   };
 
+  const doDelete = async () => {
+    try {
+      await api.deleteSession(id);
+      router.push("/");
+    } catch (e) {
+      setErr(String(e));
+      setConfirmDelete(false);
+    }
+  };
+
   if (!session) {
     return (
       <main className="p-8 text-sm text-neutral-400">
@@ -93,12 +106,26 @@ export default function SessionPage({ params }: { params: { id: string } }) {
 
   return (
     <main className="mx-auto max-w-3xl space-y-6 p-8">
-      <Link
-        href="/"
-        className="inline-flex items-center gap-1 text-sm text-neutral-400 hover:text-neutral-100"
-      >
-        <span aria-hidden>←</span> Back to sessions
-      </Link>
+      <div className="flex items-center justify-between">
+        <Link
+          href="/"
+          className="inline-flex items-center gap-1 text-sm text-neutral-400 hover:text-neutral-100"
+        >
+          <span aria-hidden>←</span> Back to sessions
+        </Link>
+        <button
+          onClick={() => setConfirmDelete(true)}
+          disabled={session.status === "capturing" || session.status === "processing"}
+          title={
+            session.status === "capturing" || session.status === "processing"
+              ? "Stop the capture before deleting."
+              : undefined
+          }
+          className="text-sm text-red-400 hover:text-red-300 disabled:cursor-not-allowed disabled:text-neutral-600"
+        >
+          Delete session
+        </button>
+      </div>
 
       <header className="flex items-center justify-between">
         <div>
@@ -254,6 +281,32 @@ export default function SessionPage({ params }: { params: { id: string } }) {
           </table>
         )}
       </section>
+
+      {confirmDelete && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/70">
+          <div className="w-full max-w-md rounded-lg border border-neutral-800 bg-neutral-950 p-5 shadow-xl">
+            <h3 className="font-medium">Delete this session?</h3>
+            <p className="mt-2 text-sm text-neutral-400">
+              This removes the session row, all detected punch events, captured
+              pose data, and any uploaded video file. Cannot be undone.
+            </p>
+            <div className="mt-4 flex justify-end gap-2">
+              <button
+                onClick={() => setConfirmDelete(false)}
+                className="rounded bg-neutral-700 px-3 py-1.5 text-sm hover:bg-neutral-600"
+              >
+                Cancel
+              </button>
+              <button
+                onClick={doDelete}
+                className="rounded bg-red-600 px-3 py-1.5 text-sm font-medium hover:bg-red-500"
+              >
+                Delete
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </main>
   );
 }

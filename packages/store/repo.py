@@ -11,10 +11,12 @@ from sqlmodel import select
 from store.models import (
     Fighter,
     FighterCreate,
+    HRSampleRow,
     PunchEventRow,
     Session,
     SessionCreate,
     SessionStatus,
+    Stance,
 )
 
 
@@ -35,10 +37,33 @@ class FighterRepo:
     def list_all(self) -> list[Fighter]:
         return list(self._session.exec(select(Fighter)).all())
 
+    def update(
+        self,
+        fighter_id: UUID,
+        *,
+        name: str | None = None,
+        stance: "Stance | str | None" = None,
+    ) -> Fighter | None:
+        fighter = self.get(fighter_id)
+        if fighter is None:
+            return None
+        if name is not None:
+            fighter.name = name
+        if stance is not None:
+            fighter.stance = stance if isinstance(stance, Stance) else Stance(stance)
+        self._session.add(fighter)
+        self._session.commit()
+        self._session.refresh(fighter)
+        return fighter
+
     def delete(self, fighter_id: UUID) -> bool:
         fighter = self.get(fighter_id)
         if fighter is None:
             return False
+        # Cascade through sessions (which themselves cascade to their child rows).
+        sessions = SessionRepo(self._session).list_for_fighter(fighter_id)
+        for s in sessions:
+            SessionRepo(self._session).delete(s.id)
         self._session.delete(fighter)
         self._session.commit()
         return True
@@ -86,6 +111,23 @@ class SessionRepo:
         self._session.commit()
         self._session.refresh(row)
         return row
+
+    def delete(self, session_id: UUID) -> bool:
+        row = self.get(session_id)
+        if row is None:
+            return False
+        # Cascade: drop child rows first (no FK CASCADE in SQLite by default).
+        from sqlmodel import delete as sqlmodel_delete
+
+        self._session.exec(
+            sqlmodel_delete(PunchEventRow).where(PunchEventRow.session_id == session_id)  # type: ignore[arg-type]
+        )
+        self._session.exec(
+            sqlmodel_delete(HRSampleRow).where(HRSampleRow.session_id == session_id)  # type: ignore[arg-type]
+        )
+        self._session.delete(row)
+        self._session.commit()
+        return True
 
     def attach_artifacts(
         self,

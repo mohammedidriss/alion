@@ -5,12 +5,18 @@ from __future__ import annotations
 from uuid import UUID
 
 from fastapi import APIRouter, Depends, HTTPException, status
+from pydantic import BaseModel
 
 from api.deps import fighter_repo
 from store import FighterRepo
-from store.models import FighterCreate, FighterRead
+from store.models import FighterCreate, FighterRead, Stance
 
 router = APIRouter(prefix="/fighters", tags=["fighters"])
+
+
+class FighterUpdate(BaseModel):
+    name: str | None = None
+    stance: Stance | None = None
 
 
 @router.post("", response_model=FighterRead, status_code=status.HTTP_201_CREATED)
@@ -27,6 +33,18 @@ def list_fighters(repo: FighterRepo = Depends(fighter_repo)) -> list[FighterRead
 @router.get("/{fighter_id}", response_model=FighterRead)
 def get_fighter(fighter_id: UUID, repo: FighterRepo = Depends(fighter_repo)) -> FighterRead:
     fighter = repo.get(fighter_id)
+    if fighter is None:
+        raise HTTPException(status_code=404, detail="fighter not found")
+    return FighterRead.model_validate(fighter, from_attributes=True)
+
+
+@router.patch("/{fighter_id}", response_model=FighterRead)
+def update_fighter(
+    fighter_id: UUID,
+    data: FighterUpdate,
+    repo: FighterRepo = Depends(fighter_repo),
+) -> FighterRead:
+    fighter = repo.update(fighter_id, name=data.name, stance=data.stance)
     if fighter is None:
         raise HTTPException(status_code=404, detail="fighter not found")
     return FighterRead.model_validate(fighter, from_attributes=True)
