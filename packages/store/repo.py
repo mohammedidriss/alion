@@ -42,7 +42,7 @@ class FighterRepo:
         fighter_id: UUID,
         *,
         name: str | None = None,
-        stance: "Stance | str | None" = None,
+        stance: Stance | str | None = None,
     ) -> Fighter | None:
         fighter = self.get(fighter_id)
         if fighter is None:
