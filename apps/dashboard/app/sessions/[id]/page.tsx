@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
+import { PunchChart } from "@/components/PunchChart";
 import {
   api,
   type Capabilities,
@@ -165,6 +166,8 @@ export default function SessionPage({ params }: { params: { id: string } }) {
           {session.source === "live_webcam" ? "Start live capture" : "Process video"}
         </button>
       )}
+
+      <PunchChart events={events} />
 
       <section className="rounded-lg border border-neutral-800 p-4">
         <h2 className="font-medium">

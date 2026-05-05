@@ -131,7 +131,9 @@ def _run_capture(
             "(likely the default Docker image). Run capture on the host with "
             "`uv run python scripts/record_live.py --fighter <id>` instead."
         )
-        log.exception("capture.failed (cv unavailable): %s", e, extra={"_ctx_session_id": str(session_id)})
+        log.exception(
+            "capture.failed (cv unavailable): %s", e, extra={"_ctx_session_id": str(session_id)}
+        )
         with db_factory() as db:
             SessionRepo(db).update_status(
                 session_id, SessionStatus.FAILED, end=True, failure_reason=reason
