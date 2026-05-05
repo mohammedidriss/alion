@@ -1,5 +1,6 @@
 "use client";
 
+import Link from "next/link";
 import { useEffect, useState } from "react";
 import { PunchChart } from "@/components/PunchChart";
 import {
@@ -92,6 +93,13 @@ export default function SessionPage({ params }: { params: { id: string } }) {
 
   return (
     <main className="mx-auto max-w-3xl space-y-6 p-8">
+      <Link
+        href="/"
+        className="inline-flex items-center gap-1 text-sm text-neutral-400 hover:text-neutral-100"
+      >
+        <span aria-hidden>←</span> Back to sessions
+      </Link>
+
       <header className="flex items-center justify-between">
         <div>
           <h1 className="text-2xl font-semibold">Session</h1>
