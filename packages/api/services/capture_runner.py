@@ -24,10 +24,12 @@ from contracts import PoseFrame
 from store import (
     DetectionSourceEnum,
     HandEnum,
+    LeadOrRearEnum,
     PunchEventRepo,
     PunchEventRow,
     SessionRepo,
     SessionStatus,
+    VelocitySourceEnum,
 )
 
 DBFactory = Callable[[], AbstractContextManager[DBSession]]
@@ -82,12 +84,18 @@ def _run_capture(
     db_factory: DBFactory,
     max_frames: int | None,
     stop_event: threading.Event,
+    stance: str | None = None,
+    camera_index: int = 0,
 ) -> None:
     log.info(
         "capture.start",
-        extra={"_ctx_session_id": str(session_id), "_ctx_source": source_kind},
+        extra={
+            "_ctx_session_id": str(session_id),
+            "_ctx_source": source_kind,
+            "_ctx_camera_index": camera_index,
+        },
     )
-    detector = HeuristicPunchDetector()
+    detector = HeuristicPunchDetector(stance=stance)
     buffered_events: list[PunchEventRow] = []
 
     def on_frame(pose: PoseFrame) -> None:
@@ -97,7 +105,9 @@ def _run_capture(
                     session_id=ev.session_id,
                     t_ms=ev.t_ms,
                     hand=_hand_to_enum(ev.hand),
+                    lead_or_rear=LeadOrRearEnum(ev.lead_or_rear) if ev.lead_or_rear else None,
                     velocity_ms=ev.velocity_ms,
+                    velocity_source=VelocitySourceEnum(ev.velocity_source),
                     detected_by=DetectionSourceEnum(ev.detected_by),
                     confidence=ev.confidence,
                 )
@@ -127,7 +137,7 @@ def _run_capture(
     parquet_path = _data_dir() / f"{session_id}.pose.parquet"
     source: FrameSource
     if source_kind == "live_webcam":
-        source = WebcamSource(index=0)
+        source = WebcamSource(index=camera_index)
     elif source_kind == "uploaded_video":
         if not video_path:
             raise ValueError("uploaded_video requires video_path")
@@ -204,6 +214,8 @@ def start_capture(
     *,
     video_path: str | None = None,
     max_frames: int | None = None,
+    stance: str | None = None,
+    camera_index: int = 0,
 ) -> bool:
     """Spawn the capture in a background thread. Returns False if already running."""
     with _active_lock:
@@ -219,6 +231,8 @@ def start_capture(
                 "db_factory": db_factory,
                 "max_frames": max_frames,
                 "stop_event": stop_event,
+                "stance": stance,
+                "camera_index": camera_index,
             },
             daemon=True,
             name=f"capture-{session_id}",

@@ -11,10 +11,12 @@ from contracts.events import (
     HRMetricsWindow,
     HRSample,
     Landmark,
+    LeadOrRear,
     PoseFrame,
     PunchEvent,
     SessionMeta,
     SessionSource,
+    WorldLandmark,
 )
 from contracts.schema import (
     SCHEMA_VERSION,
@@ -42,10 +44,12 @@ __all__ = [
     "Hand",
     "IMUStream",
     "Landmark",
+    "LeadOrRear",
     "PoseFrame",
     "PunchEvent",
     "PunchTypeCounts",
     "SessionMeta",
     "SessionSource",
     "SessionSummary",
+    "WorldLandmark",
 ]

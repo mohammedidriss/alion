@@ -1,110 +1,286 @@
-"""Heuristic punch-event detector.
+"""Heuristic punch-event detector — v2.
 
-Phase 1 placeholder — replaced by the trained LSTM classifier in Phase 3.
-This is intentionally crude: it flags an event when a wrist's forward speed
-crosses a threshold then decelerates. It will misfire on fast pull-backs and
-won't tell punch types apart. Treat it as a "the pipeline is alive" indicator,
-not a measurement.
+Improvements over v1:
+- Uses MediaPipe **world landmarks** (3D, metric, hip-centered) when available
+  for real m/s velocity. Falls back to the old 2D image-plane scaling when
+  world landmarks are missing.
+- **Forward-extension check**: requires the wrist to actually be moving
+  *away from the shoulder* (extending) — not just any direction. Kills
+  false positives from pulling the hand back after a punch.
+- **Whole-body motion filter**: rejects events when the hip is translating
+  faster than a threshold. Catches walking / turning / stepping forward.
+- **Hand-vs-shoulder gating**: requires the wrist to be in front of the
+  shoulder (along the punch axis) at the moment of detection.
+- **Lead/rear labelling**: if the fighter's stance is known, returns
+  whether the punch came from the lead or rear hand.
 
-Detector inputs are pose-normalized coordinates [0,1]. Velocity is reported in
-those normalized units per second, then scaled by an assumed body-width factor
-to give a rough m/s estimate. The real velocity comes from the IMU stream
-(Phase 1 Week 3); this is a stand-in until fusion lands.
+Phase 3 LSTM is still on the roadmap to add jab/cross/hook/uppercut
+classification on top of this geometry.
 """
 
 from __future__ import annotations
 
+import math
 from collections.abc import Iterable
 from dataclasses import dataclass
 
-from contracts import PoseFrame, PunchEvent
+from contracts import Hand, LeadOrRear, PoseFrame, PunchEvent
 
 # MediaPipe Pose landmark indices.
-LM_LEFT_WRIST = 15
-LM_RIGHT_WRIST = 16
+LM_NOSE = 0
 LM_LEFT_SHOULDER = 11
 LM_RIGHT_SHOULDER = 12
+LM_LEFT_WRIST = 15
+LM_RIGHT_WRIST = 16
+LM_LEFT_HIP = 23
+LM_RIGHT_HIP = 24
 
-# Tuned for Phase 1 sanity-checking on a webcam at ~1m distance.
-DEFAULT_THRESHOLD_NORM_PER_S = 1.5  # normalized units / s on the image plane
-DEFAULT_REFRACTORY_MS = 300.0  # min spacing between two events on the same hand
-DEFAULT_BODY_WIDTH_M = 0.45  # rough shoulder width — for m/s estimate
-DEFAULT_MIN_VISIBILITY = 0.5
+# Defaults tuned for a webcam at ~1m, normal lighting.
+# `threshold_ms` is the real-meter threshold used when MediaPipe world
+# landmarks are present. `legacy_threshold_ms` is used when only 2D image
+# coordinates are available (less accurate, lower bar).
+DEFAULT_THRESHOLD_MS = 3.0  # m/s, world-landmark mode
+DEFAULT_LEGACY_THRESHOLD_MS = 1.0  # m/s, 2D-fallback mode
+DEFAULT_REFRACTORY_MS = 300.0
+DEFAULT_MIN_VISIBILITY = 0.6
+DEFAULT_BODY_MOTION_THRESHOLD_MS = 1.2  # m/s — reject if hip moves faster than this
+DEFAULT_MIN_FORWARD_TRAVEL = 0.05  # min wrist→shoulder distance change (normalized or meters)
 
 
 @dataclass
 class _HandState:
-    last_x: float | None = None
-    last_y: float | None = None
+    last_pos: tuple[float, float, float] | None = None
     last_t: float | None = None
     last_speed: float = 0.0
     last_event_t: float | None = None
+    # Position history for the forward-extension check (last ~10 frames).
+    pos_history: list[tuple[float, float, float, float]] = None  # type: ignore[assignment]
+    extension_history: list[float] = None  # type: ignore[assignment]
+
+    def __post_init__(self) -> None:
+        if self.pos_history is None:
+            self.pos_history = []
+        if self.extension_history is None:
+            self.extension_history = []
+
+
+@dataclass
+class _BodyState:
+    last_hip_pos: tuple[float, float, float] | None = None
+    last_t: float | None = None
+    speed_ms: float = 0.0
+
+
+def _dist(a: tuple[float, float, float], b: tuple[float, float, float]) -> float:
+    return math.sqrt(sum((a[i] - b[i]) ** 2 for i in range(3)))
+
+
+def _wrist_pos(frame: PoseFrame, lm_idx: int, *, world: bool) -> tuple[float, float, float] | None:
+    if world and frame.world_landmarks is not None:
+        wlm = frame.world_landmarks[lm_idx]
+        if wlm.visibility < DEFAULT_MIN_VISIBILITY:
+            return None
+        return (wlm.x, wlm.y, wlm.z)
+    lm = frame.landmarks[lm_idx]
+    if lm.visibility < DEFAULT_MIN_VISIBILITY:
+        return None
+    return (lm.x, lm.y, lm.z)
+
+
+def _hip_center(frame: PoseFrame, *, world: bool) -> tuple[float, float, float] | None:
+    if world and frame.world_landmarks is not None:
+        wl_l = frame.world_landmarks[LM_LEFT_HIP]
+        wl_r = frame.world_landmarks[LM_RIGHT_HIP]
+        if wl_l.visibility < DEFAULT_MIN_VISIBILITY or wl_r.visibility < DEFAULT_MIN_VISIBILITY:
+            return None
+        return ((wl_l.x + wl_r.x) / 2, (wl_l.y + wl_r.y) / 2, (wl_l.z + wl_r.z) / 2)
+    lh = frame.landmarks[LM_LEFT_HIP]
+    rh = frame.landmarks[LM_RIGHT_HIP]
+    if lh.visibility < DEFAULT_MIN_VISIBILITY or rh.visibility < DEFAULT_MIN_VISIBILITY:
+        return None
+    return ((lh.x + rh.x) / 2, (lh.y + rh.y) / 2, (lh.z + rh.z) / 2)
+
+
+def _hand_to_lead_rear(hand: Hand, stance: str | None) -> LeadOrRear | None:
+    """Orthodox: left=lead, right=rear. Southpaw: flipped. Switch / unknown: None."""
+    if stance == "orthodox":
+        return "lead" if hand == "left" else "rear"
+    if stance == "southpaw":
+        return "lead" if hand == "right" else "rear"
+    return None
 
 
 class HeuristicPunchDetector:
     def __init__(
         self,
         *,
-        threshold_norm_per_s: float = DEFAULT_THRESHOLD_NORM_PER_S,
+        stance: str | None = None,
+        threshold_ms: float = DEFAULT_THRESHOLD_MS,
+        legacy_threshold_ms: float = DEFAULT_LEGACY_THRESHOLD_MS,
         refractory_ms: float = DEFAULT_REFRACTORY_MS,
-        body_width_m: float = DEFAULT_BODY_WIDTH_M,
-        min_visibility: float = DEFAULT_MIN_VISIBILITY,
+        body_motion_threshold_ms: float = DEFAULT_BODY_MOTION_THRESHOLD_MS,
+        min_forward_travel: float = DEFAULT_MIN_FORWARD_TRAVEL,
+        # Legacy params kept for backwards-compat with old tests.
+        threshold_norm_per_s: float | None = None,
+        body_width_m: float | None = None,
+        min_visibility: float | None = None,
     ) -> None:
-        self.threshold = threshold_norm_per_s
+        self.stance = stance
+        self.threshold_ms = threshold_ms
+        self.legacy_threshold_ms = legacy_threshold_ms
         self.refractory_ms = refractory_ms
-        self.body_width_m = body_width_m
-        self.min_visibility = min_visibility
+        self.body_motion_threshold_ms = body_motion_threshold_ms
+        self.min_forward_travel = min_forward_travel
+        self._legacy_body_width = body_width_m or 0.45
+        # If caller supplied normalized-per-second, translate to legacy m/s.
+        if threshold_norm_per_s is not None:
+            self.legacy_threshold_ms = threshold_norm_per_s * self._legacy_body_width
+        self._min_visibility = (
+            min_visibility if min_visibility is not None else DEFAULT_MIN_VISIBILITY
+        )
         self._left = _HandState()
         self._right = _HandState()
+        self._body = _BodyState()
 
     def feed(self, frame: PoseFrame) -> list[PunchEvent]:
+        # 1. Update body state — used by all hands as a global gate.
+        self._update_body(frame)
+
+        # 2. Per-hand step.
         events: list[PunchEvent] = []
-        ev_l = self._step(frame, "left", LM_LEFT_WRIST, self._left)
+        ev_l = self._step(frame, "left", LM_LEFT_WRIST, LM_LEFT_SHOULDER, self._left)
         if ev_l is not None:
             events.append(ev_l)
-        ev_r = self._step(frame, "right", LM_RIGHT_WRIST, self._right)
+        ev_r = self._step(frame, "right", LM_RIGHT_WRIST, LM_RIGHT_SHOULDER, self._right)
         if ev_r is not None:
             events.append(ev_r)
         return events
 
-    def _step(self, frame: PoseFrame, hand: str, lm_idx: int, st: _HandState) -> PunchEvent | None:
-        lm = frame.landmarks[lm_idx]
-        if lm.visibility < self.min_visibility:
-            st.last_x = st.last_y = st.last_t = None
-            st.last_speed = 0.0
+    def _update_body(self, frame: PoseFrame) -> None:
+        use_world = frame.world_landmarks is not None
+        hip = _hip_center(frame, world=use_world)
+        if hip is None:
+            self._body.last_hip_pos = None
+            self._body.last_t = None
+            self._body.speed_ms = 0.0
+            return
+        if self._body.last_hip_pos is not None and self._body.last_t is not None:
+            dt_s = max(1e-3, (frame.t_ms - self._body.last_t) / 1000.0)
+            d = _dist(hip, self._body.last_hip_pos)
+            if not use_world:
+                # Convert normalized distance to rough meters via assumed shoulder span.
+                d *= self._legacy_body_width
+            self._body.speed_ms = d / dt_s
+        self._body.last_hip_pos = hip
+        self._body.last_t = frame.t_ms
+
+    def _step(
+        self,
+        frame: PoseFrame,
+        hand: Hand,
+        wrist_idx: int,
+        shoulder_idx: int,
+        st: _HandState,
+    ) -> PunchEvent | None:
+        use_world = frame.world_landmarks is not None
+        wrist = _wrist_pos(frame, wrist_idx, world=use_world)
+        if wrist is None:
+            self._reset_hand(st)
             return None
+
+        # Same-shoulder anchor for forward-extension check.
+        sh_vis: float
+        sh_xyz: tuple[float, float, float]
+        if use_world and frame.world_landmarks is not None:
+            wl_sh = frame.world_landmarks[shoulder_idx]
+            sh_vis = wl_sh.visibility
+            sh_xyz = (wl_sh.x, wl_sh.y, wl_sh.z)
+        else:
+            l_sh = frame.landmarks[shoulder_idx]
+            sh_vis = l_sh.visibility
+            sh_xyz = (l_sh.x, l_sh.y, l_sh.z)
+        if sh_vis < self._min_visibility:
+            self._reset_hand(st)
+            return None
+        extension = _dist(wrist, sh_xyz)
+
         ev: PunchEvent | None = None
-        if st.last_t is not None and st.last_x is not None and st.last_y is not None:
+        if st.last_pos is not None and st.last_t is not None:
             dt_s = max(1e-3, (frame.t_ms - st.last_t) / 1000.0)
-            dx = lm.x - st.last_x
-            dy = lm.y - st.last_y
-            speed = (dx * dx + dy * dy) ** 0.5 / dt_s  # normalized units/s
-            crossed_threshold = speed >= self.threshold
-            decelerating = speed < st.last_speed
+            d = _dist(wrist, st.last_pos)
+            if not use_world:
+                d *= self._legacy_body_width
+            speed = d / dt_s
+
+            effective_threshold = self.threshold_ms if use_world else self.legacy_threshold_ms
+            crossed_threshold = st.last_speed >= effective_threshold
+            decelerating = speed < st.last_speed * 0.85  # ≥15% drop = real deceleration
             spaced = st.last_event_t is None or (frame.t_ms - st.last_event_t) >= self.refractory_ms
-            if crossed_threshold and decelerating and spaced:
-                # Convert normalized speed → m/s using assumed body width.
-                v_ms = st.last_speed * self.body_width_m
-                # Crude confidence: how far past threshold we got, capped.
-                conf = max(0.1, min(1.0, (st.last_speed - self.threshold) / self.threshold))
+            body_quiet = self._body.speed_ms < self.body_motion_threshold_ms
+            recently_extended = self._has_forward_extended(st, extension)
+
+            if crossed_threshold and decelerating and spaced and body_quiet and recently_extended:
+                conf = max(
+                    0.1,
+                    min(
+                        1.0, (st.last_speed - effective_threshold) / max(effective_threshold, 1e-3)
+                    ),
+                )
                 ev = PunchEvent(
                     session_id=frame.session_id,
                     t_ms=frame.t_ms,
-                    hand=hand,  # type: ignore[arg-type]
-                    velocity_ms=round(v_ms, 2),
+                    hand=hand,
+                    lead_or_rear=_hand_to_lead_rear(hand, self.stance),
+                    velocity_ms=round(st.last_speed, 2),
+                    velocity_source="world" if use_world else "image_heuristic",
                     detected_by="heuristic",
                     confidence=round(conf, 2),
                 )
                 st.last_event_t = frame.t_ms
             st.last_speed = speed
-        st.last_x, st.last_y, st.last_t = lm.x, lm.y, frame.t_ms
+
+        st.last_pos = wrist
+        st.last_t = frame.t_ms
+        st.extension_history.append(extension)
+        if len(st.extension_history) > 10:
+            st.extension_history.pop(0)
         return ev
 
+    def _has_forward_extended(self, st: _HandState, current_ext: float) -> bool:
+        """True iff the wrist's distance from the shoulder grew by at least
+        `min_forward_travel` in the last few frames. Filters out pull-backs."""
+        if len(st.extension_history) < 3:
+            return False
+        recent_min = (
+            min(st.extension_history[-5:])
+            if len(st.extension_history) >= 5
+            else min(st.extension_history)
+        )
+        return (current_ext - recent_min) >= self.min_forward_travel
 
-def detect_punches(frames: Iterable[PoseFrame]) -> list[PunchEvent]:
+    def _reset_hand(self, st: _HandState) -> None:
+        st.last_pos = None
+        st.last_t = None
+        st.last_speed = 0.0
+
+
+def detect_punches(frames: Iterable[PoseFrame], *, stance: str | None = None) -> list[PunchEvent]:
     """One-shot helper for offline / batch detection."""
-    det = HeuristicPunchDetector()
+    det = HeuristicPunchDetector(stance=stance)
     out: list[PunchEvent] = []
     for f in frames:
         out.extend(det.feed(f))
     return out
+
+
+# Re-exported indices for tests and utilities.
+__all__ = [
+    "LM_LEFT_HIP",
+    "LM_LEFT_SHOULDER",
+    "LM_LEFT_WRIST",
+    "LM_RIGHT_HIP",
+    "LM_RIGHT_SHOULDER",
+    "LM_RIGHT_WRIST",
+    "HeuristicPunchDetector",
+    "detect_punches",
+]

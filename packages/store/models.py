@@ -104,13 +104,25 @@ class SessionRead(SQLModel):
     notes: str | None
 
 
+class LeadOrRearEnum(StrEnum):
+    LEAD = "lead"
+    REAR = "rear"
+
+
+class VelocitySourceEnum(StrEnum):
+    WORLD = "world"
+    IMAGE_HEURISTIC = "image_heuristic"
+
+
 class PunchEventRow(SQLModel, table=True):
     __tablename__ = "punch_event"
     id: int | None = Field(default=None, primary_key=True)
     session_id: UUID = Field(foreign_key="session.id", index=True)
     t_ms: float
     hand: HandEnum
+    lead_or_rear: LeadOrRearEnum | None = None
     velocity_ms: float
+    velocity_source: VelocitySourceEnum = VelocitySourceEnum.IMAGE_HEURISTIC
     detected_by: DetectionSourceEnum
     confidence: float
 
@@ -119,7 +131,9 @@ class PunchEventRead(SQLModel):
     session_id: UUID
     t_ms: float
     hand: HandEnum
+    lead_or_rear: LeadOrRearEnum | None = None
     velocity_ms: float
+    velocity_source: VelocitySourceEnum = VelocitySourceEnum.IMAGE_HEURISTIC
     detected_by: DetectionSourceEnum
     confidence: float
 

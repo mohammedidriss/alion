@@ -9,6 +9,7 @@ from store.models import (
     HandEnum,
     HRSampleRead,
     HRSampleRow,
+    LeadOrRearEnum,
     PunchEventRead,
     PunchEventRow,
     Session,
@@ -17,6 +18,7 @@ from store.models import (
     SessionSourceEnum,
     SessionStatus,
     Stance,
+    VelocitySourceEnum,
 )
 from store.repo import FighterRepo, PunchEventRepo, SessionRepo
 
@@ -29,6 +31,7 @@ __all__ = [
     "HRSampleRead",
     "HRSampleRow",
     "HandEnum",
+    "LeadOrRearEnum",
     "PunchEventRead",
     "PunchEventRepo",
     "PunchEventRow",
@@ -39,6 +42,7 @@ __all__ = [
     "SessionSourceEnum",
     "SessionStatus",
     "Stance",
+    "VelocitySourceEnum",
     "create_db_and_tables",
     "get_session",
 ]

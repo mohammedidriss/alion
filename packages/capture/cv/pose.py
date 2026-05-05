@@ -17,7 +17,7 @@ from pathlib import Path
 from typing import TYPE_CHECKING, Any
 from uuid import UUID
 
-from contracts import NUM_POSE_LANDMARKS, Landmark, PoseFrame
+from contracts import NUM_POSE_LANDMARKS, Landmark, PoseFrame, WorldLandmark
 
 if TYPE_CHECKING:
     import numpy as np
@@ -119,9 +119,24 @@ class PoseEstimator:
             )
             for lm in first
         )
+        # World landmarks: hip-centered metric 3D. Optional — older MediaPipe
+        # builds may not return them; we silently fall back to None.
+        world_lms: tuple[WorldLandmark, ...] | None = None
+        wl = getattr(result, "pose_world_landmarks", None)
+        if wl and len(wl) > 0 and len(wl[0]) == NUM_POSE_LANDMARKS:
+            world_lms = tuple(
+                WorldLandmark(
+                    x=lm.x,
+                    y=lm.y,
+                    z=lm.z,
+                    visibility=max(0.0, min(1.0, getattr(lm, "visibility", 1.0) or 0.0)),
+                )
+                for lm in wl[0]
+            )
         return PoseFrame(
             session_id=self.session_id,
             frame_index=idx,
             t_ms=(idx / self.fps) * 1000.0,
             landmarks=landmarks,
+            world_landmarks=world_lms,
         )

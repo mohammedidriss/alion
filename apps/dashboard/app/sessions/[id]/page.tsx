@@ -6,6 +6,7 @@ import { useEffect, useState } from "react";
 import { PunchChart } from "@/components/PunchChart";
 import {
   api,
+  type Camera,
   type Capabilities,
   type CaptureStatus,
   type PunchEvent,
@@ -22,6 +23,8 @@ export default function SessionPage({ params }: { params: { id: string } }) {
   const [err, setErr] = useState<string | null>(null);
   const [uploading, setUploading] = useState(false);
   const [confirmDelete, setConfirmDelete] = useState(false);
+  const [cameras, setCameras] = useState<Camera[]>([]);
+  const [cameraIndex, setCameraIndex] = useState<number>(0);
 
   const refresh = async () => {
     try {
@@ -41,6 +44,13 @@ export default function SessionPage({ params }: { params: { id: string } }) {
   useEffect(() => {
     refresh();
     api.capabilities().then(setCaps).catch(() => setCaps(null));
+    api
+      .listCameras()
+      .then((r) => {
+        setCameras(r.cameras);
+        if (r.cameras.length > 0) setCameraIndex(r.cameras[0].index);
+      })
+      .catch(() => setCameras([]));
     const t = setInterval(refresh, 1500);
     return () => clearInterval(t);
   }, [id]);
@@ -59,7 +69,7 @@ export default function SessionPage({ params }: { params: { id: string } }) {
 
   const start = async () => {
     try {
-      await api.startCapture(id);
+      await api.startCapture(id, { camera_index: cameraIndex });
       await refresh();
     } catch (e) {
       setErr(String(e));
@@ -216,6 +226,26 @@ export default function SessionPage({ params }: { params: { id: string } }) {
             onChange={(e) => e.target.files?.[0] && upload(e.target.files[0])}
             className="mt-3 w-full text-sm"
           />
+        </section>
+      )}
+
+      {showStart && session.source === "live_webcam" && cameras.length > 0 && (
+        <section className="rounded-lg border border-neutral-800 p-4">
+          <label className="text-sm font-medium text-neutral-300">Camera</label>
+          <select
+            className="mt-2 w-full rounded bg-neutral-900 p-2 text-sm"
+            value={cameraIndex}
+            onChange={(e) => setCameraIndex(Number(e.target.value))}
+          >
+            {cameras.map((c) => (
+              <option key={c.index} value={c.index}>
+                #{c.index} — {c.width}×{c.height} @ {Math.round(c.fps)} fps
+              </option>
+            ))}
+          </select>
+          <p className="mt-2 text-xs text-neutral-500">
+            {cameras.length} camera{cameras.length === 1 ? "" : "s"} available.
+          </p>
         </section>
       )}
 

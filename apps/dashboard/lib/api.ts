@@ -14,7 +14,9 @@ export type SessionStatus =
   | "completed"
   | "failed";
 export type Hand = "left" | "right";
+export type LeadOrRear = "lead" | "rear";
 export type DetectionSource = "heuristic" | "lstm_v1";
+export type VelocitySource = "world" | "image_heuristic";
 
 export interface Fighter {
   id: string;
@@ -49,9 +51,24 @@ export interface PunchEvent {
   session_id: string;
   t_ms: number;
   hand: Hand;
+  lead_or_rear: LeadOrRear | null;
   velocity_ms: number;
+  velocity_source: VelocitySource;
   detected_by: DetectionSource;
   confidence: number;
+}
+
+export interface Camera {
+  index: number;
+  width: number;
+  height: number;
+  fps: number;
+}
+
+export interface CamerasResponse {
+  cameras: Camera[];
+  cv_available: boolean;
+  reason: string | null;
 }
 
 export interface CaptureStatus {
@@ -110,12 +127,19 @@ export const api = {
     if (!r.ok) throw new Error(`${r.status} ${await r.text()}`);
     return r.json() as Promise<Session>;
   },
-  startCapture: (id: string, max_frames?: number) =>
+  startCapture: (
+    id: string,
+    opts?: { max_frames?: number; camera_index?: number },
+  ) =>
     req<CaptureStatus>(`/sessions/${id}/capture/start`, {
       method: "POST",
       headers: { "content-type": "application/json" },
-      body: JSON.stringify({ max_frames }),
+      body: JSON.stringify({
+        max_frames: opts?.max_frames,
+        camera_index: opts?.camera_index ?? 0,
+      }),
     }),
+  listCameras: () => req<CamerasResponse>("/cameras"),
   stopCapture: (id: string) =>
     req<CaptureStatus>(`/sessions/${id}/capture/stop`, { method: "POST" }),
   captureStatus: (id: string) =>

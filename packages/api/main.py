@@ -11,7 +11,7 @@ from contextlib import asynccontextmanager
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
-from api.routes import fighters, health, sessions
+from api.routes import cameras, fighters, health, sessions
 from common import get_settings, setup_logging
 from store import create_db_and_tables
 
@@ -40,5 +40,6 @@ app.add_middleware(
 )
 
 app.include_router(health.router)
+app.include_router(cameras.router)
 app.include_router(fighters.router)
 app.include_router(sessions.router)

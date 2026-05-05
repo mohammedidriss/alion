@@ -34,6 +34,7 @@ _VIDEO_DIR = Path("data/raw/uploaded")
 
 class CaptureStartRequest(BaseModel):
     max_frames: int | None = None
+    camera_index: int = 0
 
 
 class CaptureStatusResponse(BaseModel):
@@ -141,12 +142,20 @@ def start_capture_route(
             except StopIteration:
                 pass
 
+    # Look up fighter stance so the detector can label lead/rear hand.
+    from store import FighterRepo as _FighterRepo
+
+    fighter = _FighterRepo(db).get(row.fighter_id)
+    stance_str = fighter.stance.value if fighter else None
+
     started = capture_runner.start_capture(
         session_id,
         row.source.value,
         factory,
         video_path=row.video_path,
         max_frames=body.max_frames if body else None,
+        stance=stance_str,
+        camera_index=body.camera_index if body else 0,
     )
     if not started:
         raise HTTPException(status_code=409, detail="capture already running")

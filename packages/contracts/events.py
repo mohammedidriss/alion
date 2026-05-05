@@ -16,6 +16,7 @@ from pydantic import BaseModel, ConfigDict, Field
 NUM_POSE_LANDMARKS = 33
 
 Hand = Literal["left", "right"]
+LeadOrRear = Literal["lead", "rear"]
 SessionSource = Literal["live_webcam", "uploaded_video", "live_iphone"]
 DetectionSource = Literal["heuristic", "lstm_v1"]
 
@@ -33,6 +34,19 @@ class Landmark(_Frozen):
     visibility: float = Field(ge=0.0, le=1.0)
 
 
+class WorldLandmark(_Frozen):
+    """3D coordinates in meters, hip-centered, from MediaPipe's world-landmarks output.
+
+    Same indexing as `Landmark` (33 points). Values are in real-world meters,
+    so wrist velocity computed from these is metric without a body-width hack.
+    """
+
+    x: float
+    y: float
+    z: float
+    visibility: float = Field(ge=0.0, le=1.0)
+
+
 class PoseFrame(_Frozen):
     session_id: UUID
     frame_index: int = Field(ge=0)
@@ -40,6 +54,8 @@ class PoseFrame(_Frozen):
     landmarks: tuple[Landmark, ...] = Field(
         min_length=NUM_POSE_LANDMARKS, max_length=NUM_POSE_LANDMARKS
     )
+    # World landmarks are optional so old parquet files / fixtures keep working.
+    world_landmarks: tuple[WorldLandmark, ...] | None = None
 
 
 class PunchEvent(_Frozen):
@@ -48,7 +64,9 @@ class PunchEvent(_Frozen):
     session_id: UUID
     t_ms: float = Field(ge=0.0)
     hand: Hand
-    velocity_ms: float = Field(ge=0.0, description="peak wrist velocity in m/s (estimated)")
+    lead_or_rear: LeadOrRear | None = None
+    velocity_ms: float = Field(ge=0.0, description="peak wrist velocity in m/s")
+    velocity_source: Literal["world", "image_heuristic"] = "image_heuristic"
     detected_by: DetectionSource
     confidence: float = Field(ge=0.0, le=1.0)
 

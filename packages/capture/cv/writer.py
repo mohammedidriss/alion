@@ -1,7 +1,8 @@
 """Parquet writer for PoseFrame batches.
 
-Layout: one row per frame, columns flattened —
-  session_id, frame_index, t_ms, lm00_x, lm00_y, lm00_z, lm00_v, ..., lm32_v
+Layout: one row per frame.
+- 2D image-plane landmarks: lm00_x, lm00_y, lm00_z, lm00_v ... (33 landmarks)
+- World 3D landmarks (optional, post-ADR 003): wl00_x, wl00_y, wl00_z, wl00_v ...
 """
 
 from __future__ import annotations
@@ -11,21 +12,28 @@ from pathlib import Path
 from typing import TYPE_CHECKING, Any
 from uuid import UUID
 
-from contracts import NUM_POSE_LANDMARKS, Landmark, PoseFrame
+from contracts import NUM_POSE_LANDMARKS, Landmark, PoseFrame, WorldLandmark
 
 if TYPE_CHECKING:
     import pyarrow as pa
 
 
 _LM_COLS = [f"lm{i:02d}_{c}" for i in range(NUM_POSE_LANDMARKS) for c in ("x", "y", "z", "v")]
+_WL_COLS = [f"wl{i:02d}_{c}" for i in range(NUM_POSE_LANDMARKS) for c in ("x", "y", "z", "v")]
 _BASE_COLS = ["session_id", "frame_index", "t_ms"]
-ALL_COLS = _BASE_COLS + _LM_COLS
+ALL_COLS = _BASE_COLS + _LM_COLS + _WL_COLS
 
 
 def _flatten(frame: PoseFrame) -> list[Any]:
     out: list[Any] = [str(frame.session_id), frame.frame_index, frame.t_ms]
     for lm in frame.landmarks:
         out.extend([lm.x, lm.y, lm.z, lm.visibility])
+    if frame.world_landmarks is not None:
+        for wl in frame.world_landmarks:
+            out.extend([wl.x, wl.y, wl.z, wl.visibility])
+    else:
+        # Pad with NaN so the row width matches.
+        out.extend([float("nan")] * (NUM_POSE_LANDMARKS * 4))
     return out
 
 
@@ -67,12 +75,15 @@ class PoseParquetWriter:
 
 def read_pose_parquet(path: str | Path) -> list[PoseFrame]:
     """Read a parquet file back into PoseFrame instances. Used by tests + replay."""
+    import math
+
     import pyarrow.parquet as pq
 
     table = pq.read_table(Path(path))  # type: ignore[no-untyped-call]
     if table.num_rows == 0:
         return []
     rows: Sequence[dict[str, Any]] = table.to_pylist()
+    has_world = any(c in (table.column_names or []) for c in (f"wl{i:02d}_x" for i in range(1)))
     out: list[PoseFrame] = []
     for r in rows:
         landmarks = tuple(
@@ -84,12 +95,24 @@ def read_pose_parquet(path: str | Path) -> list[PoseFrame]:
             )
             for i in range(NUM_POSE_LANDMARKS)
         )
+        world_landmarks: tuple[WorldLandmark, ...] | None = None
+        if has_world and not math.isnan(r.get("wl00_x", float("nan"))):
+            world_landmarks = tuple(
+                WorldLandmark(
+                    x=r[f"wl{i:02d}_x"],
+                    y=r[f"wl{i:02d}_y"],
+                    z=r[f"wl{i:02d}_z"],
+                    visibility=r[f"wl{i:02d}_v"],
+                )
+                for i in range(NUM_POSE_LANDMARKS)
+            )
         out.append(
             PoseFrame(
                 session_id=UUID(r["session_id"]),
                 frame_index=int(r["frame_index"]),
                 t_ms=float(r["t_ms"]),
                 landmarks=landmarks,
+                world_landmarks=world_landmarks,
             )
         )
     return out
