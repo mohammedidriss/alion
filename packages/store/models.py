@@ -24,6 +24,8 @@ class SessionSourceEnum(StrEnum):
     LIVE_WEBCAM = "live_webcam"
     UPLOADED_VIDEO = "uploaded_video"
     LIVE_IPHONE = "live_iphone"
+    POLAR_H10_ONLY = "polar_h10_only"
+    HRV_REPLAY = "hrv_replay"
 
 
 class SessionStatus(StrEnum):
@@ -120,3 +122,19 @@ class PunchEventRead(SQLModel):
     velocity_ms: float
     detected_by: DetectionSourceEnum
     confidence: float
+
+
+class HRSampleRow(SQLModel, table=True):
+    __tablename__ = "hr_sample"
+    id: int | None = Field(default=None, primary_key=True)
+    session_id: UUID = Field(foreign_key="session.id", index=True)
+    t_ms: float
+    rr_ms: float
+    hr_bpm: float
+
+
+class HRSampleRead(SQLModel):
+    session_id: UUID
+    t_ms: float
+    rr_ms: float
+    hr_bpm: float

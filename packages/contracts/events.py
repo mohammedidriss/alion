@@ -53,6 +53,32 @@ class PunchEvent(_Frozen):
     confidence: float = Field(ge=0.0, le=1.0)
 
 
+class HRSample(_Frozen):
+    """One heart-beat from a Polar H10 (or replay file).
+
+    `t_ms` is ms since session start. `rr_ms` is the RR interval (time between
+    this beat and the previous one). `hr_bpm` is the instantaneous heart rate
+    derived from this RR interval (60000 / rr_ms).
+    """
+
+    session_id: UUID
+    t_ms: float = Field(ge=0.0)
+    rr_ms: float = Field(gt=0.0, description="RR interval in milliseconds")
+    hr_bpm: float = Field(gt=0.0, le=300.0)
+
+
+class HRMetricsWindow(_Frozen):
+    """Rolling-window HR/HRV summary, typically computed over 60 seconds."""
+
+    session_id: UUID
+    window_start_ms: float = Field(ge=0.0)
+    window_end_ms: float = Field(ge=0.0)
+    sample_count: int = Field(ge=0)
+    mean_hr_bpm: float = Field(ge=0.0)
+    rmssd_ms: float = Field(ge=0.0)
+    sdnn_ms: float = Field(ge=0.0)
+
+
 class SessionMeta(_Frozen):
     """Lightweight session descriptor, mirrors the Session DB row."""
 
