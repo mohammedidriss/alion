@@ -17,6 +17,8 @@ from store.models import (
     SessionCreate,
     SessionStatus,
     Stance,
+    WeighIn,
+    WeighInCreate,
 )
 
 
@@ -37,20 +39,31 @@ class FighterRepo:
     def list_all(self) -> list[Fighter]:
         return list(self._session.exec(select(Fighter)).all())
 
-    def update(
-        self,
-        fighter_id: UUID,
-        *,
-        name: str | None = None,
-        stance: Stance | str | None = None,
-    ) -> Fighter | None:
+    def update(self, fighter_id: UUID, patch: dict[str, object]) -> Fighter | None:
+        """Apply a partial patch to a fighter row. Unknown keys are ignored.
+
+        Stance / SkillLevel / HandEnum strings are coerced to enum members so
+        the API doesn't have to know about SQLModel internals.
+        """
+        from store.models import HandEnum, SkillLevel
+
         fighter = self.get(fighter_id)
         if fighter is None:
             return None
-        if name is not None:
-            fighter.name = name
-        if stance is not None:
-            fighter.stance = stance if isinstance(stance, Stance) else Stance(stance)
+        for key, value in patch.items():
+            if value is None:
+                # Allow nulling out optional fields except `stance`/`name`.
+                if key in ("stance", "name"):
+                    continue
+            if not hasattr(fighter, key):
+                continue
+            if key == "stance" and isinstance(value, str):
+                value = Stance(value)
+            elif key == "dominant_hand" and isinstance(value, str):
+                value = HandEnum(value)
+            elif key == "skill_level" and isinstance(value, str):
+                value = SkillLevel(value)
+            setattr(fighter, key, value)
         self._session.add(fighter)
         self._session.commit()
         self._session.refresh(fighter)
@@ -176,3 +189,35 @@ class PunchEventRepo:
     def count_for_session(self, session_id: UUID) -> int:
         stmt = select(PunchEventRow).where(PunchEventRow.session_id == session_id)
         return len(list(self._session.exec(stmt).all()))
+
+
+class WeighInRepo:
+    def __init__(self, session: DBSession) -> None:
+        self._session = session
+
+    def create(self, fighter_id: UUID, data: WeighInCreate) -> WeighIn:
+        row = WeighIn(fighter_id=fighter_id, **data.model_dump())
+        self._session.add(row)
+        # Mirror the latest weigh-in onto the Fighter row so the profile card
+        # can read current weight without a separate query.
+        f = self._session.get(Fighter, fighter_id)
+        if f is not None:
+            f.weight_kg = data.weight_kg
+            self._session.add(f)
+        self._session.commit()
+        self._session.refresh(row)
+        return row
+
+    def list_for_fighter(self, fighter_id: UUID) -> list[WeighIn]:
+        stmt = (
+            select(WeighIn).where(WeighIn.fighter_id == fighter_id).order_by(WeighIn.recorded_at)  # type: ignore[arg-type]
+        )
+        return list(self._session.exec(stmt).all())
+
+    def delete(self, weigh_in_id: int) -> bool:
+        row = self._session.get(WeighIn, weigh_in_id)
+        if row is None:
+            return False
+        self._session.delete(row)
+        self._session.commit()
+        return True

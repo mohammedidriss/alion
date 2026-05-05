@@ -17,13 +17,59 @@ export type Hand = "left" | "right";
 export type LeadOrRear = "lead" | "rear";
 export type DetectionSource = "heuristic" | "lstm_v1";
 export type VelocitySource = "world" | "image_heuristic";
+export type SkillLevel =
+  | "recreational"
+  | "amateur_novice"
+  | "amateur_open"
+  | "amateur_elite"
+  | "semi_pro"
+  | "professional"
+  | "coach";
 
 export interface Fighter {
   id: string;
   name: string;
+  nickname: string | null;
   dob: string | null;
+  nationality: string | null;
+  sex: string | null;
   stance: Stance;
+  dominant_hand: Hand | null;
+  height_cm: number | null;
+  reach_cm: number | null;
+  weight_kg: number | null;
+  shoulder_width_cm: number | null;
+  skill_level: SkillLevel | null;
+  weight_class: string | null;
+  years_training: number | null;
+  gym: string | null;
+  trainer: string | null;
+  record_wins: number;
+  record_losses: number;
+  record_draws: number;
+  record_kos: number;
+  boxrec_id: string | null;
+  usa_boxing_id: string | null;
+  notes: string | null;
   created_at: string;
+}
+
+export type FighterPatch = Partial<Omit<Fighter, "id" | "created_at">>;
+
+export interface WeighIn {
+  id: number;
+  fighter_id: string;
+  weight_kg: number;
+  recorded_at: string;
+  notes: string | null;
+}
+
+export interface FighterOptions {
+  stances: string[];
+  hands: string[];
+  skill_levels: string[];
+  weight_classes: string[];
+  sexes: string[];
 }
 
 export interface Session {
@@ -97,7 +143,7 @@ export const api = {
       headers: { "content-type": "application/json" },
       body: JSON.stringify({ name, stance }),
     }),
-  updateFighter: (id: string, patch: { name?: string; stance?: Stance }) =>
+  updateFighter: (id: string, patch: FighterPatch) =>
     req<Fighter>(`/fighters/${id}`, {
       method: "PATCH",
       headers: { "content-type": "application/json" },
@@ -105,6 +151,18 @@ export const api = {
     }),
   deleteFighter: (id: string) =>
     req<void>(`/fighters/${id}`, { method: "DELETE" }),
+  fighterOptions: () => req<FighterOptions>("/fighters/options"),
+  listWeighIns: (id: string) => req<WeighIn[]>(`/fighters/${id}/weigh-ins`),
+  createWeighIn: (id: string, weight_kg: number, notes?: string) =>
+    req<WeighIn>(`/fighters/${id}/weigh-ins`, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ weight_kg, notes }),
+    }),
+  deleteWeighIn: (fighter_id: string, weigh_in_id: number) =>
+    req<void>(`/fighters/${fighter_id}/weigh-ins/${weigh_in_id}`, {
+      method: "DELETE",
+    }),
   listSessions: (fighter_id?: string) =>
     req<Session[]>(
       fighter_id ? `/sessions?fighter_id=${fighter_id}` : "/sessions",

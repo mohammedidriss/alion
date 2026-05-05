@@ -46,15 +46,85 @@ class DetectionSourceEnum(StrEnum):
     LSTM_V1 = "lstm_v1"
 
 
+class SkillLevel(StrEnum):
+    """A spectrum from "I just punch a bag for fitness" to working trainer."""
+
+    RECREATIONAL = "recreational"
+    AMATEUR_NOVICE = "amateur_novice"
+    AMATEUR_OPEN = "amateur_open"
+    AMATEUR_ELITE = "amateur_elite"
+    SEMI_PRO = "semi_pro"
+    PROFESSIONAL = "professional"
+    COACH = "coach"
+
+
+# Common boxing weight classes. Stored as a string on the row so users can
+# pick one but we don't have to model every sanctioning body's variations.
+WEIGHT_CLASSES = (
+    "minimumweight",  # ≤105 lb
+    "light_flyweight",  # ≤108 lb
+    "flyweight",  # ≤112 lb
+    "super_flyweight",  # ≤115 lb
+    "bantamweight",  # ≤118 lb
+    "super_bantamweight",  # ≤122 lb
+    "featherweight",  # ≤126 lb
+    "super_featherweight",  # ≤130 lb
+    "lightweight",  # ≤135 lb
+    "super_lightweight",  # ≤140 lb
+    "welterweight",  # ≤147 lb
+    "super_welterweight",  # ≤154 lb
+    "middleweight",  # ≤160 lb
+    "super_middleweight",  # ≤168 lb
+    "light_heavyweight",  # ≤175 lb
+    "cruiserweight",  # ≤200 lb
+    "heavyweight",  # ≤200+ lb
+)
+
+
 class Fighter(SQLModel, table=True):
     id: UUID = Field(default_factory=uuid4, primary_key=True)
+
+    # Identity
     name: str = Field(index=True, min_length=1, max_length=120)
+    nickname: str | None = Field(default=None, max_length=80)
     dob: date | None = None
+    nationality: str | None = Field(default=None, max_length=80)
+    sex: str | None = Field(default=None, max_length=16)  # "male" / "female" / other / None
+
+    # Boxing stance + dominant side
     stance: Stance = Stance.ORTHODOX
+    dominant_hand: HandEnum | None = None
+
+    # Physical attributes — used for both display and CV calibration
+    height_cm: float | None = Field(default=None, ge=80.0, le=250.0)
+    reach_cm: float | None = Field(default=None, ge=80.0, le=260.0)
+    weight_kg: float | None = Field(default=None, gt=0.0, le=400.0)
+    shoulder_width_cm: float | None = Field(default=None, ge=20.0, le=80.0)
+
+    # Competitive level
+    skill_level: SkillLevel | None = None
+    weight_class: str | None = Field(default=None, max_length=40)
+    years_training: int | None = Field(default=None, ge=0, le=80)
+    gym: str | None = Field(default=None, max_length=120)
+    trainer: str | None = Field(default=None, max_length=120)
+
+    # Record
+    record_wins: int = Field(default=0, ge=0)
+    record_losses: int = Field(default=0, ge=0)
+    record_draws: int = Field(default=0, ge=0)
+    record_kos: int = Field(default=0, ge=0)
+
+    # External identifiers (registries / governing bodies)
+    boxrec_id: str | None = Field(default=None, max_length=40)
+    usa_boxing_id: str | None = Field(default=None, max_length=40)
+
+    notes: str | None = None
     created_at: datetime = Field(default_factory=lambda: datetime.now(UTC))
 
 
 class FighterCreate(SQLModel):
+    """Light-weight create — most fields are filled in via Edit on the profile."""
+
     name: str = Field(min_length=1, max_length=120)
     dob: date | None = None
     stance: Stance = Stance.ORTHODOX
@@ -63,9 +133,51 @@ class FighterCreate(SQLModel):
 class FighterRead(SQLModel):
     id: UUID
     name: str
-    dob: date | None
+    nickname: str | None = None
+    dob: date | None = None
+    nationality: str | None = None
+    sex: str | None = None
     stance: Stance
+    dominant_hand: HandEnum | None = None
+    height_cm: float | None = None
+    reach_cm: float | None = None
+    weight_kg: float | None = None
+    shoulder_width_cm: float | None = None
+    skill_level: SkillLevel | None = None
+    weight_class: str | None = None
+    years_training: int | None = None
+    gym: str | None = None
+    trainer: str | None = None
+    record_wins: int = 0
+    record_losses: int = 0
+    record_draws: int = 0
+    record_kos: int = 0
+    boxrec_id: str | None = None
+    usa_boxing_id: str | None = None
+    notes: str | None = None
     created_at: datetime
+
+
+class WeighIn(SQLModel, table=True):
+    __tablename__ = "weigh_in"
+    id: int | None = Field(default=None, primary_key=True)
+    fighter_id: UUID = Field(foreign_key="fighter.id", index=True)
+    weight_kg: float = Field(gt=0.0, le=400.0)
+    recorded_at: datetime = Field(default_factory=lambda: datetime.now(UTC))
+    notes: str | None = None
+
+
+class WeighInCreate(SQLModel):
+    weight_kg: float = Field(gt=0.0, le=400.0)
+    notes: str | None = None
+
+
+class WeighInRead(SQLModel):
+    id: int
+    fighter_id: UUID
+    weight_kg: float
+    recorded_at: datetime
+    notes: str | None = None
 
 
 class Session(SQLModel, table=True):

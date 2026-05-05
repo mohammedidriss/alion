@@ -2,6 +2,7 @@
 
 from store.database import create_db_and_tables, get_session
 from store.models import (
+    WEIGHT_CLASSES,
     DetectionSourceEnum,
     Fighter,
     FighterCreate,
@@ -17,12 +18,17 @@ from store.models import (
     SessionRead,
     SessionSourceEnum,
     SessionStatus,
+    SkillLevel,
     Stance,
     VelocitySourceEnum,
+    WeighIn,
+    WeighInCreate,
+    WeighInRead,
 )
-from store.repo import FighterRepo, PunchEventRepo, SessionRepo
+from store.repo import FighterRepo, PunchEventRepo, SessionRepo, WeighInRepo
 
 __all__ = [
+    "WEIGHT_CLASSES",
     "DetectionSourceEnum",
     "Fighter",
     "FighterCreate",
@@ -41,8 +47,13 @@ __all__ = [
     "SessionRepo",
     "SessionSourceEnum",
     "SessionStatus",
+    "SkillLevel",
     "Stance",
     "VelocitySourceEnum",
+    "WeighIn",
+    "WeighInCreate",
+    "WeighInRead",
+    "WeighInRepo",
     "create_db_and_tables",
     "get_session",
 ]
