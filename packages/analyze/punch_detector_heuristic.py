@@ -35,16 +35,19 @@ LM_RIGHT_WRIST = 16
 LM_LEFT_HIP = 23
 LM_RIGHT_HIP = 24
 
-# Defaults tuned for a webcam at ~1m, normal lighting.
+# Defaults tuned for a webcam at ~1m, normal lighting. Re-tuned 2026-05-05
+# after a real-world session reported a 28% miss rate; thresholds were
+# over-strict relative to MediaPipe world-landmark noise floor.
+#
 # `threshold_ms` is the real-meter threshold used when MediaPipe world
-# landmarks are present. `legacy_threshold_ms` is used when only 2D image
-# coordinates are available (less accurate, lower bar).
-DEFAULT_THRESHOLD_MS = 3.0  # m/s, world-landmark mode
-DEFAULT_LEGACY_THRESHOLD_MS = 1.0  # m/s, 2D-fallback mode
-DEFAULT_REFRACTORY_MS = 300.0
-DEFAULT_MIN_VISIBILITY = 0.6
-DEFAULT_BODY_MOTION_THRESHOLD_MS = 1.2  # m/s — reject if hip moves faster than this
-DEFAULT_MIN_FORWARD_TRAVEL = 0.05  # min wrist→shoulder distance change (normalized or meters)
+# landmarks are present. `legacy_threshold_ms` is the 2D-fallback bar.
+DEFAULT_THRESHOLD_MS = 2.0  # was 3.0 — MediaPipe underestimates fast motion ~10-15%
+DEFAULT_LEGACY_THRESHOLD_MS = 0.8  # 2D-fallback mode
+DEFAULT_REFRACTORY_MS = 180.0  # was 300 — fast combos hit ~5/s = 200ms apart
+DEFAULT_MIN_VISIBILITY = 0.5  # was 0.6 — extended arms have lower visibility
+DEFAULT_BODY_MOTION_THRESHOLD_MS = 2.0  # was 1.2 — stepping into a cross is normal
+DEFAULT_MIN_FORWARD_TRAVEL = 0.03  # was 0.05 — accommodate MediaPipe jitter
+DEFAULT_DECEL_FACTOR = 0.92  # speed must drop by ≥8% — was 15%, too noisy
 
 
 @dataclass
@@ -141,6 +144,12 @@ class HeuristicPunchDetector:
         self._left = _HandState()
         self._right = _HandState()
         self._body = _BodyState()
+        self._near_misses: list[dict[str, str | float]] = []
+
+    @property
+    def near_misses(self) -> list[dict[str, str | float]]:
+        """Read-only view of (peak, reason) entries for peaks that didn't fire."""
+        return list(self._near_misses)
 
     def feed(self, frame: PoseFrame) -> list[PunchEvent]:
         # 1. Update body state — used by all hands as a global gate.
@@ -214,10 +223,36 @@ class HeuristicPunchDetector:
 
             effective_threshold = self.threshold_ms if use_world else self.legacy_threshold_ms
             crossed_threshold = st.last_speed >= effective_threshold
-            decelerating = speed < st.last_speed * 0.85  # ≥15% drop = real deceleration
+            decelerating = speed < st.last_speed * DEFAULT_DECEL_FACTOR
             spaced = st.last_event_t is None or (frame.t_ms - st.last_event_t) >= self.refractory_ms
             body_quiet = self._body.speed_ms < self.body_motion_threshold_ms
             recently_extended = self._has_forward_extended(st, extension)
+
+            # Near-miss instrumentation: when a peak got close to firing but
+            # didn't, record why. Helps tune thresholds from data.
+            if st.last_speed >= effective_threshold * 0.7 and not (
+                crossed_threshold and decelerating and spaced and body_quiet and recently_extended
+            ):
+                if not crossed_threshold:
+                    reason = "below_threshold"
+                elif not spaced:
+                    reason = "refractory"
+                elif not body_quiet:
+                    reason = "body_motion"
+                elif not recently_extended:
+                    reason = "no_forward_extension"
+                elif not decelerating:
+                    reason = "still_accelerating"
+                else:
+                    reason = "unknown"
+                self._near_misses.append(
+                    {
+                        "t_ms": frame.t_ms,
+                        "hand": hand,
+                        "peak_speed": round(st.last_speed, 2),
+                        "reason": reason,
+                    }
+                )
 
             if crossed_threshold and decelerating and spaced and body_quiet and recently_extended:
                 conf = max(

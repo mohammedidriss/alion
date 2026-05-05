@@ -170,12 +170,20 @@ def _run_capture(
             )
             SessionRepo(db).update_status(session_id, SessionStatus.COMPLETED, end=True)
 
+        # Summarise near-misses so we can see WHY rejected peaks didn't fire.
+        # Tuning the heuristic without this is guesswork.
+        nm_counts: dict[str, int] = {}
+        for nm in detector.near_misses:
+            r = str(nm["reason"])
+            nm_counts[r] = nm_counts.get(r, 0) + 1
         log.info(
             "capture.done",
             extra={
                 "_ctx_session_id": str(session_id),
                 "_ctx_frames": result.frame_count,
                 "_ctx_punches": len(buffered_events),
+                "_ctx_near_misses": len(detector.near_misses),
+                "_ctx_near_miss_breakdown": nm_counts,
             },
         )
     except ModuleNotFoundError as e:
