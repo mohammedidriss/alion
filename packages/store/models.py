@@ -193,6 +193,13 @@ class Session(SQLModel, table=True):
     duration_ms: float = 0.0
     notes: str | None = None
     failure_reason: str | None = None
+    # Pre-session resting HRV baseline (5-min recording before warmup).
+    # Nullable: not all sessions have a baseline. When present, used as the
+    # readiness predictor for that day's CV-derived performance score.
+    baseline_rmssd_ms: float | None = None
+    baseline_sdnn_ms: float | None = None
+    baseline_mean_hr_bpm: float | None = None
+    baseline_recorded_at: datetime | None = None
 
 
 class SessionCreate(SQLModel):
@@ -214,6 +221,10 @@ class SessionRead(SQLModel):
     frame_count: int
     duration_ms: float
     notes: str | None
+    baseline_rmssd_ms: float | None = None
+    baseline_sdnn_ms: float | None = None
+    baseline_mean_hr_bpm: float | None = None
+    baseline_recorded_at: datetime | None = None
 
 
 class LeadOrRearEnum(StrEnum):

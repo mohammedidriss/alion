@@ -167,6 +167,28 @@ class SessionRepo:
         self._session.refresh(row)
         return row
 
+    def attach_baseline(
+        self,
+        session_id: UUID,
+        *,
+        rmssd_ms: float,
+        sdnn_ms: float,
+        mean_hr_bpm: float,
+    ) -> Session | None:
+        from datetime import UTC, datetime
+
+        row = self.get(session_id)
+        if row is None:
+            return None
+        row.baseline_rmssd_ms = rmssd_ms
+        row.baseline_sdnn_ms = sdnn_ms
+        row.baseline_mean_hr_bpm = mean_hr_bpm
+        row.baseline_recorded_at = datetime.now(UTC)
+        self._session.add(row)
+        self._session.commit()
+        self._session.refresh(row)
+        return row
+
 
 class PunchEventRepo:
     def __init__(self, session: DBSession) -> None:

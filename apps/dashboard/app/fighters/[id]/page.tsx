@@ -3,6 +3,7 @@
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useCallback, useEffect, useMemo, useState } from "react";
+import { FighterDashboard } from "@/components/FighterDashboard";
 import { Sparkline } from "@/components/Sparkline";
 import {
   api,
@@ -171,7 +172,7 @@ export default function FighterPage({ params }: { params: { id: string } }) {
   };
 
   return (
-    <main className="mx-auto max-w-5xl space-y-8 p-8">
+    <main className="mx-auto max-w-7xl space-y-8">
       <Link
         href="/"
         className="inline-flex items-center gap-1 text-sm text-neutral-400 hover:text-neutral-100"
@@ -179,17 +180,10 @@ export default function FighterPage({ params }: { params: { id: string } }) {
         <span aria-hidden>←</span> All fighters
       </Link>
 
-      {err && (
-        <p className="rounded border border-red-700/60 bg-red-950/40 p-3 text-sm text-red-300">
-          {err}
-        </p>
-      )}
-
-      {/* IDENTITY */}
-      <header className="grid grid-cols-1 gap-4 md:grid-cols-3">
-        <div className="md:col-span-2">
+      <header className="flex flex-wrap items-start justify-between gap-4">
+        <div className="min-w-0">
           <div className="flex items-baseline gap-3">
-            <h1 className="text-3xl font-semibold">{fighter.name}</h1>
+            <h1 className="truncate text-3xl font-semibold">{fighter.name}</h1>
             {fighter.nickname && (
               <span className="text-lg text-neutral-400">&ldquo;{fighter.nickname}&rdquo;</span>
             )}
@@ -202,29 +196,56 @@ export default function FighterPage({ params }: { params: { id: string } }) {
             {age != null ? ` · ${age} yrs` : ""}
           </p>
           <p className="mt-1 font-mono text-xs text-neutral-500">{fighter.id}</p>
-          <div className="mt-4 flex flex-wrap gap-2">
+          <div className="mt-3 flex flex-wrap gap-2">
             <Link
               href={`/sessions/new?fighter=${fighter.id}`}
-              className="rounded bg-emerald-600 px-3 py-1.5 text-sm font-medium hover:bg-emerald-500"
+              className="rounded-xl bg-emerald-500 px-3 py-1.5 text-sm font-medium text-black hover:bg-emerald-400"
             >
               New session
             </Link>
-            <button
-              onClick={() => setEditing(true)}
-              className="rounded bg-neutral-800 px-3 py-1.5 text-sm hover:bg-neutral-700"
+            <Link
+              href={`/fighters/${fighter.id}/matrix`}
+              className="rounded-xl border border-white/5 bg-white/[0.03] px-3 py-1.5 text-sm hover:bg-white/[0.07]"
             >
-              Edit profile
-            </button>
-            <button
-              onClick={() => setConfirmDeleteFighter(true)}
-              className="rounded bg-neutral-800 px-3 py-1.5 text-sm text-red-300 hover:bg-red-900/40"
-            >
-              Delete
-            </button>
+              Performance matrix
+            </Link>
           </div>
         </div>
+        <div className="flex shrink-0 items-center gap-2">
+          <button
+            onClick={() => setEditing(true)}
+            className="rounded-xl border border-white/5 bg-white/[0.03] px-3 py-1.5 text-sm hover:bg-white/[0.07]"
+          >
+            Edit profile
+          </button>
+          <button
+            onClick={() => setConfirmDeleteFighter(true)}
+            className="rounded-xl border border-red-500/30 bg-red-500/10 px-3 py-1.5 text-sm text-red-300 hover:bg-red-500/20"
+          >
+            Delete profile
+          </button>
+        </div>
+      </header>
 
-        <aside className="rounded-lg border border-neutral-800 p-4">
+      {err && (
+        <p className="rounded-2xl border border-red-500/30 bg-red-950/30 p-3 text-sm text-red-200">
+          {err}
+        </p>
+      )}
+
+      <FighterDashboard
+        fighterId={fighter.id}
+        sessions={sessions.map((s) => s.session)}
+        totalPunches={aggregate.totalPunches}
+        peakVelocity={aggregate.peakVelocity}
+        totalDurationS={aggregate.totalDurationS}
+      />
+
+      {/* RECORD */}
+      <section className="grid grid-cols-1 gap-4 md:grid-cols-3">
+        <div className="md:col-span-2" />
+
+        <aside className="rounded-2xl border border-white/5 bg-[#13131a] p-4">
           <h2 className="text-sm font-medium text-neutral-300">Record</h2>
           <p className="mt-2 text-2xl font-semibold">
             {fighter.record_wins}
@@ -243,7 +264,7 @@ export default function FighterPage({ params }: { params: { id: string } }) {
             </p>
           )}
         </aside>
-      </header>
+      </section>
 
       {/* PHYSICAL + PROFESSIONAL */}
       <section className="grid grid-cols-1 gap-4 md:grid-cols-2">
@@ -490,6 +511,7 @@ export default function FighterPage({ params }: { params: { id: string } }) {
         <ConfirmModal
           title="Delete this fighter?"
           body={`This also deletes all of ${fighter.name}'s sessions, captured pose data, uploaded videos, weigh-ins, and detected events. Cannot be undone.`}
+          requireTyped={fighter.name}
           onCancel={() => setConfirmDeleteFighter(false)}
           onConfirm={deleteFighter}
         />
@@ -583,29 +605,52 @@ function BestList({
 function ConfirmModal({
   title,
   body,
+  requireTyped,
   onCancel,
   onConfirm,
 }: {
   title: string;
   body: string;
+  requireTyped?: string;
   onCancel: () => void;
   onConfirm: () => void;
 }) {
+  const [typed, setTyped] = useState("");
+  const enabled = !requireTyped || typed === requireTyped;
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 p-4">
-      <div className="w-full max-w-md rounded-lg border border-neutral-800 bg-neutral-950 p-5 shadow-xl">
+      <div className="w-full max-w-md rounded-2xl border border-white/5 bg-[#13131a] p-5 shadow-xl">
         <h3 className="font-medium">{title}</h3>
         <p className="mt-2 text-sm text-neutral-400">{body}</p>
+        {requireTyped && (
+          <div className="mt-3">
+            <label className="text-xs text-neutral-400">
+              Type <span className="font-mono text-red-300">{requireTyped}</span> to
+              confirm
+            </label>
+            <input
+              autoFocus
+              value={typed}
+              onChange={(e) => setTyped(e.target.value)}
+              onKeyDown={(e) => {
+                if (e.key === "Enter" && enabled) onConfirm();
+              }}
+              className="mt-1 w-full rounded-xl border border-white/5 bg-black/30 px-3 py-2 text-sm focus:border-red-500/50 focus:outline-none"
+              placeholder={requireTyped}
+            />
+          </div>
+        )}
         <div className="mt-4 flex justify-end gap-2">
           <button
             onClick={onCancel}
-            className="rounded bg-neutral-700 px-3 py-1.5 text-sm hover:bg-neutral-600"
+            className="rounded-xl bg-neutral-800 px-3 py-1.5 text-sm hover:bg-neutral-700"
           >
             Cancel
           </button>
           <button
             onClick={onConfirm}
-            className="rounded bg-red-600 px-3 py-1.5 text-sm font-medium hover:bg-red-500"
+            disabled={!enabled}
+            className="rounded-xl bg-red-600 px-3 py-1.5 text-sm font-medium hover:bg-red-500 disabled:cursor-not-allowed disabled:bg-red-900/40 disabled:text-red-300/50"
           >
             Delete
           </button>

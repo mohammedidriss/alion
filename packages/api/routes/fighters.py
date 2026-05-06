@@ -2,18 +2,21 @@
 
 from __future__ import annotations
 
-from datetime import date
+from datetime import date, datetime
 from uuid import UUID
 
 from fastapi import APIRouter, Depends, HTTPException, status
 from pydantic import BaseModel
 from sqlmodel import Session as DBSession
 
-from api.deps import db_session, fighter_repo
+from analyze import compute_score
+from api.deps import db_session, fighter_repo, punch_event_repo, session_repo
 from store import (
     WEIGHT_CLASSES,
     FighterRepo,
     HandEnum,
+    PunchEventRepo,
+    SessionRepo,
     SkillLevel,
     Stance,
     WeighInCreate,
@@ -145,3 +148,90 @@ def delete_weigh_in(
         raise HTTPException(status_code=404, detail="fighter not found")
     if not WeighInRepo(db).delete(weigh_in_id):
         raise HTTPException(status_code=404, detail="weigh-in not found")
+
+
+class MatrixPoint(BaseModel):
+    session_id: UUID
+    started_at: datetime
+    baseline_rmssd_ms: float
+    baseline_sdnn_ms: float | None = None
+    baseline_mean_hr_bpm: float | None = None
+    peak_velocity_p90: float
+    ppm: float
+    duration_min: float
+    score: float
+    punch_count: int
+
+
+class MatrixResponse(BaseModel):
+    fighter_id: UUID
+    points: list[MatrixPoint]
+    pearson_r: float | None = None
+    slope: float | None = None
+    intercept: float | None = None
+
+
+def _pearson(xs: list[float], ys: list[float]) -> tuple[float | None, float | None, float | None]:
+    n = len(xs)
+    if n < 3:
+        return None, None, None
+    mx = sum(xs) / n
+    my = sum(ys) / n
+    sxx = sum((x - mx) ** 2 for x in xs)
+    syy = sum((y - my) ** 2 for y in ys)
+    sxy = sum((x - mx) * (y - my) for x, y in zip(xs, ys, strict=True))
+    if sxx == 0 or syy == 0:
+        return None, None, None
+    r = sxy / (sxx**0.5 * syy**0.5)
+    slope = sxy / sxx
+    intercept = my - slope * mx
+    return round(r, 4), round(slope, 4), round(intercept, 4)
+
+
+@router.get("/{fighter_id}/matrix", response_model=MatrixResponse)
+def fighter_matrix(
+    fighter_id: UUID,
+    fighters: FighterRepo = Depends(fighter_repo),
+    sessions: SessionRepo = Depends(session_repo),
+    events: PunchEventRepo = Depends(punch_event_repo),
+) -> MatrixResponse:
+    """Per-session points joining resting HRV baseline with CV performance.
+
+    Returns only sessions that have BOTH a baseline RMSSD and at least one
+    detected punch — i.e. enough data to be a usable scatter point.
+    """
+    if fighters.get(fighter_id) is None:
+        raise HTTPException(status_code=404, detail="fighter not found")
+    rows = sessions.list_for_fighter(fighter_id)
+    points: list[MatrixPoint] = []
+    for s in rows:
+        if s.baseline_rmssd_ms is None:
+            continue
+        ev = events.list_for_session(s.id)
+        if not ev:
+            continue
+        score = compute_score([e.velocity_ms for e in ev], s.duration_ms)
+        points.append(
+            MatrixPoint(
+                session_id=s.id,
+                started_at=s.started_at,
+                baseline_rmssd_ms=s.baseline_rmssd_ms,
+                baseline_sdnn_ms=s.baseline_sdnn_ms,
+                baseline_mean_hr_bpm=s.baseline_mean_hr_bpm,
+                peak_velocity_p90=score.peak_velocity_p90,
+                ppm=score.ppm,
+                duration_min=score.duration_min,
+                score=score.score,
+                punch_count=len(ev),
+            )
+        )
+    xs = [p.baseline_rmssd_ms for p in points]
+    ys = [p.score for p in points]
+    r, slope, intercept = _pearson(xs, ys)
+    return MatrixResponse(
+        fighter_id=fighter_id,
+        points=points,
+        pearson_r=r,
+        slope=slope,
+        intercept=intercept,
+    )

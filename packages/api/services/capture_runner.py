@@ -39,6 +39,7 @@ log = get_logger(__name__)
 
 _active_jobs: dict[UUID, threading.Thread] = {}
 _stop_events: dict[UUID, threading.Event] = {}
+_pause_events: dict[UUID, threading.Event] = {}
 _preview_frames: dict[UUID, bytes] = {}  # latest JPEG, written by capture thread
 _active_lock = threading.Lock()
 
@@ -100,7 +101,38 @@ def request_stop(session_id: UUID) -> bool:
         if ev is None:
             return False
         ev.set()
+        # If we were paused, unpause first so the loop can see the stop flag
+        # and exit cleanly instead of sleeping forever.
+        pause = _pause_events.get(session_id)
+        if pause is not None and not pause.is_set():
+            pause.set()
         return True
+
+
+def request_pause(session_id: UUID) -> bool:
+    """Request the running capture to pause at the next frame boundary."""
+    with _active_lock:
+        ev = _pause_events.get(session_id)
+        if ev is None:
+            return False
+        ev.clear()  # clear = paused (the run-loop blocks on .wait())
+        return True
+
+
+def request_resume(session_id: UUID) -> bool:
+    """Resume a paused capture."""
+    with _active_lock:
+        ev = _pause_events.get(session_id)
+        if ev is None:
+            return False
+        ev.set()  # set = running
+        return True
+
+
+def is_paused(session_id: UUID) -> bool:
+    with _active_lock:
+        ev = _pause_events.get(session_id)
+        return ev is not None and not ev.is_set()
 
 
 def _run_capture(
@@ -111,6 +143,7 @@ def _run_capture(
     db_factory: DBFactory,
     max_frames: int | None,
     stop_event: threading.Event,
+    pause_event: threading.Event,
     stance: str | None = None,
     camera_index: int = 0,
 ) -> None:
@@ -191,6 +224,15 @@ def _run_capture(
         with db_factory() as db:
             SessionRepo(db).update_status(session_id, SessionStatus.CAPTURING)
 
+        # The pipeline checks `should_stop` each frame; we use it as a
+        # combined "block-while-paused, return-true-to-quit" signal so the
+        # capture thread can pause without spinning.
+        def should_stop_or_pause() -> bool:
+            # Block here while paused. Returns immediately if the pause
+            # event is set (running) or wakes up when set/closed.
+            pause_event.wait()
+            return stop_event.is_set()
+
         pipeline = CapturePipeline(
             session_id=session_id,
             source=source,
@@ -198,7 +240,7 @@ def _run_capture(
             on_frame=on_frame,
             on_raw_frame=on_raw_frame,
             max_frames=max_frames,
-            should_stop=stop_event.is_set,
+            should_stop=should_stop_or_pause,
         )
         result = pipeline.run()
 
@@ -254,6 +296,7 @@ def _run_capture(
         with _active_lock:
             _active_jobs.pop(session_id, None)
             _stop_events.pop(session_id, None)
+            _pause_events.pop(session_id, None)
             _preview_frames.pop(session_id, None)
 
 
@@ -272,7 +315,10 @@ def start_capture(
         if session_id in _active_jobs and _active_jobs[session_id].is_alive():
             return False
         stop_event = threading.Event()
+        pause_event = threading.Event()
+        pause_event.set()  # set = running; clear = paused (the loop blocks on .wait())
         _stop_events[session_id] = stop_event
+        _pause_events[session_id] = pause_event
         t = threading.Thread(
             target=_run_capture,
             args=(session_id, source_kind),
@@ -281,6 +327,7 @@ def start_capture(
                 "db_factory": db_factory,
                 "max_frames": max_frames,
                 "stop_event": stop_event,
+                "pause_event": pause_event,
                 "stance": stance,
                 "camera_index": camera_index,
             },
@@ -308,6 +355,8 @@ def run_capture_sync(
     def factory() -> Iterator[DBSession]:
         yield db
 
+    pause = threading.Event()
+    pause.set()  # never paused in sync mode
     _run_capture(
         session_id,
         source_kind,
@@ -315,4 +364,5 @@ def run_capture_sync(
         db_factory=factory,
         max_frames=max_frames,
         stop_event=threading.Event(),
+        pause_event=pause,
     )

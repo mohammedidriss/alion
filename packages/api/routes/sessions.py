@@ -3,18 +3,24 @@
 from __future__ import annotations
 
 import asyncio
+import csv
+import io
+import tempfile
 from collections.abc import AsyncIterator, Iterator
 from contextlib import contextmanager
 from pathlib import Path
 from uuid import UUID
 
 from fastapi import APIRouter, Depends, File, HTTPException, UploadFile, status
-from fastapi.responses import StreamingResponse
+from fastapi.responses import Response, StreamingResponse
 from pydantic import BaseModel
 from sqlmodel import Session as DBSession
 
+from analyze import compute_score, mean_hr_bpm, rmssd_ms, sdnn_ms
 from api.deps import db_session, punch_event_repo, session_repo
 from api.services import capture_runner
+from capture.hrv import parse_rr_csv
+from contracts import HRSample
 from store import (
     PunchEventRepo,
     SessionRepo,
@@ -41,6 +47,7 @@ class CaptureStatusResponse(BaseModel):
     session_id: UUID
     status: SessionStatus
     is_running: bool
+    is_paused: bool = False
     frame_count: int
     duration_ms: float
     punch_count: int
@@ -109,6 +116,42 @@ def upload_video(
     updated = repo.attach_artifacts(session_id, video_path=str(dest))
     assert updated is not None
     return SessionRead.model_validate(updated, from_attributes=True)
+
+
+@router.post("/{session_id}/capture/reprocess", response_model=CaptureStatusResponse)
+def reprocess_capture_route(
+    session_id: UUID,
+    body: CaptureStartRequest | None = None,
+    repo: SessionRepo = Depends(session_repo),
+    events: PunchEventRepo = Depends(punch_event_repo),
+    db: DBSession = Depends(db_session),
+) -> CaptureStatusResponse:
+    """Re-run the pipeline on an already-uploaded video. Wipes prior events
+    so the new run replaces them. Useful for re-tuning the detector.
+    """
+    row = repo.get(session_id)
+    if row is None:
+        raise HTTPException(status_code=404, detail="session not found")
+    if row.source != SessionSourceEnum.UPLOADED_VIDEO or not row.video_path:
+        raise HTTPException(
+            status_code=400, detail="reprocess only available for uploaded_video sessions"
+        )
+    if capture_runner.is_running(session_id):
+        raise HTTPException(status_code=409, detail="capture already running")
+
+    # Wipe previous detections so the new run is the source of truth.
+    from sqlmodel import delete as sqlmodel_delete
+
+    from store import PunchEventRow
+
+    db.exec(
+        sqlmodel_delete(PunchEventRow).where(PunchEventRow.session_id == session_id)  # type: ignore[arg-type]
+    )
+    repo.update_status(session_id, SessionStatus.PENDING)
+    db.commit()
+
+    # Reuse the same flow as start_capture_route by routing through it.
+    return start_capture_route(session_id=session_id, body=body, repo=repo, events=events, db=db)
 
 
 @router.post("/{session_id}/capture/start", response_model=CaptureStatusResponse)
@@ -191,6 +234,48 @@ def stop_capture_route(
     )
 
 
+@router.post("/{session_id}/capture/pause", response_model=CaptureStatusResponse)
+def pause_capture_route(
+    session_id: UUID,
+    repo: SessionRepo = Depends(session_repo),
+    events: PunchEventRepo = Depends(punch_event_repo),
+) -> CaptureStatusResponse:
+    row = repo.get(session_id)
+    if row is None:
+        raise HTTPException(status_code=404, detail="session not found")
+    if not capture_runner.request_pause(session_id):
+        raise HTTPException(status_code=409, detail="no capture running")
+    return CaptureStatusResponse(
+        session_id=session_id,
+        status=row.status,
+        is_running=True,
+        frame_count=row.frame_count,
+        duration_ms=row.duration_ms,
+        punch_count=events.count_for_session(session_id),
+    )
+
+
+@router.post("/{session_id}/capture/resume", response_model=CaptureStatusResponse)
+def resume_capture_route(
+    session_id: UUID,
+    repo: SessionRepo = Depends(session_repo),
+    events: PunchEventRepo = Depends(punch_event_repo),
+) -> CaptureStatusResponse:
+    row = repo.get(session_id)
+    if row is None:
+        raise HTTPException(status_code=404, detail="session not found")
+    if not capture_runner.request_resume(session_id):
+        raise HTTPException(status_code=409, detail="no capture running")
+    return CaptureStatusResponse(
+        session_id=session_id,
+        status=row.status,
+        is_running=True,
+        frame_count=row.frame_count,
+        duration_ms=row.duration_ms,
+        punch_count=events.count_for_session(session_id),
+    )
+
+
 @router.get("/{session_id}/capture/status", response_model=CaptureStatusResponse)
 def capture_status(
     session_id: UUID,
@@ -204,6 +289,7 @@ def capture_status(
         session_id=session_id,
         status=row.status,
         is_running=capture_runner.is_running(session_id),
+        is_paused=capture_runner.is_paused(session_id),
         frame_count=row.frame_count,
         duration_ms=row.duration_ms,
         punch_count=events.count_for_session(session_id),
@@ -261,3 +347,160 @@ def list_events(
 ) -> list[PunchEventRead]:
     rows = events.list_for_session(session_id)
     return [PunchEventRead.model_validate(r, from_attributes=True) for r in rows]
+
+
+@router.get("/{session_id}/events.csv")
+def export_events_csv(
+    session_id: UUID,
+    events: PunchEventRepo = Depends(punch_event_repo),
+    repo: SessionRepo = Depends(session_repo),
+) -> Response:
+    """Download punch events as a CSV — one row per event, header included.
+
+    Columns are stable: index, t_ms, time_iso, hand, lead_or_rear,
+    punch_type, velocity_ms, velocity_source, confidence, detected_by.
+    """
+    sess = repo.get(session_id)
+    if sess is None:
+        raise HTTPException(status_code=404, detail="session not found")
+    rows = events.list_for_session(session_id)
+
+    buf = io.StringIO()
+    writer = csv.writer(buf)
+    writer.writerow(
+        [
+            "index",
+            "t_ms",
+            "time_iso",
+            "hand",
+            "lead_or_rear",
+            "punch_type",
+            "velocity_ms",
+            "velocity_source",
+            "confidence",
+            "detected_by",
+        ]
+    )
+    from datetime import UTC, datetime
+
+    started_ms = sess.started_at.timestamp() * 1000.0
+    for i, r in enumerate(rows):
+        iso = datetime.fromtimestamp((started_ms + r.t_ms) / 1000.0, tz=UTC).isoformat()
+        writer.writerow(
+            [
+                i + 1,
+                f"{r.t_ms:.2f}",
+                iso,
+                r.hand.value,
+                r.lead_or_rear.value if r.lead_or_rear else "",
+                r.punch_type.value if r.punch_type else "",
+                f"{r.velocity_ms:.2f}",
+                r.velocity_source.value,
+                f"{r.confidence:.2f}",
+                r.detected_by.value,
+            ]
+        )
+
+    return Response(
+        content=buf.getvalue(),
+        media_type="text/csv",
+        headers={"Content-Disposition": f'attachment; filename="alion-{session_id}-events.csv"'},
+    )
+
+
+class SessionAnnotation(BaseModel):
+    notes: str | None = None
+
+
+@router.patch("/{session_id}", response_model=SessionRead)
+def annotate_session(
+    session_id: UUID,
+    data: SessionAnnotation,
+    repo: SessionRepo = Depends(session_repo),
+    db: DBSession = Depends(db_session),
+) -> SessionRead:
+    """Update free-form session notes (Phase 1: just notes; Phase 7 adds tags)."""
+    row = repo.get(session_id)
+    if row is None:
+        raise HTTPException(status_code=404, detail="session not found")
+    row.notes = data.notes
+    db.add(row)
+    db.commit()
+    db.refresh(row)
+    return SessionRead.model_validate(row, from_attributes=True)
+
+
+class PerformanceResponse(BaseModel):
+    session_id: UUID
+    peak_velocity_p90: float
+    ppm: float
+    duration_min: float
+    score: float
+    punch_count: int
+    baseline_rmssd_ms: float | None = None
+    baseline_sdnn_ms: float | None = None
+    baseline_mean_hr_bpm: float | None = None
+
+
+@router.post("/{session_id}/baseline/upload", response_model=SessionRead)
+async def upload_baseline(
+    session_id: UUID,
+    file: UploadFile = File(...),
+    repo: SessionRepo = Depends(session_repo),
+) -> SessionRead:
+    """Upload a 5-min resting RR-interval CSV; computes RMSSD/SDNN/mean HR
+    over the whole file and persists them on the session."""
+    if repo.get(session_id) is None:
+        raise HTTPException(status_code=404, detail="session not found")
+    body = await file.read()
+    if not body:
+        raise HTTPException(status_code=400, detail="empty upload")
+    # parse_rr_csv reads from a Path — write to a temp file.
+    with tempfile.NamedTemporaryFile(suffix=".csv", delete=False) as tmp:
+        tmp.write(body)
+        tmp_path = Path(tmp.name)
+    try:
+        samples = parse_rr_csv(tmp_path)
+    except Exception as e:
+        raise HTTPException(status_code=400, detail=f"invalid RR CSV: {e}") from e
+    finally:
+        tmp_path.unlink(missing_ok=True)
+    if len(samples) < 4:
+        raise HTTPException(status_code=400, detail="need at least 4 RR intervals")
+    hr_samples = [
+        HRSample(session_id=session_id, t_ms=t, rr_ms=rr, hr_bpm=60_000.0 / rr)
+        for t, rr in samples
+    ]
+    row = repo.attach_baseline(
+        session_id,
+        rmssd_ms=round(rmssd_ms(hr_samples), 2),
+        sdnn_ms=round(sdnn_ms(hr_samples), 2),
+        mean_hr_bpm=round(mean_hr_bpm(hr_samples), 2),
+    )
+    assert row is not None
+    return SessionRead.model_validate(row, from_attributes=True)
+
+
+@router.get("/{session_id}/performance", response_model=PerformanceResponse)
+def session_performance(
+    session_id: UUID,
+    sessions: SessionRepo = Depends(session_repo),
+    events: PunchEventRepo = Depends(punch_event_repo),
+) -> PerformanceResponse:
+    row = sessions.get(session_id)
+    if row is None:
+        raise HTTPException(status_code=404, detail="session not found")
+    rows = events.list_for_session(session_id)
+    velocities = [e.velocity_ms for e in rows]
+    score = compute_score(velocities, row.duration_ms)
+    return PerformanceResponse(
+        session_id=session_id,
+        peak_velocity_p90=score.peak_velocity_p90,
+        ppm=score.ppm,
+        duration_min=score.duration_min,
+        score=score.score,
+        punch_count=len(rows),
+        baseline_rmssd_ms=row.baseline_rmssd_ms,
+        baseline_sdnn_ms=row.baseline_sdnn_ms,
+        baseline_mean_hr_bpm=row.baseline_mean_hr_bpm,
+    )

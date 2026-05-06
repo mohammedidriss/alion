@@ -28,6 +28,9 @@ export default function SessionPage({ params }: { params: { id: string } }) {
   const [confirmDelete, setConfirmDelete] = useState(false);
   const [cameras, setCameras] = useState<Camera[]>([]);
   const [cameraIndex, setCameraIndex] = useState<number>(0);
+  const [notesDraft, setNotesDraft] = useState<string>("");
+  const [notesDirty, setNotesDirty] = useState(false);
+  const [baselineUploading, setBaselineUploading] = useState(false);
 
   const refresh = async () => {
     try {
@@ -39,6 +42,9 @@ export default function SessionPage({ params }: { params: { id: string } }) {
       setSession(s);
       setStatus(st);
       setEvents(ev);
+      // Only sync notes from the server if the user hasn't typed unsaved
+      // changes in the textarea.
+      if (!notesDirty) setNotesDraft(s.notes ?? "");
     } catch (e) {
       setErr(String(e));
     }
@@ -82,6 +88,55 @@ export default function SessionPage({ params }: { params: { id: string } }) {
   const stop = async () => {
     try {
       await api.stopCapture(id);
+      await refresh();
+    } catch (e) {
+      setErr(String(e));
+    }
+  };
+
+  const pause = async () => {
+    try {
+      await api.pauseCapture(id);
+      await refresh();
+    } catch (e) {
+      setErr(String(e));
+    }
+  };
+
+  const resume = async () => {
+    try {
+      await api.resumeCapture(id);
+      await refresh();
+    } catch (e) {
+      setErr(String(e));
+    }
+  };
+
+  const reprocess = async () => {
+    try {
+      await api.reprocessCapture(id);
+      await refresh();
+    } catch (e) {
+      setErr(String(e));
+    }
+  };
+
+  const uploadBaseline = async (file: File) => {
+    setBaselineUploading(true);
+    try {
+      await api.uploadBaseline(id, file);
+      await refresh();
+    } catch (e) {
+      setErr(String(e));
+    } finally {
+      setBaselineUploading(false);
+    }
+  };
+
+  const saveNotes = async () => {
+    try {
+      await api.annotateSession(id, notesDraft);
+      setNotesDirty(false);
       await refresh();
     } catch (e) {
       setErr(String(e));
@@ -187,14 +242,80 @@ export default function SessionPage({ params }: { params: { id: string } }) {
         </div>
       )}
 
-      <section className="grid grid-cols-3 gap-3">
+      <section className="grid grid-cols-2 gap-3 sm:grid-cols-4">
         <Stat label="Frames" value={status?.frame_count ?? 0} />
         <Stat
           label="Duration"
           value={`${((status?.duration_ms ?? 0) / 1000).toFixed(1)}s`}
         />
         <Stat label="Punches" value={status?.punch_count ?? 0} />
+        <Stat
+          label="Punches / min"
+          value={(() => {
+            const ms = status?.duration_ms ?? 0;
+            const n = status?.punch_count ?? 0;
+            if (!ms || !n) return "—";
+            const ppm = (n / (ms / 1000)) * 60;
+            return ppm.toFixed(0);
+          })()}
+        />
       </section>
+
+      {events.length > 0 &&
+        (() => {
+          const hardest = events.reduce(
+            (m, e) => (e.velocity_ms > m.velocity_ms ? e : m),
+            events[0],
+          );
+          return (
+            <section className="rounded-lg border border-amber-700/40 bg-gradient-to-br from-amber-950/30 to-neutral-950 p-4">
+              <div className="flex items-baseline justify-between">
+                <h2 className="font-medium text-amber-200">Hardest punch</h2>
+                <span className="text-xs text-neutral-500">
+                  {formatPunchTime(session.started_at, hardest.t_ms)}
+                </span>
+              </div>
+              <div className="mt-3 flex items-baseline gap-3">
+                <span className="text-4xl font-bold tabular-nums text-amber-100">
+                  {hardest.velocity_ms.toFixed(2)}
+                </span>
+                <span className="text-sm text-neutral-400">m/s</span>
+              </div>
+              <div className="mt-2 flex flex-wrap gap-x-4 gap-y-1 text-xs text-neutral-400">
+                <span>
+                  hand:{" "}
+                  <span
+                    className={
+                      hardest.hand === "left" ? "text-amber-300" : "text-sky-300"
+                    }
+                  >
+                    {hardest.hand}
+                  </span>
+                </span>
+                {hardest.punch_type && <span>type: {hardest.punch_type}</span>}
+                {hardest.lead_or_rear && <span>{hardest.lead_or_rear}</span>}
+                <span>conf: {hardest.confidence.toFixed(2)}</span>
+              </div>
+            </section>
+          );
+        })()}
+
+      {events.length >= 5 &&
+        (() => {
+          const meanConf =
+            events.reduce((s, e) => s + e.confidence, 0) / events.length;
+          if (meanConf >= 0.7) return null;
+          return (
+            <div className="rounded-lg border border-amber-700/60 bg-amber-950/40 p-3 text-sm">
+              <p className="font-medium text-amber-200">Low pose quality</p>
+              <p className="mt-1 text-xs text-amber-100/80">
+                Mean detection confidence is {meanConf.toFixed(2)} (threshold
+                0.70). Try better lighting, framing the full upper body, or
+                moving closer to the camera for more reliable detections.
+              </p>
+            </div>
+          );
+        })()}
 
       {(session.status === "capturing" || session.status === "processing") && (
         <section className="rounded-lg border border-neutral-800 p-4">
@@ -268,12 +389,32 @@ export default function SessionPage({ params }: { params: { id: string } }) {
       )}
 
       {(session.status === "capturing" || session.status === "processing") && (
-        <button
-          onClick={stop}
-          className="rounded bg-red-600 px-4 py-2 font-medium hover:bg-red-500"
-        >
-          Stop capture
-        </button>
+        <div className="flex flex-wrap gap-2">
+          {status?.is_paused ? (
+            <button
+              onClick={resume}
+              className="rounded bg-emerald-600 px-4 py-2 font-medium hover:bg-emerald-500"
+            >
+              Resume
+            </button>
+          ) : (
+            <button
+              onClick={pause}
+              className="rounded bg-amber-600 px-4 py-2 font-medium hover:bg-amber-500"
+            >
+              Pause
+            </button>
+          )}
+          <button
+            onClick={stop}
+            className="rounded bg-red-600 px-4 py-2 font-medium hover:bg-red-500"
+          >
+            Stop capture
+          </button>
+          {status?.is_paused && (
+            <span className="self-center text-xs text-amber-300">paused</span>
+          )}
+        </div>
       )}
 
       {(session.source === "polar_h10_only" ||
@@ -304,6 +445,125 @@ export default function SessionPage({ params }: { params: { id: string } }) {
           <div className="mt-3">
             <VelocityHistogram events={events} />
           </div>
+        </section>
+      )}
+
+      <section className="rounded-lg border border-neutral-800 p-4">
+        <h2 className="font-medium">Pre-session HRV baseline</h2>
+        <p className="mt-1 text-xs text-neutral-500">
+          Upload a 5-min resting RR-interval CSV (single column{" "}
+          <code className="rounded bg-neutral-900 px-1 font-mono">rr_ms</code>{" "}
+          or two columns{" "}
+          <code className="rounded bg-neutral-900 px-1 font-mono">
+            t_ms,rr_ms
+          </code>
+          ) recorded just before warmup. Used as the readiness signal in the
+          fighter performance matrix.
+        </p>
+        {session.baseline_rmssd_ms != null ? (
+          <div className="mt-3 flex flex-wrap gap-3 text-sm">
+            <span className="rounded bg-emerald-900/40 px-2 py-1 text-emerald-200">
+              RMSSD {session.baseline_rmssd_ms.toFixed(1)} ms
+            </span>
+            <span className="rounded bg-emerald-900/40 px-2 py-1 text-emerald-200">
+              SDNN {session.baseline_sdnn_ms?.toFixed(1) ?? "—"} ms
+            </span>
+            <span className="rounded bg-emerald-900/40 px-2 py-1 text-emerald-200">
+              Mean HR {session.baseline_mean_hr_bpm?.toFixed(0) ?? "—"} bpm
+            </span>
+            {session.baseline_recorded_at && (
+              <span className="self-center text-xs text-neutral-500">
+                recorded{" "}
+                {new Date(session.baseline_recorded_at).toLocaleString()}
+              </span>
+            )}
+          </div>
+        ) : session.status === "pending" ? (
+          <input
+            type="file"
+            accept=".csv,text/csv"
+            disabled={baselineUploading}
+            onChange={(e) =>
+              e.target.files?.[0] && uploadBaseline(e.target.files[0])
+            }
+            className="mt-3 w-full text-sm"
+          />
+        ) : (
+          <p className="mt-3 text-sm text-neutral-500">
+            No baseline recorded for this session.
+          </p>
+        )}
+      </section>
+
+      <section className="rounded-lg border border-neutral-800 p-4">
+        <h2 className="font-medium">Notes &amp; tags</h2>
+        <p className="mt-1 text-xs text-neutral-500">
+          Free-form notes for this session. Useful tags: shadowboxing, bag,
+          mitts, sparring.
+        </p>
+        <textarea
+          rows={3}
+          value={notesDraft}
+          onChange={(e) => {
+            setNotesDraft(e.target.value);
+            setNotesDirty(true);
+          }}
+          placeholder="e.g. shadowboxing — focus on jab footwork"
+          className="mt-2 w-full rounded bg-neutral-900 p-2 text-sm"
+        />
+        <div className="mt-2 flex items-center gap-2">
+          <button
+            onClick={saveNotes}
+            disabled={!notesDirty}
+            className="rounded bg-emerald-600 px-3 py-1.5 text-sm font-medium hover:bg-emerald-500 disabled:bg-neutral-700 disabled:text-neutral-400"
+          >
+            {notesDirty ? "Save notes" : "Saved"}
+          </button>
+          {notesDirty && (
+            <button
+              onClick={() => {
+                setNotesDraft(session.notes ?? "");
+                setNotesDirty(false);
+              }}
+              className="text-xs text-neutral-400 hover:text-neutral-100"
+            >
+              Discard
+            </button>
+          )}
+        </div>
+      </section>
+
+      {events.length > 0 && (
+        <section className="rounded-lg border border-neutral-800 p-4">
+          <div className="flex flex-wrap items-center justify-between gap-2">
+            <h2 className="font-medium">Export</h2>
+            <a
+              href={api.eventsCsvUrl(id)}
+              download={`alion-${id}-events.csv`}
+              className="rounded bg-neutral-800 px-3 py-1.5 text-sm hover:bg-neutral-700"
+            >
+              Download events CSV
+            </a>
+          </div>
+          {session.source === "uploaded_video" && session.video_path && (
+            <div className="mt-3 flex items-center gap-2">
+              <button
+                onClick={reprocess}
+                disabled={
+                  session.status === "capturing" ||
+                  session.status === "processing"
+                }
+                className="rounded bg-neutral-800 px-3 py-1.5 text-sm hover:bg-neutral-700 disabled:cursor-not-allowed disabled:bg-neutral-900 disabled:text-neutral-600"
+                title="Re-runs the pipeline on the uploaded video. Existing events are wiped first."
+              >
+                Re-process video
+              </button>
+              <span className="text-xs text-neutral-500">
+                Re-runs detection on the uploaded video. Existing events are
+                replaced.
+              </span>
+            </div>
+          )}
         </section>
       )}
 

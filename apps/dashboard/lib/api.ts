@@ -112,6 +112,43 @@ export interface Session {
   duration_ms: number;
   notes: string | null;
   failure_reason: string | null;
+  baseline_rmssd_ms: number | null;
+  baseline_sdnn_ms: number | null;
+  baseline_mean_hr_bpm: number | null;
+  baseline_recorded_at: string | null;
+}
+
+export interface PerformanceScore {
+  session_id: string;
+  peak_velocity_p90: number;
+  ppm: number;
+  duration_min: number;
+  score: number;
+  punch_count: number;
+  baseline_rmssd_ms: number | null;
+  baseline_sdnn_ms: number | null;
+  baseline_mean_hr_bpm: number | null;
+}
+
+export interface MatrixPoint {
+  session_id: string;
+  started_at: string;
+  baseline_rmssd_ms: number;
+  baseline_sdnn_ms: number | null;
+  baseline_mean_hr_bpm: number | null;
+  peak_velocity_p90: number;
+  ppm: number;
+  duration_min: number;
+  score: number;
+  punch_count: number;
+}
+
+export interface MatrixResponse {
+  fighter_id: string;
+  points: MatrixPoint[];
+  pearson_r: number | null;
+  slope: number | null;
+  intercept: number | null;
 }
 
 export interface Capabilities {
@@ -149,6 +186,7 @@ export interface CaptureStatus {
   session_id: string;
   status: SessionStatus;
   is_running: boolean;
+  is_paused?: boolean;
   frame_count: number;
   duration_ms: number;
   punch_count: number;
@@ -253,7 +291,34 @@ export const api = {
   listCameras: () => req<CamerasResponse>("/cameras"),
   stopCapture: (id: string) =>
     req<CaptureStatus>(`/sessions/${id}/capture/stop`, { method: "POST" }),
+  pauseCapture: (id: string) =>
+    req<CaptureStatus>(`/sessions/${id}/capture/pause`, { method: "POST" }),
+  resumeCapture: (id: string) =>
+    req<CaptureStatus>(`/sessions/${id}/capture/resume`, { method: "POST" }),
+  reprocessCapture: (id: string) =>
+    req<CaptureStatus>(`/sessions/${id}/capture/reprocess`, { method: "POST" }),
+  annotateSession: (id: string, notes: string | null) =>
+    req<Session>(`/sessions/${id}`, {
+      method: "PATCH",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ notes }),
+    }),
+  eventsCsvUrl: (id: string) => `${BASE}/sessions/${id}/events.csv`,
   captureStatus: (id: string) =>
     req<CaptureStatus>(`/sessions/${id}/capture/status`),
   listEvents: (id: string) => req<PunchEvent[]>(`/sessions/${id}/events`),
+  uploadBaseline: async (id: string, file: File) => {
+    const fd = new FormData();
+    fd.append("file", file);
+    const r = await fetch(`${BASE}/sessions/${id}/baseline/upload`, {
+      method: "POST",
+      body: fd,
+    });
+    if (!r.ok) throw new Error(`${r.status} ${await r.text()}`);
+    return r.json() as Promise<Session>;
+  },
+  sessionPerformance: (id: string) =>
+    req<PerformanceScore>(`/sessions/${id}/performance`),
+  fighterMatrix: (id: string) =>
+    req<MatrixResponse>(`/fighters/${id}/matrix`),
 };
