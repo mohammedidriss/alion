@@ -52,10 +52,94 @@ export interface Fighter {
   boxrec_id: string | null;
   usa_boxing_id: string | null;
   notes: string | null;
+  photo_path: string | null;
   created_at: string;
 }
 
 export type FighterPatch = Partial<Omit<Fighter, "id" | "created_at">>;
+
+export interface Coach {
+  id: string;
+  name: string;
+  photo_path: string | null;
+  gym: string | null;
+  specialties: string | null;
+  years_experience: number | null;
+  bio: string | null;
+  notes: string | null;
+  created_at: string;
+}
+
+export type CoachPatch = Partial<Omit<Coach, "id" | "created_at">>;
+
+export interface Referee {
+  id: string;
+  name: string;
+  photo_path: string | null;
+  license_number: string | null;
+  sanctioning_body: string | null;
+  license_expiry: string | null;
+  bio: string | null;
+  notes: string | null;
+  created_at: string;
+}
+
+export type RefereePatch = Partial<Omit<Referee, "id" | "created_at">>;
+
+export type AllergySeverity = "mild" | "moderate" | "severe" | "anaphylactic";
+export type ConditionStatus = "active" | "managed" | "recovered";
+
+export interface MedicalRecord {
+  fighter_id: string;
+  blood_type: string | null;
+  last_clearance_date: string | null;
+  clearing_physician: string | null;
+  primary_physician: string | null;
+  primary_physician_phone: string | null;
+  emergency_contact_name: string | null;
+  emergency_contact_relation: string | null;
+  emergency_contact_phone: string | null;
+  insurance_provider: string | null;
+  insurance_policy: string | null;
+  notes: string | null;
+  updated_at: string;
+}
+
+export type MedicalRecordPatch = Partial<
+  Omit<MedicalRecord, "fighter_id" | "updated_at">
+>;
+
+export interface Allergy {
+  id: number;
+  fighter_id: string;
+  substance: string;
+  severity: AllergySeverity;
+  notes: string | null;
+  created_at: string;
+}
+
+export interface Medication {
+  id: number;
+  fighter_id: string;
+  name: string;
+  dose: string | null;
+  frequency: string | null;
+  started_on: string | null;
+  prescribed_by: string | null;
+  is_active: boolean;
+  notes: string | null;
+  created_at: string;
+}
+
+export interface MedicalCondition {
+  id: number;
+  fighter_id: string;
+  name: string;
+  diagnosed_on: string | null;
+  status: ConditionStatus;
+  notes: string | null;
+  created_at: string;
+}
 
 export interface WeighIn {
   id: number;
@@ -321,4 +405,144 @@ export const api = {
     req<PerformanceScore>(`/sessions/${id}/performance`),
   fighterMatrix: (id: string) =>
     req<MatrixResponse>(`/fighters/${id}/matrix`),
+
+  // ---- Coaches ----
+  listCoaches: () => req<Coach[]>("/coaches"),
+  getCoach: (id: string) => req<Coach>(`/coaches/${id}`),
+  createCoach: (data: { name: string; gym?: string }) =>
+    req<Coach>("/coaches", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify(data),
+    }),
+  updateCoach: (id: string, patch: CoachPatch) =>
+    req<Coach>(`/coaches/${id}`, {
+      method: "PATCH",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify(patch),
+    }),
+  deleteCoach: (id: string) =>
+    req<void>(`/coaches/${id}`, { method: "DELETE" }),
+  uploadCoachPhoto: async (id: string, file: File) => {
+    const fd = new FormData();
+    fd.append("file", file);
+    const r = await fetch(`${BASE}/coaches/${id}/photo`, {
+      method: "POST",
+      body: fd,
+    });
+    if (!r.ok) throw new Error(`${r.status} ${await r.text()}`);
+    return r.json() as Promise<Coach>;
+  },
+
+  // ---- Referees ----
+  listReferees: () => req<Referee[]>("/referees"),
+  getReferee: (id: string) => req<Referee>(`/referees/${id}`),
+  createReferee: (data: { name: string; sanctioning_body?: string }) =>
+    req<Referee>("/referees", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify(data),
+    }),
+  updateReferee: (id: string, patch: RefereePatch) =>
+    req<Referee>(`/referees/${id}`, {
+      method: "PATCH",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify(patch),
+    }),
+  deleteReferee: (id: string) =>
+    req<void>(`/referees/${id}`, { method: "DELETE" }),
+  uploadRefereePhoto: async (id: string, file: File) => {
+    const fd = new FormData();
+    fd.append("file", file);
+    const r = await fetch(`${BASE}/referees/${id}/photo`, {
+      method: "POST",
+      body: fd,
+    });
+    if (!r.ok) throw new Error(`${r.status} ${await r.text()}`);
+    return r.json() as Promise<Referee>;
+  },
+
+  // ---- Photos ----
+  uploadFighterPhoto: async (id: string, file: File) => {
+    const fd = new FormData();
+    fd.append("file", file);
+    const r = await fetch(`${BASE}/fighters/${id}/photo`, {
+      method: "POST",
+      body: fd,
+    });
+    if (!r.ok) throw new Error(`${r.status} ${await r.text()}`);
+    return r.json() as Promise<Fighter>;
+  },
+  photoUrl: (relativePath: string | null) =>
+    relativePath
+      ? `${BASE}/static/photos/${relativePath.replace(/^data\/photos\//, "")}`
+      : null,
+
+  // ---- Medical (fighters) ----
+  getMedicalRecord: (fighterId: string) =>
+    req<MedicalRecord | null>(`/fighters/${fighterId}/medical`),
+  upsertMedicalRecord: (fighterId: string, patch: MedicalRecordPatch) =>
+    req<MedicalRecord>(`/fighters/${fighterId}/medical`, {
+      method: "PATCH",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify(patch),
+    }),
+  listAllergies: (fighterId: string) =>
+    req<Allergy[]>(`/fighters/${fighterId}/allergies`),
+  addAllergy: (
+    fighterId: string,
+    data: { substance: string; severity: AllergySeverity; notes?: string },
+  ) =>
+    req<Allergy>(`/fighters/${fighterId}/allergies`, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify(data),
+    }),
+  deleteAllergy: (fighterId: string, allergyId: number) =>
+    req<void>(`/fighters/${fighterId}/allergies/${allergyId}`, {
+      method: "DELETE",
+    }),
+  listMedications: (fighterId: string) =>
+    req<Medication[]>(`/fighters/${fighterId}/medications`),
+  addMedication: (
+    fighterId: string,
+    data: {
+      name: string;
+      dose?: string;
+      frequency?: string;
+      started_on?: string;
+      prescribed_by?: string;
+      is_active?: boolean;
+      notes?: string;
+    },
+  ) =>
+    req<Medication>(`/fighters/${fighterId}/medications`, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify(data),
+    }),
+  deleteMedication: (fighterId: string, medicationId: number) =>
+    req<void>(`/fighters/${fighterId}/medications/${medicationId}`, {
+      method: "DELETE",
+    }),
+  listConditions: (fighterId: string) =>
+    req<MedicalCondition[]>(`/fighters/${fighterId}/conditions`),
+  addCondition: (
+    fighterId: string,
+    data: {
+      name: string;
+      diagnosed_on?: string;
+      status?: ConditionStatus;
+      notes?: string;
+    },
+  ) =>
+    req<MedicalCondition>(`/fighters/${fighterId}/conditions`, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify(data),
+    }),
+  deleteCondition: (fighterId: string, conditionId: number) =>
+    req<void>(`/fighters/${fighterId}/conditions/${conditionId}`, {
+      method: "DELETE",
+    }),
 };

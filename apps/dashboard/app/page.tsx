@@ -2,56 +2,60 @@
 
 import Link from "next/link";
 import { useCallback, useEffect, useState } from "react";
-import { api, type Fighter, type Session, type Stance } from "@/lib/api";
+import { CreateProfileModal } from "@/components/CreateProfileModal";
+import { ProfileAvatar } from "@/components/ProfileAvatar";
+import {
+  api,
+  type Coach,
+  type Fighter,
+  type Referee,
+} from "@/lib/api";
+import { type ProfileKind, useActiveProfile } from "@/lib/activeProfile";
 
 interface FighterRow {
   fighter: Fighter;
   sessionCount: number;
   lastSessionAt: string | null;
-  lastSession: Session | null;
 }
 
 export default function Home() {
   const [health, setHealth] = useState<{ status: string; schema_version: string } | null>(
     null,
   );
-  const [rows, setRows] = useState<FighterRow[]>([]);
-  const [allSessions, setAllSessions] = useState<Session[]>([]);
+  const [fighters, setFighters] = useState<FighterRow[]>([]);
+  const [coaches, setCoaches] = useState<Coach[]>([]);
+  const [referees, setReferees] = useState<Referee[]>([]);
   const [err, setErr] = useState<string | null>(null);
-  const [newName, setNewName] = useState("");
-  const [newStance, setNewStance] = useState<Stance>("orthodox");
-  const [adding, setAdding] = useState(false);
+  const [creating, setCreating] = useState<ProfileKind | null>(null);
+  const { active, setActive } = useActiveProfile();
 
   const load = useCallback(async () => {
     try {
-      const [hRes, fighters, sessions] = await Promise.all([
+      const [hRes, fs, cs, rs, allSessions] = await Promise.all([
         fetch(`${process.env.NEXT_PUBLIC_API_URL}/health`, { cache: "no-store" })
           .then((r) => (r.ok ? r.json() : null))
           .catch(() => null),
         api.listFighters(),
+        api.listCoaches(),
+        api.listReferees(),
         api.listSessions(),
       ]);
       setHealth(hRes);
-      setAllSessions(sessions);
-      const byFighter = new Map<string, Session[]>();
-      for (const s of sessions) {
-        const arr = byFighter.get(s.fighter_id) ?? [];
-        arr.push(s);
-        byFighter.set(s.fighter_id, arr);
+      setCoaches(cs);
+      setReferees(rs);
+      const counts = new Map<string, { n: number; last: string | null }>();
+      for (const s of allSessions) {
+        const cur = counts.get(s.fighter_id) ?? { n: 0, last: null };
+        cur.n += 1;
+        if (!cur.last || s.started_at > cur.last) cur.last = s.started_at;
+        counts.set(s.fighter_id, cur);
       }
-      const out: FighterRow[] = fighters.map((f) => {
-        const ss = (byFighter.get(f.id) ?? [])
-          .slice()
-          .sort((a, b) => b.started_at.localeCompare(a.started_at));
-        return {
-          fighter: f,
-          sessionCount: ss.length,
-          lastSessionAt: ss[0]?.started_at ?? null,
-          lastSession: ss[0] ?? null,
-        };
+      const out: FighterRow[] = fs.map((f) => {
+        const c = counts.get(f.id) ?? { n: 0, last: null };
+        return { fighter: f, sessionCount: c.n, lastSessionAt: c.last };
       });
       out.sort((a, b) => (b.lastSessionAt ?? "").localeCompare(a.lastSessionAt ?? ""));
-      setRows(out);
+      setFighters(out);
     } catch (e) {
       setErr(String(e));
     }
@@ -61,24 +65,12 @@ export default function Home() {
     load();
   }, [load]);
 
-  const addFighter = async () => {
-    if (!newName.trim()) return;
-    setAdding(true);
-    try {
-      await api.createFighter(newName.trim(), newStance);
-      setNewName("");
-      await load();
-    } catch (e) {
-      setErr(String(e));
-    } finally {
-      setAdding(false);
-    }
-  };
-
-  const recentSessions = [...allSessions]
-    .sort((a, b) => b.started_at.localeCompare(a.started_at))
-    .slice(0, 6);
-  const fighterById = new Map(rows.map((r) => [r.fighter.id, r.fighter]));
+  const onCreated = (kind: ProfileKind) =>
+    (id: string, name: string, photo_path: string | null) => {
+      setCreating(null);
+      setActive({ kind, id, name, photo_path });
+      load();
+    };
 
   return (
     <div className="mx-auto max-w-7xl space-y-6 px-8 py-8">
@@ -86,16 +78,30 @@ export default function Home() {
         <div>
           <h1 className="text-3xl font-semibold tracking-tight">Roster</h1>
           <p className="mt-1 text-sm text-neutral-400">
-            Pick a fighter to open their dashboard.
+            Sign in as an existing profile or create a new one.
           </p>
         </div>
         <div className="flex items-center gap-3">
+          {active ? (
+            <ActingAsBadge
+              kind={active.kind}
+              name={active.name}
+              photo_path={active.photo_path}
+              onSwitch={() => setActive(null)}
+            />
+          ) : (
+            <span className="pill bg-neutral-700/40 text-neutral-300">
+              not signed in
+            </span>
+          )}
           {health ? (
             <span className="pill bg-emerald-500/15 text-emerald-300">
               ● API healthy · schema {health.schema_version}
             </span>
           ) : (
-            <span className="pill bg-amber-500/15 text-amber-300">● API unreachable</span>
+            <span className="pill bg-amber-500/15 text-amber-300">
+              ● API unreachable
+            </span>
           )}
         </div>
       </header>
@@ -106,117 +112,266 @@ export default function Home() {
         </p>
       )}
 
-      <div className="grid grid-cols-1 gap-6 lg:grid-cols-3">
-        <section className="card lg:col-span-2">
-          <div className="flex items-baseline justify-between">
-            <h2 className="text-base font-semibold">Fighters</h2>
-            <span className="text-xs text-neutral-500">{rows.length} total</span>
-          </div>
-          {rows.length === 0 ? (
-            <p className="mt-4 text-sm text-neutral-500">
-              No fighters yet — add one to get started.
-            </p>
-          ) : (
-            <ul className="mt-4 grid grid-cols-1 gap-2 sm:grid-cols-2">
-              {rows.map((r) => (
-                <li key={r.fighter.id}>
-                  <Link
-                    href={`/fighters/${r.fighter.id}`}
-                    className="group flex items-center gap-3 rounded-xl border border-white/5 bg-white/[0.02] p-3 transition-colors hover:border-white/15 hover:bg-white/[0.05]"
-                  >
-                    <div className="flex h-10 w-10 items-center justify-center rounded-full bg-gradient-to-br from-violet-500/30 to-emerald-400/30 text-sm font-semibold">
-                      {r.fighter.name.charAt(0).toUpperCase()}
-                    </div>
-                    <div className="min-w-0 flex-1">
-                      <div className="truncate font-medium">{r.fighter.name}</div>
-                      <div className="text-xs text-neutral-500">
-                        {r.fighter.stance} ·{" "}
-                        {r.sessionCount} session{r.sessionCount === 1 ? "" : "s"}
-                      </div>
-                    </div>
-                    <span className="text-neutral-600 group-hover:text-neutral-300">
-                      ›
-                    </span>
-                  </Link>
-                </li>
-              ))}
-            </ul>
-          )}
+      <Section
+        title="Fighters"
+        kind="fighter"
+        count={fighters.length}
+        onCreate={() => setCreating("fighter")}
+      >
+        {fighters.length === 0 ? (
+          <Empty
+            label="No fighters yet"
+            cta="Create the first fighter profile to get started."
+          />
+        ) : (
+          <ul className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-3">
+            {fighters.map(({ fighter: f, sessionCount, lastSessionAt }) => (
+              <li key={f.id}>
+                <ProfileCard
+                  href={`/fighters/${f.id}`}
+                  name={f.name}
+                  nickname={f.nickname}
+                  photo_path={f.photo_path}
+                  active={active?.kind === "fighter" && active.id === f.id}
+                  onSignIn={() =>
+                    setActive({
+                      kind: "fighter",
+                      id: f.id,
+                      name: f.name,
+                      photo_path: f.photo_path,
+                    })
+                  }
+                  meta={[
+                    f.stance,
+                    `${sessionCount} session${sessionCount === 1 ? "" : "s"}`,
+                    lastSessionAt
+                      ? `last ${new Date(lastSessionAt).toLocaleDateString()}`
+                      : "no sessions",
+                  ]}
+                />
+              </li>
+            ))}
+          </ul>
+        )}
+      </Section>
 
-          <div className="mt-5 border-t border-white/5 pt-4">
-            <h3 className="text-sm font-medium text-neutral-300">Add a fighter</h3>
-            <div className="mt-2 flex flex-wrap gap-2">
-              <input
-                className="flex-1 rounded-xl border border-white/5 bg-black/30 px-3 py-2 text-sm focus:border-violet-500/50 focus:outline-none"
-                placeholder="Name"
-                value={newName}
-                onChange={(e) => setNewName(e.target.value)}
-                onKeyDown={(e) => e.key === "Enter" && addFighter()}
-              />
-              <select
-                className="rounded-xl border border-white/5 bg-black/30 px-3 py-2 text-sm focus:border-violet-500/50 focus:outline-none"
-                value={newStance}
-                onChange={(e) => setNewStance(e.target.value as Stance)}
-              >
-                <option value="orthodox">orthodox</option>
-                <option value="southpaw">southpaw</option>
-                <option value="switch">switch</option>
-              </select>
-              <button
-                onClick={addFighter}
-                disabled={!newName.trim() || adding}
-                className="rounded-xl bg-emerald-500 px-4 py-2 text-sm font-medium text-black transition-colors hover:bg-emerald-400 disabled:cursor-not-allowed disabled:bg-neutral-800 disabled:text-neutral-500"
-              >
-                {adding ? "Adding…" : "Add"}
-              </button>
-            </div>
-          </div>
-        </section>
+      <Section
+        title="Coaches"
+        kind="coach"
+        count={coaches.length}
+        onCreate={() => setCreating("coach")}
+      >
+        {coaches.length === 0 ? (
+          <Empty
+            label="No coaches yet"
+            cta="Coaches add observations and track fighter progress."
+          />
+        ) : (
+          <ul className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-3">
+            {coaches.map((c) => (
+              <li key={c.id}>
+                <ProfileCard
+                  href={`/coaches/${c.id}`}
+                  name={c.name}
+                  nickname={null}
+                  photo_path={c.photo_path}
+                  active={active?.kind === "coach" && active.id === c.id}
+                  onSignIn={() =>
+                    setActive({
+                      kind: "coach",
+                      id: c.id,
+                      name: c.name,
+                      photo_path: c.photo_path,
+                    })
+                  }
+                  meta={[
+                    c.gym ?? "no gym set",
+                    c.specialties ?? "no specialties",
+                  ]}
+                />
+              </li>
+            ))}
+          </ul>
+        )}
+      </Section>
 
-        <section className="card">
-          <div className="flex items-baseline justify-between">
-            <h2 className="text-base font-semibold">Recent sessions</h2>
-            <span className="text-xs text-neutral-500">{recentSessions.length}</span>
-          </div>
-          {recentSessions.length === 0 ? (
-            <p className="mt-4 text-sm text-neutral-500">No sessions yet.</p>
-          ) : (
-            <ul className="mt-4 space-y-2">
-              {recentSessions.map((s) => {
-                const f = fighterById.get(s.fighter_id);
-                const tint =
-                  s.status === "completed"
-                    ? "bg-emerald-500/15 text-emerald-300"
-                    : s.status === "failed"
-                      ? "bg-red-500/15 text-red-300"
-                      : s.status === "capturing" || s.status === "processing"
-                        ? "bg-amber-500/15 text-amber-300"
-                        : "bg-neutral-700/40 text-neutral-300";
-                return (
-                  <li key={s.id}>
-                    <Link
-                      href={`/sessions/${s.id}`}
-                      className="block rounded-xl border border-white/5 bg-white/[0.02] p-3 transition-colors hover:border-white/15 hover:bg-white/[0.05]"
-                    >
-                      <div className="flex items-center justify-between gap-2">
-                        <span className="truncate text-sm font-medium">
-                          {f?.name ?? "—"}
-                        </span>
-                        <span className={`pill ${tint}`}>{s.status}</span>
-                      </div>
-                      <div className="mt-1 flex items-center justify-between text-xs text-neutral-500">
-                        <span>{s.source.replace(/_/g, " ")}</span>
-                        <span>{new Date(s.started_at).toLocaleString()}</span>
-                      </div>
-                    </Link>
-                  </li>
-                );
-              })}
-            </ul>
-          )}
-        </section>
-      </div>
+      <Section
+        title="Referees"
+        kind="referee"
+        count={referees.length}
+        onCreate={() => setCreating("referee")}
+      >
+        {referees.length === 0 ? (
+          <Empty
+            label="No referees yet"
+            cta="Sanctioned officials who oversee bouts."
+          />
+        ) : (
+          <ul className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-3">
+            {referees.map((r) => (
+              <li key={r.id}>
+                <ProfileCard
+                  href={`/referees/${r.id}`}
+                  name={r.name}
+                  nickname={null}
+                  photo_path={r.photo_path}
+                  active={active?.kind === "referee" && active.id === r.id}
+                  onSignIn={() =>
+                    setActive({
+                      kind: "referee",
+                      id: r.id,
+                      name: r.name,
+                      photo_path: r.photo_path,
+                    })
+                  }
+                  meta={[
+                    r.sanctioning_body ?? "no sanctioning body",
+                    r.license_number ? `lic #${r.license_number}` : "no license",
+                  ]}
+                />
+              </li>
+            ))}
+          </ul>
+        )}
+      </Section>
+
+      {creating && (
+        <CreateProfileModal
+          kind={creating}
+          onClose={() => setCreating(null)}
+          onCreated={onCreated(creating)}
+        />
+      )}
     </div>
   );
 }
 
+function Section({
+  title,
+  kind,
+  count,
+  onCreate,
+  children,
+}: {
+  title: string;
+  kind: ProfileKind;
+  count: number;
+  onCreate: () => void;
+  children: React.ReactNode;
+}) {
+  return (
+    <section className="card">
+      <div className="flex items-baseline justify-between">
+        <div>
+          <h2 className="text-lg font-semibold">{title}</h2>
+          <p className="text-xs text-neutral-500">
+            {count} on roster
+          </p>
+        </div>
+        <button
+          onClick={onCreate}
+          className="rounded-xl bg-emerald-500 px-3 py-1.5 text-sm font-medium text-black hover:bg-emerald-400"
+        >
+          + Create {kind}
+        </button>
+      </div>
+      <div className="mt-4">{children}</div>
+    </section>
+  );
+}
+
+function ProfileCard({
+  href,
+  name,
+  nickname,
+  photo_path,
+  meta,
+  active,
+  onSignIn,
+}: {
+  href: string;
+  name: string;
+  nickname: string | null;
+  photo_path: string | null;
+  meta: string[];
+  active: boolean;
+  onSignIn: () => void;
+}) {
+  return (
+    <div
+      className={`flex items-center gap-3 rounded-xl border p-3 transition-colors ${
+        active
+          ? "border-emerald-500/40 bg-emerald-500/5"
+          : "border-white/5 bg-white/[0.02] hover:border-white/15 hover:bg-white/[0.05]"
+      }`}
+    >
+      <Link href={href} className="flex min-w-0 flex-1 items-center gap-3">
+        <ProfileAvatar name={name} photo_path={photo_path} size={48} />
+        <div className="min-w-0 flex-1">
+          <div className="flex items-baseline gap-2">
+            <span className="truncate font-medium">{name}</span>
+            {nickname && (
+              <span className="truncate text-xs text-neutral-500">
+                &ldquo;{nickname}&rdquo;
+              </span>
+            )}
+          </div>
+          <div className="truncate text-xs text-neutral-500">
+            {meta.filter(Boolean).join(" · ")}
+          </div>
+        </div>
+      </Link>
+      <button
+        onClick={onSignIn}
+        title={active ? "Currently signed in" : "Sign in as this profile"}
+        className={`rounded-lg px-2.5 py-1 text-xs ${
+          active
+            ? "bg-emerald-500/15 text-emerald-300"
+            : "bg-white/[0.05] text-neutral-300 hover:bg-white/[0.1]"
+        }`}
+      >
+        {active ? "active" : "sign in"}
+      </button>
+    </div>
+  );
+}
+
+function Empty({ label, cta }: { label: string; cta: string }) {
+  return (
+    <div className="rounded-xl border border-dashed border-white/10 bg-white/[0.02] p-6 text-center">
+      <p className="text-sm font-medium text-neutral-300">{label}</p>
+      <p className="mt-1 text-xs text-neutral-500">{cta}</p>
+    </div>
+  );
+}
+
+function ActingAsBadge({
+  kind,
+  name,
+  photo_path,
+  onSwitch,
+}: {
+  kind: ProfileKind;
+  name: string;
+  photo_path: string | null;
+  onSwitch: () => void;
+}) {
+  return (
+    <div className="flex items-center gap-2 rounded-full border border-white/10 bg-white/[0.04] py-1 pl-1 pr-3 text-sm">
+      <ProfileAvatar name={name} photo_path={photo_path} size={28} />
+      <div className="leading-tight">
+        <div className="text-[10px] uppercase tracking-wide text-neutral-500">
+          {kind}
+        </div>
+        <div className="text-xs font-medium">{name}</div>
+      </div>
+      <button
+        onClick={onSwitch}
+        className="ml-2 text-xs text-neutral-400 hover:text-neutral-100"
+        title="Sign out / switch profile"
+      >
+        switch
+      </button>
+    </div>
+  );
+}

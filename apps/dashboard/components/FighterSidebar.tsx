@@ -2,6 +2,7 @@
 
 import Link from "next/link";
 import { usePathname } from "next/navigation";
+import { ProfileAvatar } from "@/components/ProfileAvatar";
 import type { Fighter } from "@/lib/api";
 
 const TABS = [
@@ -9,6 +10,7 @@ const TABS = [
   { slug: "sessions", label: "Sessions", icon: "▷" },
   { slug: "hrv", label: "HRV", icon: "♥" },
   { slug: "imu", label: "IMU", icon: "▤" },
+  { slug: "medical", label: "Medical", icon: "✚" },
   { slug: "observations", label: "Observations", icon: "✎" },
 ] as const;
 
@@ -32,7 +34,11 @@ export function FighterSidebar({ fighter }: { fighter: Fighter }) {
       </Link>
 
       <div className="flex flex-col items-center gap-2 py-2">
-        <FighterAvatar fighter={fighter} size={96} />
+        <ProfileAvatar
+          name={fighter.name}
+          photo_path={fighter.photo_path}
+          size={96}
+        />
         <div className="text-center">
           <div className="text-base font-semibold leading-tight">
             {fighter.name}
@@ -79,22 +85,3 @@ export function FighterSidebar({ fighter }: { fighter: Fighter }) {
   );
 }
 
-export function FighterAvatar({
-  fighter,
-  size = 64,
-}: {
-  fighter: Fighter;
-  size?: number;
-}) {
-  // photo_path is a future field; until then we render an initial-letter avatar.
-  const initial = fighter.name.charAt(0).toUpperCase();
-  return (
-    <div
-      style={{ width: size, height: size, fontSize: size / 2.4 }}
-      className="flex shrink-0 items-center justify-center rounded-full bg-gradient-to-br from-violet-500 to-emerald-400 font-bold text-black"
-      aria-label={`${fighter.name} avatar`}
-    >
-      {initial}
-    </div>
-  );
-}

@@ -119,6 +119,7 @@ class Fighter(SQLModel, table=True):
     usa_boxing_id: str | None = Field(default=None, max_length=40)
 
     notes: str | None = None
+    photo_path: str | None = None
     created_at: datetime = Field(default_factory=lambda: datetime.now(UTC))
 
 
@@ -155,6 +156,7 @@ class FighterRead(SQLModel):
     boxrec_id: str | None = None
     usa_boxing_id: str | None = None
     notes: str | None = None
+    photo_path: str | None = None
     created_at: datetime
 
 
@@ -284,3 +286,229 @@ class HRSampleRead(SQLModel):
     t_ms: float
     rr_ms: float
     hr_bpm: float
+
+
+# ----------------------------------------------------------------------
+# Coach + Referee profiles
+# ----------------------------------------------------------------------
+
+
+class Coach(SQLModel, table=True):
+    """Coach profile — manages fighters, adds session observations."""
+
+    id: UUID = Field(default_factory=uuid4, primary_key=True)
+    name: str = Field(min_length=1, max_length=120)
+    photo_path: str | None = None
+    gym: str | None = Field(default=None, max_length=120)
+    specialties: str | None = Field(
+        default=None,
+        max_length=200,
+        description="Free-form list, e.g. 'head movement, defense, conditioning'",
+    )
+    years_experience: int | None = Field(default=None, ge=0, le=80)
+    bio: str | None = None
+    notes: str | None = None
+    created_at: datetime = Field(default_factory=lambda: datetime.now(UTC))
+
+
+class CoachCreate(SQLModel):
+    name: str = Field(min_length=1, max_length=120)
+    gym: str | None = None
+    specialties: str | None = None
+    years_experience: int | None = None
+    bio: str | None = None
+
+
+class CoachRead(SQLModel):
+    id: UUID
+    name: str
+    photo_path: str | None = None
+    gym: str | None = None
+    specialties: str | None = None
+    years_experience: int | None = None
+    bio: str | None = None
+    notes: str | None = None
+    created_at: datetime
+
+
+class Referee(SQLModel, table=True):
+    """Referee profile — sanctioned official who oversees bouts."""
+
+    id: UUID = Field(default_factory=uuid4, primary_key=True)
+    name: str = Field(min_length=1, max_length=120)
+    photo_path: str | None = None
+    license_number: str | None = Field(default=None, max_length=80)
+    sanctioning_body: str | None = Field(
+        default=None,
+        max_length=120,
+        description="e.g. 'USA Boxing', 'WBA', 'BBBofC'",
+    )
+    license_expiry: date | None = None
+    bio: str | None = None
+    notes: str | None = None
+    created_at: datetime = Field(default_factory=lambda: datetime.now(UTC))
+
+
+class RefereeCreate(SQLModel):
+    name: str = Field(min_length=1, max_length=120)
+    license_number: str | None = None
+    sanctioning_body: str | None = None
+    license_expiry: date | None = None
+    bio: str | None = None
+
+
+class RefereeRead(SQLModel):
+    id: UUID
+    name: str
+    photo_path: str | None = None
+    license_number: str | None = None
+    sanctioning_body: str | None = None
+    license_expiry: date | None = None
+    bio: str | None = None
+    notes: str | None = None
+    created_at: datetime
+
+
+# ----------------------------------------------------------------------
+# Medical records (fighters only)
+# ----------------------------------------------------------------------
+
+
+class AllergySeverity(StrEnum):
+    MILD = "mild"
+    MODERATE = "moderate"
+    SEVERE = "severe"
+    ANAPHYLACTIC = "anaphylactic"
+
+
+class ConditionStatus(StrEnum):
+    ACTIVE = "active"
+    MANAGED = "managed"
+    RECOVERED = "recovered"
+
+
+class MedicalRecord(SQLModel, table=True):
+    """One-to-one medical record per fighter. Free-form fields are intentionally
+    optional — the schema is wide so the dashboard can surface what's filled
+    without forcing the coach to enter everything up front."""
+
+    __tablename__ = "medical_record"
+    fighter_id: UUID = Field(
+        foreign_key="fighter.id", primary_key=True, index=True
+    )
+    blood_type: str | None = Field(default=None, max_length=4)  # "A+", "O-", etc.
+    last_clearance_date: date | None = None
+    clearing_physician: str | None = Field(default=None, max_length=120)
+    primary_physician: str | None = Field(default=None, max_length=120)
+    primary_physician_phone: str | None = Field(default=None, max_length=40)
+    emergency_contact_name: str | None = Field(default=None, max_length=120)
+    emergency_contact_relation: str | None = Field(default=None, max_length=80)
+    emergency_contact_phone: str | None = Field(default=None, max_length=40)
+    insurance_provider: str | None = Field(default=None, max_length=120)
+    insurance_policy: str | None = Field(default=None, max_length=80)
+    notes: str | None = None
+    updated_at: datetime = Field(default_factory=lambda: datetime.now(UTC))
+
+
+class MedicalRecordRead(SQLModel):
+    fighter_id: UUID
+    blood_type: str | None = None
+    last_clearance_date: date | None = None
+    clearing_physician: str | None = None
+    primary_physician: str | None = None
+    primary_physician_phone: str | None = None
+    emergency_contact_name: str | None = None
+    emergency_contact_relation: str | None = None
+    emergency_contact_phone: str | None = None
+    insurance_provider: str | None = None
+    insurance_policy: str | None = None
+    notes: str | None = None
+    updated_at: datetime
+
+
+class Allergy(SQLModel, table=True):
+    id: int | None = Field(default=None, primary_key=True)
+    fighter_id: UUID = Field(foreign_key="fighter.id", index=True)
+    substance: str = Field(min_length=1, max_length=120)
+    severity: AllergySeverity = AllergySeverity.MILD
+    notes: str | None = None
+    created_at: datetime = Field(default_factory=lambda: datetime.now(UTC))
+
+
+class AllergyCreate(SQLModel):
+    substance: str = Field(min_length=1, max_length=120)
+    severity: AllergySeverity = AllergySeverity.MILD
+    notes: str | None = None
+
+
+class AllergyRead(SQLModel):
+    id: int
+    fighter_id: UUID
+    substance: str
+    severity: AllergySeverity
+    notes: str | None = None
+    created_at: datetime
+
+
+class Medication(SQLModel, table=True):
+    id: int | None = Field(default=None, primary_key=True)
+    fighter_id: UUID = Field(foreign_key="fighter.id", index=True)
+    name: str = Field(min_length=1, max_length=120)
+    dose: str | None = Field(default=None, max_length=80)
+    frequency: str | None = Field(default=None, max_length=80)  # "daily", "as needed"
+    started_on: date | None = None
+    prescribed_by: str | None = Field(default=None, max_length=120)
+    is_active: bool = True
+    notes: str | None = None
+    created_at: datetime = Field(default_factory=lambda: datetime.now(UTC))
+
+
+class MedicationCreate(SQLModel):
+    name: str = Field(min_length=1, max_length=120)
+    dose: str | None = None
+    frequency: str | None = None
+    started_on: date | None = None
+    prescribed_by: str | None = None
+    is_active: bool = True
+    notes: str | None = None
+
+
+class MedicationRead(SQLModel):
+    id: int
+    fighter_id: UUID
+    name: str
+    dose: str | None = None
+    frequency: str | None = None
+    started_on: date | None = None
+    prescribed_by: str | None = None
+    is_active: bool
+    notes: str | None = None
+    created_at: datetime
+
+
+class MedicalCondition(SQLModel, table=True):
+    __tablename__ = "medical_condition"
+    id: int | None = Field(default=None, primary_key=True)
+    fighter_id: UUID = Field(foreign_key="fighter.id", index=True)
+    name: str = Field(min_length=1, max_length=160)
+    diagnosed_on: date | None = None
+    status: ConditionStatus = ConditionStatus.ACTIVE
+    notes: str | None = None
+    created_at: datetime = Field(default_factory=lambda: datetime.now(UTC))
+
+
+class MedicalConditionCreate(SQLModel):
+    name: str = Field(min_length=1, max_length=160)
+    diagnosed_on: date | None = None
+    status: ConditionStatus = ConditionStatus.ACTIVE
+    notes: str | None = None
+
+
+class MedicalConditionRead(SQLModel):
+    id: int
+    fighter_id: UUID
+    name: str
+    diagnosed_on: date | None = None
+    status: ConditionStatus
+    notes: str | None = None
+    created_at: datetime

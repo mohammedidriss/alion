@@ -9,10 +9,21 @@ from sqlmodel import Session as DBSession
 from sqlmodel import select
 
 from store.models import (
+    Allergy,
+    AllergyCreate,
+    Coach,
+    CoachCreate,
     Fighter,
     FighterCreate,
     HRSampleRow,
+    MedicalCondition,
+    MedicalConditionCreate,
+    MedicalRecord,
+    Medication,
+    MedicationCreate,
     PunchEventRow,
+    Referee,
+    RefereeCreate,
     Session,
     SessionCreate,
     SessionStatus,
@@ -239,6 +250,204 @@ class WeighInRepo:
     def delete(self, weigh_in_id: int) -> bool:
         row = self._session.get(WeighIn, weigh_in_id)
         if row is None:
+            return False
+        self._session.delete(row)
+        self._session.commit()
+        return True
+
+
+# ----------------------------------------------------------------------
+# Coach + Referee
+# ----------------------------------------------------------------------
+
+
+class CoachRepo:
+    def __init__(self, session: DBSession) -> None:
+        self._session = session
+
+    def create(self, data: CoachCreate) -> Coach:
+        row = Coach(**data.model_dump())
+        self._session.add(row)
+        self._session.commit()
+        self._session.refresh(row)
+        return row
+
+    def get(self, coach_id: UUID) -> Coach | None:
+        return self._session.get(Coach, coach_id)
+
+    def list_all(self) -> list[Coach]:
+        return list(self._session.exec(select(Coach).order_by(Coach.name)).all())
+
+    def update(self, coach_id: UUID, patch: dict[str, object]) -> Coach | None:
+        row = self.get(coach_id)
+        if row is None:
+            return None
+        for k, v in patch.items():
+            if hasattr(row, k):
+                setattr(row, k, v)
+        self._session.add(row)
+        self._session.commit()
+        self._session.refresh(row)
+        return row
+
+    def delete(self, coach_id: UUID) -> bool:
+        row = self.get(coach_id)
+        if row is None:
+            return False
+        self._session.delete(row)
+        self._session.commit()
+        return True
+
+
+class RefereeRepo:
+    def __init__(self, session: DBSession) -> None:
+        self._session = session
+
+    def create(self, data: RefereeCreate) -> Referee:
+        row = Referee(**data.model_dump())
+        self._session.add(row)
+        self._session.commit()
+        self._session.refresh(row)
+        return row
+
+    def get(self, referee_id: UUID) -> Referee | None:
+        return self._session.get(Referee, referee_id)
+
+    def list_all(self) -> list[Referee]:
+        return list(self._session.exec(select(Referee).order_by(Referee.name)).all())
+
+    def update(self, referee_id: UUID, patch: dict[str, object]) -> Referee | None:
+        row = self.get(referee_id)
+        if row is None:
+            return None
+        for k, v in patch.items():
+            if hasattr(row, k):
+                setattr(row, k, v)
+        self._session.add(row)
+        self._session.commit()
+        self._session.refresh(row)
+        return row
+
+    def delete(self, referee_id: UUID) -> bool:
+        row = self.get(referee_id)
+        if row is None:
+            return False
+        self._session.delete(row)
+        self._session.commit()
+        return True
+
+
+# ----------------------------------------------------------------------
+# Medical record + sub-tables
+# ----------------------------------------------------------------------
+
+
+class MedicalRepo:
+    """Per-fighter medical record + allergies + medications + conditions."""
+
+    def __init__(self, session: DBSession) -> None:
+        self._session = session
+
+    def get_record(self, fighter_id: UUID) -> MedicalRecord | None:
+        return self._session.get(MedicalRecord, fighter_id)
+
+    def upsert_record(
+        self, fighter_id: UUID, patch: dict[str, object]
+    ) -> MedicalRecord:
+        row = self.get_record(fighter_id)
+        if row is None:
+            row = MedicalRecord(fighter_id=fighter_id)
+        for k, v in patch.items():
+            if hasattr(row, k):
+                setattr(row, k, v)
+        row.updated_at = datetime.now(UTC)
+        self._session.add(row)
+        self._session.commit()
+        self._session.refresh(row)
+        return row
+
+    def delete_record(self, fighter_id: UUID) -> bool:
+        row = self.get_record(fighter_id)
+        if row is None:
+            return False
+        self._session.delete(row)
+        self._session.commit()
+        return True
+
+    # --- Allergies ---
+
+    def add_allergy(self, fighter_id: UUID, data: AllergyCreate) -> Allergy:
+        row = Allergy(fighter_id=fighter_id, **data.model_dump())
+        self._session.add(row)
+        self._session.commit()
+        self._session.refresh(row)
+        return row
+
+    def list_allergies(self, fighter_id: UUID) -> list[Allergy]:
+        stmt = (
+            select(Allergy)
+            .where(Allergy.fighter_id == fighter_id)
+            .order_by(Allergy.severity, Allergy.substance)
+        )
+        return list(self._session.exec(stmt).all())
+
+    def delete_allergy(self, fighter_id: UUID, allergy_id: int) -> bool:
+        row = self._session.get(Allergy, allergy_id)
+        if row is None or row.fighter_id != fighter_id:
+            return False
+        self._session.delete(row)
+        self._session.commit()
+        return True
+
+    # --- Medications ---
+
+    def add_medication(
+        self, fighter_id: UUID, data: MedicationCreate
+    ) -> Medication:
+        row = Medication(fighter_id=fighter_id, **data.model_dump())
+        self._session.add(row)
+        self._session.commit()
+        self._session.refresh(row)
+        return row
+
+    def list_medications(self, fighter_id: UUID) -> list[Medication]:
+        stmt = (
+            select(Medication)
+            .where(Medication.fighter_id == fighter_id)
+            .order_by(Medication.is_active.desc(), Medication.name)  # type: ignore[attr-defined]
+        )
+        return list(self._session.exec(stmt).all())
+
+    def delete_medication(self, fighter_id: UUID, medication_id: int) -> bool:
+        row = self._session.get(Medication, medication_id)
+        if row is None or row.fighter_id != fighter_id:
+            return False
+        self._session.delete(row)
+        self._session.commit()
+        return True
+
+    # --- Conditions ---
+
+    def add_condition(
+        self, fighter_id: UUID, data: MedicalConditionCreate
+    ) -> MedicalCondition:
+        row = MedicalCondition(fighter_id=fighter_id, **data.model_dump())
+        self._session.add(row)
+        self._session.commit()
+        self._session.refresh(row)
+        return row
+
+    def list_conditions(self, fighter_id: UUID) -> list[MedicalCondition]:
+        stmt = (
+            select(MedicalCondition)
+            .where(MedicalCondition.fighter_id == fighter_id)
+            .order_by(MedicalCondition.status, MedicalCondition.name)
+        )
+        return list(self._session.exec(stmt).all())
+
+    def delete_condition(self, fighter_id: UUID, condition_id: int) -> bool:
+        row = self._session.get(MedicalCondition, condition_id)
+        if row is None or row.fighter_id != fighter_id:
             return False
         self._session.delete(row)
         self._session.commit()

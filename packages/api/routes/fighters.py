@@ -5,16 +5,31 @@ from __future__ import annotations
 from datetime import date, datetime
 from uuid import UUID
 
-from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi import APIRouter, Depends, File, HTTPException, UploadFile, status
 from pydantic import BaseModel
 from sqlmodel import Session as DBSession
 
 from analyze import compute_score
-from api.deps import db_session, fighter_repo, punch_event_repo, session_repo
+from api.deps import (
+    db_session,
+    fighter_repo,
+    medical_repo,
+    punch_event_repo,
+    session_repo,
+)
+from api.services.photos import save_photo
 from store import (
     WEIGHT_CLASSES,
+    AllergyCreate,
+    AllergyRead,
     FighterRepo,
     HandEnum,
+    MedicalConditionCreate,
+    MedicalConditionRead,
+    MedicalRecordRead,
+    MedicalRepo,
+    MedicationCreate,
+    MedicationRead,
     PunchEventRepo,
     SessionRepo,
     SkillLevel,
@@ -235,3 +250,211 @@ def fighter_matrix(
         slope=slope,
         intercept=intercept,
     )
+
+
+# ----------------------------------------------------------------------
+# Photo upload
+# ----------------------------------------------------------------------
+
+
+@router.post("/{fighter_id}/photo", response_model=FighterRead)
+async def upload_fighter_photo(
+    fighter_id: UUID,
+    file: UploadFile = File(...),
+    repo: FighterRepo = Depends(fighter_repo),
+) -> FighterRead:
+    if repo.get(fighter_id) is None:
+        raise HTTPException(status_code=404, detail="fighter not found")
+    path = await save_photo("fighter", fighter_id, file)
+    row = repo.update(fighter_id, {"photo_path": path})
+    assert row is not None
+    return FighterRead.model_validate(row, from_attributes=True)
+
+
+# ----------------------------------------------------------------------
+# Medical record (one-to-one with fighter)
+# ----------------------------------------------------------------------
+
+
+class MedicalRecordPatch(BaseModel):
+    blood_type: str | None = None
+    last_clearance_date: date | None = None
+    clearing_physician: str | None = None
+    primary_physician: str | None = None
+    primary_physician_phone: str | None = None
+    emergency_contact_name: str | None = None
+    emergency_contact_relation: str | None = None
+    emergency_contact_phone: str | None = None
+    insurance_provider: str | None = None
+    insurance_policy: str | None = None
+    notes: str | None = None
+
+
+@router.get("/{fighter_id}/medical", response_model=MedicalRecordRead | None)
+def get_medical_record(
+    fighter_id: UUID,
+    fighters: FighterRepo = Depends(fighter_repo),
+    med: MedicalRepo = Depends(medical_repo),
+) -> MedicalRecordRead | None:
+    if fighters.get(fighter_id) is None:
+        raise HTTPException(status_code=404, detail="fighter not found")
+    row = med.get_record(fighter_id)
+    if row is None:
+        return None
+    return MedicalRecordRead.model_validate(row, from_attributes=True)
+
+
+@router.patch("/{fighter_id}/medical", response_model=MedicalRecordRead)
+def upsert_medical_record(
+    fighter_id: UUID,
+    data: MedicalRecordPatch,
+    fighters: FighterRepo = Depends(fighter_repo),
+    med: MedicalRepo = Depends(medical_repo),
+) -> MedicalRecordRead:
+    if fighters.get(fighter_id) is None:
+        raise HTTPException(status_code=404, detail="fighter not found")
+    row = med.upsert_record(fighter_id, data.model_dump(exclude_unset=True))
+    return MedicalRecordRead.model_validate(row, from_attributes=True)
+
+
+# --- Allergies ---
+
+
+@router.get("/{fighter_id}/allergies", response_model=list[AllergyRead])
+def list_allergies(
+    fighter_id: UUID,
+    fighters: FighterRepo = Depends(fighter_repo),
+    med: MedicalRepo = Depends(medical_repo),
+) -> list[AllergyRead]:
+    if fighters.get(fighter_id) is None:
+        raise HTTPException(status_code=404, detail="fighter not found")
+    return [
+        AllergyRead.model_validate(a, from_attributes=True)
+        for a in med.list_allergies(fighter_id)
+    ]
+
+
+@router.post(
+    "/{fighter_id}/allergies",
+    response_model=AllergyRead,
+    status_code=status.HTTP_201_CREATED,
+)
+def add_allergy(
+    fighter_id: UUID,
+    data: AllergyCreate,
+    fighters: FighterRepo = Depends(fighter_repo),
+    med: MedicalRepo = Depends(medical_repo),
+) -> AllergyRead:
+    if fighters.get(fighter_id) is None:
+        raise HTTPException(status_code=404, detail="fighter not found")
+    row = med.add_allergy(fighter_id, data)
+    return AllergyRead.model_validate(row, from_attributes=True)
+
+
+@router.delete(
+    "/{fighter_id}/allergies/{allergy_id}",
+    status_code=status.HTTP_204_NO_CONTENT,
+)
+def delete_allergy(
+    fighter_id: UUID,
+    allergy_id: int,
+    med: MedicalRepo = Depends(medical_repo),
+) -> None:
+    if not med.delete_allergy(fighter_id, allergy_id):
+        raise HTTPException(status_code=404, detail="allergy not found")
+
+
+# --- Medications ---
+
+
+@router.get("/{fighter_id}/medications", response_model=list[MedicationRead])
+def list_medications(
+    fighter_id: UUID,
+    fighters: FighterRepo = Depends(fighter_repo),
+    med: MedicalRepo = Depends(medical_repo),
+) -> list[MedicationRead]:
+    if fighters.get(fighter_id) is None:
+        raise HTTPException(status_code=404, detail="fighter not found")
+    return [
+        MedicationRead.model_validate(m, from_attributes=True)
+        for m in med.list_medications(fighter_id)
+    ]
+
+
+@router.post(
+    "/{fighter_id}/medications",
+    response_model=MedicationRead,
+    status_code=status.HTTP_201_CREATED,
+)
+def add_medication(
+    fighter_id: UUID,
+    data: MedicationCreate,
+    fighters: FighterRepo = Depends(fighter_repo),
+    med: MedicalRepo = Depends(medical_repo),
+) -> MedicationRead:
+    if fighters.get(fighter_id) is None:
+        raise HTTPException(status_code=404, detail="fighter not found")
+    row = med.add_medication(fighter_id, data)
+    return MedicationRead.model_validate(row, from_attributes=True)
+
+
+@router.delete(
+    "/{fighter_id}/medications/{medication_id}",
+    status_code=status.HTTP_204_NO_CONTENT,
+)
+def delete_medication(
+    fighter_id: UUID,
+    medication_id: int,
+    med: MedicalRepo = Depends(medical_repo),
+) -> None:
+    if not med.delete_medication(fighter_id, medication_id):
+        raise HTTPException(status_code=404, detail="medication not found")
+
+
+# --- Medical conditions ---
+
+
+@router.get(
+    "/{fighter_id}/conditions", response_model=list[MedicalConditionRead]
+)
+def list_conditions(
+    fighter_id: UUID,
+    fighters: FighterRepo = Depends(fighter_repo),
+    med: MedicalRepo = Depends(medical_repo),
+) -> list[MedicalConditionRead]:
+    if fighters.get(fighter_id) is None:
+        raise HTTPException(status_code=404, detail="fighter not found")
+    return [
+        MedicalConditionRead.model_validate(c, from_attributes=True)
+        for c in med.list_conditions(fighter_id)
+    ]
+
+
+@router.post(
+    "/{fighter_id}/conditions",
+    response_model=MedicalConditionRead,
+    status_code=status.HTTP_201_CREATED,
+)
+def add_condition(
+    fighter_id: UUID,
+    data: MedicalConditionCreate,
+    fighters: FighterRepo = Depends(fighter_repo),
+    med: MedicalRepo = Depends(medical_repo),
+) -> MedicalConditionRead:
+    if fighters.get(fighter_id) is None:
+        raise HTTPException(status_code=404, detail="fighter not found")
+    row = med.add_condition(fighter_id, data)
+    return MedicalConditionRead.model_validate(row, from_attributes=True)
+
+
+@router.delete(
+    "/{fighter_id}/conditions/{condition_id}",
+    status_code=status.HTTP_204_NO_CONTENT,
+)
+def delete_condition(
+    fighter_id: UUID,
+    condition_id: int,
+    med: MedicalRepo = Depends(medical_repo),
+) -> None:
+    if not med.delete_condition(fighter_id, condition_id):
+        raise HTTPException(status_code=404, detail="condition not found")

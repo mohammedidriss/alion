@@ -7,7 +7,15 @@ from collections.abc import Iterator
 from fastapi import Depends
 from sqlmodel import Session
 
-from store import FighterRepo, PunchEventRepo, SessionRepo, get_session
+from store import (
+    CoachRepo,
+    FighterRepo,
+    MedicalRepo,
+    PunchEventRepo,
+    RefereeRepo,
+    SessionRepo,
+    get_session,
+)
 
 
 def db_session() -> Iterator[Session]:
@@ -24,3 +32,15 @@ def session_repo(session: Session = Depends(db_session)) -> SessionRepo:
 
 def punch_event_repo(session: Session = Depends(db_session)) -> PunchEventRepo:
     return PunchEventRepo(session)
+
+
+def coach_repo(session: Session = Depends(db_session)) -> CoachRepo:
+    return CoachRepo(session)
+
+
+def referee_repo(session: Session = Depends(db_session)) -> RefereeRepo:
+    return RefereeRepo(session)
+
+
+def medical_repo(session: Session = Depends(db_session)) -> MedicalRepo:
+    return MedicalRepo(session)

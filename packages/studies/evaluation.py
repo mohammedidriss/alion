@@ -24,7 +24,6 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Literal
 
-
 Hand = Literal["left", "right"]
 
 
@@ -143,7 +142,7 @@ def confusion_matrix(
     Includes a sentinel "unlabeled" column for matched pairs where one side
     has no punch_type. Pairs where BOTH sides are None are ignored (no signal).
     """
-    cls = list(classes) + ["unlabeled"]
+    cls = [*classes, "unlabeled"]
     out: dict[str, dict[str, int]] = {r: {c: 0 for c in cls} for r in cls}
     for p in pairs:
         t = p.truth.punch_type if p.truth.punch_type in classes else "unlabeled"
@@ -189,8 +188,8 @@ def render_report(
     lines.append("")
     lines.append("## Detection metrics")
     lines.append("")
-    lines.append(f"| metric | value |")
-    lines.append(f"|---|---|")
+    lines.append("| metric | value |")
+    lines.append("|---|---|")
     lines.append(f"| Precision | {result.precision:.3f} |")
     lines.append(f"| Recall    | {result.recall:.3f} |")
     lines.append(f"| F1        | {result.f1:.3f} |")
@@ -201,7 +200,7 @@ def render_report(
     if cm is not None and classes is not None:
         lines.append("## Punch-type confusion matrix")
         lines.append("")
-        cls = list(classes) + ["unlabeled"]
+        cls = [*classes, "unlabeled"]
         header = "| truth \\ pred | " + " | ".join(cls) + " |"
         sep = "|---" * (len(cls) + 1) + "|"
         lines.append(header)
