@@ -65,6 +65,20 @@ export default function HrvTab({ params }: { params: { id: string } }) {
     Math.max(0, Math.min(1, (rmssd - 20) / 70)) * 100,
   );
 
+  const r = matrix?.pearson_r ?? null;
+  const correlationStrength =
+    r == null
+      ? "—"
+      : Math.abs(r) < 0.1
+        ? "no correlation"
+        : Math.abs(r) < 0.3
+          ? "weak"
+          : Math.abs(r) < 0.5
+            ? "moderate"
+            : Math.abs(r) < 0.7
+              ? "strong"
+              : "very strong";
+
   return (
     <div className="space-y-6">
       <header>
@@ -75,10 +89,47 @@ export default function HrvTab({ params }: { params: { id: string } }) {
         </p>
       </header>
 
+      {/* HEADLINE STATS — most important numbers, scannable */}
+      <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
+        <HeadlineStat
+          label="Latest readiness"
+          value={readiness.toString()}
+          unit="/ 100"
+          tone={
+            readiness >= 75
+              ? "lime"
+              : readiness >= 55
+                ? "yellow"
+                : readiness >= 35
+                  ? "orange"
+                  : "red"
+          }
+        />
+        <HeadlineStat
+          label="Latest RMSSD"
+          value={rmssd.toFixed(0)}
+          unit="ms"
+          tone="purple"
+        />
+        <HeadlineStat
+          label="Resting HR"
+          value={latest.baseline_mean_hr_bpm?.toFixed(0) ?? "—"}
+          unit="bpm"
+          tone="orange"
+        />
+        <HeadlineStat
+          label="HRV vs Score r"
+          value={r != null ? r.toFixed(2) : "—"}
+          unit={correlationStrength}
+          tone={r != null && Math.abs(r) >= 0.5 ? "lime" : "neutral"}
+        />
+      </div>
+
+      {/* PRIMARY CHARTS — readiness gauge + trend, both clearly visible */}
       <div className="grid grid-cols-1 gap-4 lg:grid-cols-3">
         <div className="card">
           <div className="flex items-baseline justify-between">
-            <h2 className="text-base font-semibold">Latest readiness</h2>
+            <h2 className="text-base font-semibold">Readiness gauge</h2>
             <span className="text-[10px] uppercase tracking-wider text-neutral-500">
               RMSSD-based
             </span>
@@ -116,21 +167,10 @@ export default function HrvTab({ params }: { params: { id: string } }) {
             </Link>
           </div>
           <RmssdTrend sessions={baselined} />
-          {matrix && matrix.points.length >= 3 && matrix.pearson_r != null && (
-            <div className="mt-3 text-xs text-neutral-400">
-              Score vs RMSSD correlation: Pearson r ={" "}
-              <span
-                className={
-                  Math.abs(matrix.pearson_r) >= 0.5
-                    ? "font-semibold text-emerald-300"
-                    : "text-neutral-300"
-                }
-              >
-                {matrix.pearson_r.toFixed(2)}
-              </span>{" "}
-              · {matrix.points.length} matched sessions
-            </div>
-          )}
+          <p className="mt-2 text-[11px] text-neutral-500">
+            Recovery trend across recorded baselines. Drops 7+ ms over a week
+            often flag overtraining.
+          </p>
         </div>
       </div>
 
@@ -182,6 +222,40 @@ export default function HrvTab({ params }: { params: { id: string } }) {
           <li>Inter-round HR recovery curves</li>
           <li>Day-over-day RMSSD drift to flag overtraining</li>
         </ul>
+      </div>
+    </div>
+  );
+}
+
+function HeadlineStat({
+  label,
+  value,
+  unit,
+  tone,
+}: {
+  label: string;
+  value: string;
+  unit: string;
+  tone: "lime" | "yellow" | "orange" | "red" | "purple" | "neutral";
+}) {
+  const valColor = {
+    lime: "text-lime-300",
+    yellow: "text-yellow-300",
+    orange: "text-orange-300",
+    red: "text-red-300",
+    purple: "text-violet-300",
+    neutral: "text-neutral-200",
+  }[tone];
+  return (
+    <div className="rounded-2xl border border-white/5 bg-white/[0.02] p-3">
+      <div className="text-[10px] uppercase tracking-wide text-neutral-500">
+        {label}
+      </div>
+      <div className="mt-1 flex items-baseline gap-1">
+        <span className={`text-2xl font-semibold tabular-nums ${valColor}`}>
+          {value}
+        </span>
+        <span className="text-xs text-neutral-500">{unit}</span>
       </div>
     </div>
   );

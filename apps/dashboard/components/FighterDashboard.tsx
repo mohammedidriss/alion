@@ -74,9 +74,71 @@ export function FighterDashboard({ sessionsWithEvents }: Props) {
     return { totalPunches, totalDurationMin, avgScore };
   }, [usable]);
 
+  const latestUsable = usable[usable.length - 1];
+  const previous = usable[usable.length - 2];
+  const delta = latestUsable && previous ? latestUsable.score - previous.score : 0;
+
   return (
-    <section className="space-y-4">
-      <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-4">
+    <section className="space-y-5">
+      {/* HERO: most actionable signals — current score callout + progress + readiness */}
+      <div className="grid grid-cols-1 gap-4 lg:grid-cols-3">
+        <div className="card lg:col-span-2">
+          <div className="flex items-baseline justify-between">
+            <h3 className="text-base font-semibold">Performance progress</h3>
+            <span className="text-xs text-neutral-500">
+              score per session, chronological
+            </span>
+          </div>
+          {usable.length === 0 ? (
+            <div className="mt-4 flex h-40 items-center justify-center rounded-xl border border-dashed border-white/5 text-xs text-neutral-500">
+              no completed sessions with detected punches yet
+            </div>
+          ) : (
+            <>
+              <div className="mt-3 flex flex-wrap items-end gap-x-6 gap-y-2">
+                <div>
+                  <div className="text-[10px] uppercase tracking-wide text-neutral-500">
+                    Latest score
+                  </div>
+                  <div className="text-3xl font-bold tabular-nums">
+                    {latestUsable.score.toFixed(2)}
+                  </div>
+                </div>
+                {previous && (
+                  <div>
+                    <div className="text-[10px] uppercase tracking-wide text-neutral-500">
+                      vs previous
+                    </div>
+                    <div
+                      className={`text-lg font-semibold tabular-nums ${
+                        delta >= 0 ? "text-lime-300" : "text-red-300"
+                      }`}
+                    >
+                      {delta >= 0 ? "+" : ""}
+                      {delta.toFixed(2)}
+                    </div>
+                  </div>
+                )}
+                <div>
+                  <div className="text-[10px] uppercase tracking-wide text-neutral-500">
+                    Avg of {usable.length}
+                  </div>
+                  <div className="text-lg font-semibold tabular-nums text-neutral-300">
+                    {totals.avgScore.toFixed(2)}
+                  </div>
+                </div>
+              </div>
+              <ProgressChart series={usable} />
+            </>
+          )}
+        </div>
+        <ReadinessSidecar
+          sessions={sessionsWithEvents.map((s) => s.session)}
+        />
+      </div>
+
+      {/* SECONDARY: cumulative volume — important context, but less actionable per session */}
+      <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
         <StatCard
           tint="purple"
           icon="●"
@@ -108,27 +170,6 @@ export function FighterDashboard({ sessionsWithEvents }: Props) {
           label="Avg Score"
           value={usable.length ? totals.avgScore.toFixed(2) : "—"}
           hint="peak_v_p90 × ppm/60 × min"
-        />
-      </div>
-
-      <div className="grid grid-cols-1 gap-4 lg:grid-cols-3">
-        <div className="card lg:col-span-2">
-          <div className="flex items-baseline justify-between">
-            <h3 className="text-base font-semibold">Performance progress</h3>
-            <span className="text-xs text-neutral-500">
-              score per session, chronological
-            </span>
-          </div>
-          {usable.length === 0 ? (
-            <div className="mt-4 flex h-40 items-center justify-center rounded-xl border border-dashed border-white/5 text-xs text-neutral-500">
-              no completed sessions with detected punches yet
-            </div>
-          ) : (
-            <ProgressChart series={usable} />
-          )}
-        </div>
-        <ReadinessSidecar
-          sessions={sessionsWithEvents.map((s) => s.session)}
         />
       </div>
     </section>

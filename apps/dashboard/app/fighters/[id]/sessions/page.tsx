@@ -97,6 +97,38 @@ export default function SessionsTab({ params }: { params: { id: string } }) {
         </p>
       )}
 
+      {/* HERO: most recent session (the one a coach typically opens for) */}
+      {rows.length > 0 && (
+        <Link
+          href={`/sessions/${rows[0].session.id}`}
+          className="card flex flex-wrap items-center gap-x-6 gap-y-3 transition-colors hover:border-white/15"
+        >
+          <div className="min-w-0 flex-1">
+            <div className="text-[10px] uppercase tracking-wide text-neutral-500">
+              Most recent session
+            </div>
+            <div className="mt-1 flex flex-wrap items-baseline gap-x-3 gap-y-1">
+              <span className="text-xl font-semibold">
+                {new Date(rows[0].session.started_at).toLocaleString()}
+              </span>
+              <span className={`pill ${STATUS_TINT[rows[0].session.status]}`}>
+                {rows[0].session.status}
+              </span>
+              <span className="pill bg-white/[0.04] text-neutral-300">
+                {SOURCE_LABEL[rows[0].session.source] ?? rows[0].session.source}
+              </span>
+            </div>
+            <div className="mt-1 text-sm text-neutral-400">
+              {(rows[0].session.duration_ms / 1000).toFixed(1)}s ·{" "}
+              {rows[0].punches} punch{rows[0].punches === 1 ? "" : "es"}
+              {rows[0].peakVelocity > 0 &&
+                ` · peak ${rows[0].peakVelocity.toFixed(1)} m/s`}
+            </div>
+          </div>
+          <span className="text-emerald-400">open detail →</span>
+        </Link>
+      )}
+
       <section className="grid grid-cols-2 gap-3 sm:grid-cols-4">
         <Stat label="Total" value={totals.total} />
         <Stat label="Completed" value={totals.completed} />

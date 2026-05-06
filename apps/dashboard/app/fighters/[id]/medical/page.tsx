@@ -84,8 +84,112 @@ export default function MedicalTab({ params }: { params: { id: string } }) {
         </p>
       )}
 
-      {/* Overview / contact / clearance */}
-      <section className="card">
+      {/* CRITICAL BANNER — surfaces life-threatening info immediately */}
+      {(() => {
+        const danger = allergies.filter(
+          (a) => a.severity === "severe" || a.severity === "anaphylactic",
+        );
+        const activeCond = conditions.filter((c) => c.status === "active");
+        const activeMeds = medications.filter((m) => m.is_active);
+        if (
+          danger.length === 0 &&
+          activeCond.length === 0 &&
+          activeMeds.length === 0
+        ) {
+          return null;
+        }
+        return (
+          <div className="card border-red-500/30 bg-red-500/5">
+            <div className="flex items-baseline justify-between">
+              <h2 className="text-base font-semibold text-red-200">
+                Critical info
+              </h2>
+              <span className="text-[10px] uppercase tracking-wider text-red-300/60">
+                ringside-relevant
+              </span>
+            </div>
+            <ul className="mt-3 space-y-2 text-sm">
+              {danger.map((a) => (
+                <li key={a.id} className="flex items-center gap-2">
+                  <span className={`pill ${SEVERITY_TINT[a.severity]}`}>
+                    {a.severity}
+                  </span>
+                  <span className="font-medium text-neutral-100">
+                    Allergy: {a.substance}
+                  </span>
+                  {a.notes && (
+                    <span className="text-xs text-neutral-400">
+                      — {a.notes}
+                    </span>
+                  )}
+                </li>
+              ))}
+              {activeCond.map((c) => (
+                <li key={c.id} className="flex items-center gap-2">
+                  <span className={`pill ${STATUS_TINT[c.status]}`}>
+                    {c.status}
+                  </span>
+                  <span className="font-medium text-neutral-100">
+                    Condition: {c.name}
+                  </span>
+                </li>
+              ))}
+              {activeMeds.length > 0 && (
+                <li className="flex items-center gap-2">
+                  <span className="pill bg-violet-500/15 text-violet-300">
+                    {activeMeds.length} active
+                  </span>
+                  <span className="text-neutral-300">
+                    Currently on: {activeMeds.map((m) => m.name).join(", ")}
+                  </span>
+                </li>
+              )}
+            </ul>
+          </div>
+        );
+      })()}
+
+      {/* Allergies — anaphylaxis-critical, top of detail list */}
+      <AllergiesSection
+        items={allergies}
+        onAdd={async (data) => {
+          await api.addAllergy(fighterId, data);
+          refresh();
+        }}
+        onDelete={async (id) => {
+          await api.deleteAllergy(fighterId, id);
+          refresh();
+        }}
+      />
+
+      {/* Conditions — existing health context, important for trainers/refs */}
+      <ConditionsSection
+        items={conditions}
+        onAdd={async (data) => {
+          await api.addCondition(fighterId, data);
+          refresh();
+        }}
+        onDelete={async (id) => {
+          await api.deleteCondition(fighterId, id);
+          refresh();
+        }}
+      />
+
+      {/* Medications — current prescriptions, drug-interaction relevant */}
+      <MedicationsSection
+        items={medications}
+        onAdd={async (data) => {
+          await api.addMedication(fighterId, data);
+          refresh();
+        }}
+        onDelete={async (id) => {
+          await api.deleteMedication(fighterId, id);
+          refresh();
+        }}
+      />
+
+      {/* Overview / contact / clearance — admin info, kept near the bottom */}
+      <section className="card" id="medical-overview">
         <div className="flex items-baseline justify-between">
           <h2 className="text-base font-semibold">Overview</h2>
           {!editingOverview ? (
@@ -259,45 +363,6 @@ export default function MedicalTab({ params }: { params: { id: string } }) {
           </p>
         )}
       </section>
-
-      {/* Allergies */}
-      <AllergiesSection
-        items={allergies}
-        onAdd={async (data) => {
-          await api.addAllergy(fighterId, data);
-          refresh();
-        }}
-        onDelete={async (id) => {
-          await api.deleteAllergy(fighterId, id);
-          refresh();
-        }}
-      />
-
-      {/* Medications */}
-      <MedicationsSection
-        items={medications}
-        onAdd={async (data) => {
-          await api.addMedication(fighterId, data);
-          refresh();
-        }}
-        onDelete={async (id) => {
-          await api.deleteMedication(fighterId, id);
-          refresh();
-        }}
-      />
-
-      {/* Conditions */}
-      <ConditionsSection
-        items={conditions}
-        onAdd={async (data) => {
-          await api.addCondition(fighterId, data);
-          refresh();
-        }}
-        onDelete={async (id) => {
-          await api.deleteCondition(fighterId, id);
-          refresh();
-        }}
-      />
     </div>
   );
 }

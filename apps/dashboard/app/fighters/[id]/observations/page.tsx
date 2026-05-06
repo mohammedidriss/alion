@@ -35,6 +35,36 @@ export default function ObservationsTab({
         </p>
       </header>
 
+      {/* HEADLINE STRIP — quick scan of how much coach context exists */}
+      <div className="grid grid-cols-2 gap-3 sm:grid-cols-3">
+        <div className="rounded-2xl border border-white/5 bg-white/[0.02] p-3">
+          <div className="text-[10px] uppercase tracking-wide text-neutral-500">
+            Annotated sessions
+          </div>
+          <div className="mt-1 text-2xl font-semibold tabular-nums">
+            {annotated.length}
+          </div>
+        </div>
+        <div className="rounded-2xl border border-white/5 bg-white/[0.02] p-3">
+          <div className="text-[10px] uppercase tracking-wide text-neutral-500">
+            Latest note
+          </div>
+          <div className="mt-1 text-sm font-semibold">
+            {annotated[0]
+              ? new Date(annotated[0].started_at).toLocaleDateString()
+              : "—"}
+          </div>
+        </div>
+        <div className="rounded-2xl border border-violet-500/30 bg-violet-500/5 p-3">
+          <div className="text-[10px] uppercase tracking-wide text-violet-300/70">
+            AI recommendations
+          </div>
+          <div className="mt-1 text-sm font-semibold text-violet-200">
+            coming soon
+          </div>
+        </div>
+      </div>
+
       <section>
         <h2 className="text-base font-semibold">Coach notes</h2>
         <p className="mt-1 text-xs text-neutral-500">
