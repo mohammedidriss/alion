@@ -288,8 +288,9 @@ export default function SessionPage({ params }: { params: { id: string } }) {
           <table className="mt-3 w-full text-sm">
             <thead className="text-left text-xs uppercase text-neutral-500">
               <tr>
-                <th className="py-1">t (s)</th>
+                <th className="py-1">#</th>
                 <th>Hand</th>
+                <th>Time (s)</th>
                 <th>Velocity (m/s)</th>
                 <th>Conf</th>
                 <th>Source</th>
@@ -298,10 +299,11 @@ export default function SessionPage({ params }: { params: { id: string } }) {
             <tbody>
               {events.map((e, i) => (
                 <tr key={i} className="border-t border-neutral-800">
-                  <td className="py-1 font-mono">{(e.t_ms / 1000).toFixed(2)}</td>
+                  <td className="py-1 font-mono text-xs text-neutral-500">{i + 1}</td>
                   <td className={e.hand === "left" ? "text-amber-300" : "text-sky-300"}>
                     {e.hand}
                   </td>
+                  <td className="font-mono">{(e.t_ms / 1000).toFixed(2)}</td>
                   <td className="font-mono">{e.velocity_ms.toFixed(2)}</td>
                   <td className="font-mono">{e.confidence.toFixed(2)}</td>
                   <td className="text-neutral-500">{e.detected_by}</td>
