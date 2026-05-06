@@ -290,7 +290,7 @@ export default function SessionPage({ params }: { params: { id: string } }) {
               <tr>
                 <th className="py-1">#</th>
                 <th>Hand</th>
-                <th>Time (s)</th>
+                <th>Time</th>
                 <th>Velocity (m/s)</th>
                 <th>Conf</th>
                 <th>Source</th>
@@ -303,7 +303,7 @@ export default function SessionPage({ params }: { params: { id: string } }) {
                   <td className={e.hand === "left" ? "text-amber-300" : "text-sky-300"}>
                     {e.hand}
                   </td>
-                  <td className="font-mono">{(e.t_ms / 1000).toFixed(2)}</td>
+                  <td className="font-mono">{formatPunchTime(session.started_at, e.t_ms)}</td>
                   <td className="font-mono">{e.velocity_ms.toFixed(2)}</td>
                   <td className="font-mono">{e.confidence.toFixed(2)}</td>
                   <td className="text-neutral-500">{e.detected_by}</td>
@@ -350,4 +350,22 @@ function Stat({ label, value }: { label: string; value: string | number }) {
       <div className="mt-1 text-2xl font-semibold">{value}</div>
     </div>
   );
+}
+
+/**
+ * Convert (session start, offset ms) → "h:mm:ss AM/PM" wall-clock time.
+ * Server returns started_at as an ISO timestamp in UTC; the browser's
+ * `new Date(...)` parses it and `toLocaleTimeString` renders in the
+ * user's local timezone with their locale's preferred 12/24-hour format.
+ */
+function formatPunchTime(sessionStartedAt: string, eventTMs: number): string {
+  const startMs = new Date(sessionStartedAt).getTime();
+  if (Number.isNaN(startMs)) return "—";
+  const d = new Date(startMs + eventTMs);
+  return d.toLocaleTimeString(undefined, {
+    hour: "numeric",
+    minute: "2-digit",
+    second: "2-digit",
+    hour12: true,
+  });
 }
