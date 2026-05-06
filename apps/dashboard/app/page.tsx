@@ -82,17 +82,14 @@ export default function Home() {
           </p>
         </div>
         <div className="flex items-center gap-3">
-          {active ? (
-            <ActingAsBadge
-              kind={active.kind}
-              name={active.name}
-              photo_path={active.photo_path}
-              onSwitch={() => setActive(null)}
-            />
-          ) : (
-            <span className="pill bg-neutral-700/40 text-neutral-300">
-              not signed in
-            </span>
+          {active && (
+            <button
+              onClick={() => setActive(null)}
+              className="text-xs text-neutral-500 hover:text-neutral-200"
+              title={`Currently signed in as ${active.kind}: ${active.name}`}
+            >
+              sign out
+            </button>
           )}
           {health ? (
             <span className="pill bg-emerald-500/15 text-emerald-300">
@@ -345,33 +342,3 @@ function Empty({ label, cta }: { label: string; cta: string }) {
   );
 }
 
-function ActingAsBadge({
-  kind,
-  name,
-  photo_path,
-  onSwitch,
-}: {
-  kind: ProfileKind;
-  name: string;
-  photo_path: string | null;
-  onSwitch: () => void;
-}) {
-  return (
-    <div className="flex items-center gap-2 rounded-full border border-white/10 bg-white/[0.04] py-1 pl-1 pr-3 text-sm">
-      <ProfileAvatar name={name} photo_path={photo_path} size={28} />
-      <div className="leading-tight">
-        <div className="text-[10px] uppercase tracking-wide text-neutral-500">
-          {kind}
-        </div>
-        <div className="text-xs font-medium">{name}</div>
-      </div>
-      <button
-        onClick={onSwitch}
-        className="ml-2 text-xs text-neutral-400 hover:text-neutral-100"
-        title="Sign out / switch profile"
-      >
-        switch
-      </button>
-    </div>
-  );
-}
