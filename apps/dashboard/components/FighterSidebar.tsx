@@ -30,7 +30,7 @@ export function FighterSidebar({ fighter }: { fighter: Fighter }) {
         href="/"
         className="text-xs text-neutral-400 transition-colors hover:text-neutral-100"
       >
-        ← All fighters
+        ← Main page
       </Link>
 
       <div className="flex flex-col items-center gap-2 py-2">

@@ -70,7 +70,7 @@ export default function RefereePage({ params }: { params: { id: string } }) {
   return (
     <main className="mx-auto max-w-3xl space-y-6 px-8 py-8">
       <Link href="/" className="text-sm text-neutral-400 hover:text-neutral-100">
-        ← Back to roster
+        ← Main page
       </Link>
 
       <header className="flex items-start gap-5">

@@ -1,6 +1,7 @@
 "use client";
 
 import { useMemo } from "react";
+import { HrvMetric, ReadinessGauge } from "@/components/HrvCharts";
 import type { PunchEvent, Session } from "@/lib/api";
 
 interface SessionWithEvents {
@@ -110,22 +111,26 @@ export function FighterDashboard({ sessionsWithEvents }: Props) {
         />
       </div>
 
-      <div className="card">
-        <div className="flex items-baseline justify-between">
-          <h3 className="text-base font-semibold">Performance progress</h3>
-          <span className="text-xs text-neutral-500">
-            score per session, chronological
-          </span>
-        </div>
-        {usable.length === 0 ? (
-          <div className="mt-4 flex h-40 items-center justify-center rounded-xl border border-dashed border-white/5 text-xs text-neutral-500">
-            no completed sessions with detected punches yet
+      <div className="grid grid-cols-1 gap-4 lg:grid-cols-3">
+        <div className="card lg:col-span-2">
+          <div className="flex items-baseline justify-between">
+            <h3 className="text-base font-semibold">Performance progress</h3>
+            <span className="text-xs text-neutral-500">
+              score per session, chronological
+            </span>
           </div>
-        ) : (
-          <ProgressChart series={usable} />
-        )}
+          {usable.length === 0 ? (
+            <div className="mt-4 flex h-40 items-center justify-center rounded-xl border border-dashed border-white/5 text-xs text-neutral-500">
+              no completed sessions with detected punches yet
+            </div>
+          ) : (
+            <ProgressChart series={usable} />
+          )}
+        </div>
+        <ReadinessSidecar
+          sessions={sessionsWithEvents.map((s) => s.session)}
+        />
       </div>
-
     </section>
   );
 }
@@ -274,6 +279,71 @@ function ProgressChart({ series }: { series: PerSessionMetrics[] }) {
         <span>● recent down vs prev: red dot</span>
         <span className="ml-auto">{series.length} sessions plotted</span>
       </div>
+    </div>
+  );
+}
+
+
+function ReadinessSidecar({ sessions }: { sessions: Session[] }) {
+  const baselined = sessions
+    .filter((s) => s.baseline_rmssd_ms != null)
+    .sort((a, b) =>
+      (b.baseline_recorded_at ?? "").localeCompare(a.baseline_recorded_at ?? ""),
+    );
+  const latest = baselined[0];
+
+  if (!latest) {
+    return (
+      <div className="card flex flex-col">
+        <div className="flex items-baseline justify-between">
+          <h3 className="text-base font-semibold">Readiness</h3>
+          <span className="text-[10px] uppercase tracking-wider text-neutral-500">
+            HRV
+          </span>
+        </div>
+        <div className="mt-4 flex flex-1 flex-col items-center justify-center text-center text-xs text-neutral-500">
+          <p>No HRV baseline yet.</p>
+          <p className="mt-1">
+            Upload a 5-min RR CSV on a pending session to populate this.
+          </p>
+        </div>
+      </div>
+    );
+  }
+
+  const rmssd = latest.baseline_rmssd_ms!;
+  const readiness = Math.round(
+    Math.max(0, Math.min(1, (rmssd - 20) / 70)) * 100,
+  );
+
+  return (
+    <div className="card flex flex-col">
+      <div className="flex items-baseline justify-between">
+        <h3 className="text-base font-semibold">Readiness</h3>
+        <span className="text-[10px] uppercase tracking-wider text-neutral-500">
+          RMSSD-based
+        </span>
+      </div>
+      <div className="mt-2 flex justify-center">
+        <ReadinessGauge value={readiness} />
+      </div>
+      <div className="mt-2 grid grid-cols-3 gap-2 text-center text-xs">
+        <HrvMetric label="RMSSD" value={rmssd.toFixed(1)} unit="ms" />
+        <HrvMetric
+          label="SDNN"
+          value={latest.baseline_sdnn_ms?.toFixed(1)}
+          unit="ms"
+        />
+        <HrvMetric
+          label="Mean HR"
+          value={latest.baseline_mean_hr_bpm?.toFixed(0)}
+          unit="bpm"
+        />
+      </div>
+      <p className="mt-auto pt-3 text-[11px] text-neutral-500">
+        Latest of {baselined.length} baseline
+        {baselined.length === 1 ? "" : "s"}.
+      </p>
     </div>
   );
 }
