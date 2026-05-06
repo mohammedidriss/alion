@@ -11,7 +11,7 @@ from contextlib import asynccontextmanager
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
-from api.routes import cameras, fighters, health, sessions
+from api.routes import cameras, fighters, health, hrv, sessions
 from common import get_settings, setup_logging
 from store import create_db_and_tables
 
@@ -45,3 +45,7 @@ app.add_middleware(
 for router in (health.router, cameras.router, fighters.router, sessions.router):
     app.include_router(router)
     app.include_router(router, prefix="/v1")
+
+# Phase 2 surface: HRV routes are NEW work, only mounted under /v2.
+# Phase 1 (/v1) sees nothing about HRV — preserves the lock from ADR 004.
+app.include_router(hrv.router, prefix="/v2")
