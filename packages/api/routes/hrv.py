@@ -2,12 +2,15 @@
 
 from __future__ import annotations
 
-from collections.abc import Iterator
+import asyncio
+import json
+from collections.abc import AsyncIterator, Iterator
 from contextlib import contextmanager
 from pathlib import Path
 from uuid import UUID
 
 from fastapi import APIRouter, Depends, File, HTTPException, UploadFile
+from fastapi.responses import StreamingResponse
 from pydantic import BaseModel
 from sqlmodel import Session as DBSession
 from sqlmodel import select
@@ -181,3 +184,58 @@ def hrv_status(
 def _count_samples(db: DBSession, session_id: UUID) -> int:
     rows = db.exec(select(HRSampleRow).where(HRSampleRow.session_id == session_id)).all()
     return len(list(rows))
+
+
+@router.get("/{session_id}/hrv/live", tags=["hrv"])
+async def hrv_live_stream(
+    session_id: UUID,
+    repo: SessionRepo = Depends(session_repo),
+) -> StreamingResponse:
+    """Server-Sent Events: pushes the latest rolling metrics + sample count
+    every second while a replay is running. The browser consumes this with
+    `new EventSource(...)` and updates the chart in real time. Closes when
+    the runner is no longer running and we've sent a final frame.
+    """
+    if repo.get(session_id) is None:
+        raise HTTPException(status_code=404, detail="session not found")
+
+    async def gen() -> AsyncIterator[bytes]:
+        last_sent_count = -1
+        idle_ticks = 0
+        # Open a fresh DB session for the duration of the stream — we read
+        # the sample count without touching the FastAPI dep tree.
+        from store import get_session as _gs
+
+        gen_db = _gs()
+        db = next(gen_db)
+        try:
+            while True:
+                metrics = hrv_runner.latest_metrics(session_id)
+                sample_count = _count_samples(db, session_id)
+                running = hrv_runner.is_running(session_id)
+                payload = {
+                    "is_running": running,
+                    "sample_count": sample_count,
+                    "metrics": metrics.model_dump(mode="json") if metrics else None,
+                }
+                if sample_count != last_sent_count or running:
+                    yield f"data: {json.dumps(payload)}\n\n".encode()
+                    last_sent_count = sample_count
+                    idle_ticks = 0
+                else:
+                    idle_ticks += 1
+                # Close once the runner has stopped and we've sent a final frame.
+                if not running and idle_ticks > 2:
+                    return
+                await asyncio.sleep(1.0)
+        finally:
+            try:
+                next(gen_db)
+            except StopIteration:
+                pass
+
+    return StreamingResponse(
+        gen(),
+        media_type="text/event-stream",
+        headers={"Cache-Control": "no-store", "X-Accel-Buffering": "no"},
+    )

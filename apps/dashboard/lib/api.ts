@@ -73,6 +73,32 @@ export interface FighterOptions {
   sexes: string[];
 }
 
+// ---- HRV (Phase 2 / v2) ----
+
+export interface HRSample {
+  session_id: string;
+  t_ms: number;
+  rr_ms: number;
+  hr_bpm: number;
+}
+
+export interface HRMetricsWindow {
+  session_id: string;
+  window_start_ms: number;
+  window_end_ms: number;
+  sample_count: number;
+  mean_hr_bpm: number;
+  rmssd_ms: number;
+  sdnn_ms: number;
+}
+
+export interface HrvStatus {
+  session_id: string;
+  is_running: boolean;
+  sample_count: number;
+  metrics: HRMetricsWindow | null;
+}
+
 export interface Session {
   id: string;
   fighter_id: string;
@@ -165,6 +191,30 @@ export const api = {
     req<void>(`/fighters/${fighter_id}/weigh-ins/${weigh_in_id}`, {
       method: "DELETE",
     }),
+  // HRV (Phase 2, /v2)
+  uploadHrvCsv: async (id: string, file: File) => {
+    const fd = new FormData();
+    fd.append("file", file);
+    const r = await fetch(`${BASE}/v2/sessions/${id}/hrv/upload`, {
+      method: "POST",
+      body: fd,
+    });
+    if (!r.ok) throw new Error(`${r.status} ${await r.text()}`);
+    return r.json() as Promise<Session>;
+  },
+  startHrv: (id: string, opts?: { realtime?: boolean }) =>
+    req<HrvStatus>(`/v2/sessions/${id}/hrv/start`, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ realtime: opts?.realtime ?? false }),
+    }),
+  stopHrv: (id: string) =>
+    req<HrvStatus>(`/v2/sessions/${id}/hrv/stop`, { method: "POST" }),
+  hrvStatus: (id: string) => req<HrvStatus>(`/v2/sessions/${id}/hrv/status`),
+  hrvSamples: (id: string, limit?: number) =>
+    req<HRSample[]>(
+      `/v2/sessions/${id}/hrv/samples${limit ? `?limit=${limit}` : ""}`,
+    ),
   listSessions: (fighter_id?: string) =>
     req<Session[]>(
       fighter_id ? `/sessions?fighter_id=${fighter_id}` : "/sessions",

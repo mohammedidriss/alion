@@ -91,8 +91,14 @@ export default function NewSessionPage() {
 
       <section className="space-y-2 rounded-lg border border-neutral-800 p-4">
         <h2 className="text-sm font-medium text-neutral-300">Source</h2>
-        <div className="flex gap-3">
-          {(["live_webcam", "uploaded_video"] as SessionSource[]).map((s) => (
+        <div className="flex flex-wrap gap-3">
+          {(
+            [
+              ["live_webcam", "Live webcam"],
+              ["uploaded_video", "Upload MP4"],
+              ["hrv_replay", "HRV replay (RR CSV)"],
+            ] as [SessionSource, string][]
+          ).map(([s, label]) => (
             <label
               key={s}
               className={`cursor-pointer rounded border px-3 py-2 text-sm ${
@@ -107,7 +113,7 @@ export default function NewSessionPage() {
                 checked={source === s}
                 onChange={() => setSource(s)}
               />
-              {s === "live_webcam" ? "Live webcam" : "Upload MP4"}
+              {label}
             </label>
           ))}
         </div>

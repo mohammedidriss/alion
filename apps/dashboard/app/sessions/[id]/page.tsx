@@ -3,6 +3,7 @@
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useEffect, useState } from "react";
+import { HrvPanel } from "@/components/HrvPanel";
 import { PunchChart } from "@/components/PunchChart";
 import { PunchTimeline } from "@/components/PunchTimeline";
 import { VelocityHistogram } from "@/components/VelocityHistogram";
@@ -274,6 +275,9 @@ export default function SessionPage({ params }: { params: { id: string } }) {
           Stop capture
         </button>
       )}
+
+      {(session.source === "polar_h10_only" ||
+        session.source === "hrv_replay") && <HrvPanel sessionId={session.id} />}
 
       <PunchChart events={events} />
 
