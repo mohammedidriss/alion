@@ -5,10 +5,12 @@ import { ProfileAvatar } from "@/components/ProfileAvatar";
 import {
   api,
   type Coach,
+  type CoachingLevel,
   type Fighter,
   type FighterPatch,
   type Hand,
   type Referee,
+  type RefereeCertLevel,
   type SkillLevel,
   type Stance,
 } from "@/lib/api";
@@ -77,17 +79,37 @@ interface FighterForm {
 
 interface CoachForm {
   name: string;
+  dob: string;
+  nationality: string;
+  sex: "" | "male" | "female" | "other";
+  email: string;
+  phone: string;
   gym: string;
   specialties: string;
+  coaching_level: "" | CoachingLevel;
   years_experience: string;
+  certifications: string;
+  license_number: string;
+  license_expiry: string;
+  languages: string;
+  notable_fighters: string;
   bio: string;
 }
 
 interface RefereeForm {
   name: string;
+  dob: string;
+  nationality: string;
+  sex: "" | "male" | "female" | "other";
+  email: string;
+  phone: string;
   license_number: string;
   sanctioning_body: string;
+  certification_level: "" | RefereeCertLevel;
   license_expiry: string;
+  years_officiating: string;
+  languages: string;
+  notable_bouts: string;
   bio: string;
 }
 
@@ -117,17 +139,37 @@ export function CreateProfileModal({ kind, onClose, onCreated }: Props) {
 
   const [coach, setCoach] = useState<CoachForm>({
     name: "",
+    dob: "",
+    nationality: "",
+    sex: "",
+    email: "",
+    phone: "",
     gym: "",
     specialties: "",
+    coaching_level: "",
     years_experience: "",
+    certifications: "",
+    license_number: "",
+    license_expiry: "",
+    languages: "",
+    notable_fighters: "",
     bio: "",
   });
 
   const [referee, setReferee] = useState<RefereeForm>({
     name: "",
+    dob: "",
+    nationality: "",
+    sex: "",
+    email: "",
+    phone: "",
     license_number: "",
     sanctioning_body: "",
+    certification_level: "",
     license_expiry: "",
+    years_officiating: "",
+    languages: "",
+    notable_bouts: "",
     bio: "",
   });
 
@@ -195,11 +237,25 @@ export function CreateProfileModal({ kind, onClose, onCreated }: Props) {
           gym: coach.gym.trim() || undefined,
         });
         id = c.id;
-        const yrs = numOrNull(coach.years_experience);
         const patch: Partial<Coach> = {};
+        if (coach.dob) patch.dob = coach.dob;
+        if (coach.nationality.trim()) patch.nationality = coach.nationality.trim();
+        if (coach.sex) patch.sex = coach.sex;
+        if (coach.email.trim()) patch.email = coach.email.trim();
+        if (coach.phone.trim()) patch.phone = coach.phone.trim();
         if (coach.specialties.trim())
           patch.specialties = coach.specialties.trim();
+        if (coach.coaching_level) patch.coaching_level = coach.coaching_level;
+        const yrs = numOrNull(coach.years_experience);
         if (yrs != null) patch.years_experience = yrs;
+        if (coach.certifications.trim())
+          patch.certifications = coach.certifications.trim();
+        if (coach.license_number.trim())
+          patch.license_number = coach.license_number.trim();
+        if (coach.license_expiry) patch.license_expiry = coach.license_expiry;
+        if (coach.languages.trim()) patch.languages = coach.languages.trim();
+        if (coach.notable_fighters.trim())
+          patch.notable_fighters = coach.notable_fighters.trim();
         if (coach.bio.trim()) patch.bio = coach.bio.trim();
         if (Object.keys(patch).length > 0) {
           await api.updateCoach(id, patch);
@@ -215,10 +271,23 @@ export function CreateProfileModal({ kind, onClose, onCreated }: Props) {
         });
         id = r.id;
         const patch: Partial<Referee> = {};
+        if (referee.dob) patch.dob = referee.dob;
+        if (referee.nationality.trim())
+          patch.nationality = referee.nationality.trim();
+        if (referee.sex) patch.sex = referee.sex;
+        if (referee.email.trim()) patch.email = referee.email.trim();
+        if (referee.phone.trim()) patch.phone = referee.phone.trim();
         if (referee.license_number.trim())
           patch.license_number = referee.license_number.trim();
+        if (referee.certification_level)
+          patch.certification_level = referee.certification_level;
         if (referee.license_expiry)
           patch.license_expiry = referee.license_expiry;
+        const yo = numOrNull(referee.years_officiating);
+        if (yo != null) patch.years_officiating = yo;
+        if (referee.languages.trim()) patch.languages = referee.languages.trim();
+        if (referee.notable_bouts.trim())
+          patch.notable_bouts = referee.notable_bouts.trim();
         if (referee.bio.trim()) patch.bio = referee.bio.trim();
         if (Object.keys(patch).length > 0) {
           await api.updateReferee(id, patch);
@@ -441,6 +510,45 @@ export function CreateProfileModal({ kind, onClose, onCreated }: Props) {
 
           {kind === "coach" && (
             <>
+              <Section title="Identity">
+                <Input
+                  label="Date of birth"
+                  type="date"
+                  value={coach.dob}
+                  onChange={(v) => setCoach({ ...coach, dob: v })}
+                />
+                <Input
+                  label="Nationality"
+                  value={coach.nationality}
+                  onChange={(v) => setCoach({ ...coach, nationality: v })}
+                />
+                <Select
+                  label="Sex"
+                  value={coach.sex}
+                  onChange={(v) =>
+                    setCoach({ ...coach, sex: v as CoachForm["sex"] })
+                  }
+                  options={[
+                    { value: "", label: "—" },
+                    { value: "male", label: "male" },
+                    { value: "female", label: "female" },
+                    { value: "other", label: "other" },
+                  ]}
+                />
+              </Section>
+              <Section title="Contact">
+                <Input
+                  label="Email"
+                  type="email"
+                  value={coach.email}
+                  onChange={(v) => setCoach({ ...coach, email: v })}
+                />
+                <Input
+                  label="Phone"
+                  value={coach.phone}
+                  onChange={(v) => setCoach({ ...coach, phone: v })}
+                />
+              </Section>
               <Section title="Coaching">
                 <Input
                   label="Gym"
@@ -454,6 +562,22 @@ export function CreateProfileModal({ kind, onClose, onCreated }: Props) {
                   onChange={(v) => setCoach({ ...coach, specialties: v })}
                   placeholder="head movement, defense, conditioning"
                 />
+                <Select
+                  label="Coaching level"
+                  value={coach.coaching_level}
+                  onChange={(v) =>
+                    setCoach({
+                      ...coach,
+                      coaching_level: v as CoachForm["coaching_level"],
+                    })
+                  }
+                  options={[
+                    { value: "", label: "—" },
+                    { value: "amateur", label: "amateur" },
+                    { value: "professional", label: "professional" },
+                    { value: "both", label: "both" },
+                  ]}
+                />
                 <Input
                   label="Years experience"
                   type="number"
@@ -463,7 +587,40 @@ export function CreateProfileModal({ kind, onClose, onCreated }: Props) {
                   }
                 />
               </Section>
-              <Section title="Bio">
+              <Section title="Credentials">
+                <Input
+                  label="Certifications"
+                  value={coach.certifications}
+                  onChange={(v) => setCoach({ ...coach, certifications: v })}
+                  placeholder="USA Boxing Level 2, AIBA 1-Star"
+                />
+                <Input
+                  label="License number"
+                  value={coach.license_number}
+                  onChange={(v) => setCoach({ ...coach, license_number: v })}
+                />
+                <Input
+                  label="License expiry"
+                  type="date"
+                  value={coach.license_expiry}
+                  onChange={(v) => setCoach({ ...coach, license_expiry: v })}
+                />
+                <Input
+                  label="Languages"
+                  value={coach.languages}
+                  onChange={(v) => setCoach({ ...coach, languages: v })}
+                  placeholder="English, Spanish"
+                />
+              </Section>
+              <Section title="Track record">
+                <Textarea
+                  label="Notable fighters trained"
+                  value={coach.notable_fighters}
+                  onChange={(v) =>
+                    setCoach({ ...coach, notable_fighters: v })
+                  }
+                  rows={2}
+                />
                 <Textarea
                   label="Bio"
                   value={coach.bio}
@@ -476,6 +633,45 @@ export function CreateProfileModal({ kind, onClose, onCreated }: Props) {
 
           {kind === "referee" && (
             <>
+              <Section title="Identity">
+                <Input
+                  label="Date of birth"
+                  type="date"
+                  value={referee.dob}
+                  onChange={(v) => setReferee({ ...referee, dob: v })}
+                />
+                <Input
+                  label="Nationality"
+                  value={referee.nationality}
+                  onChange={(v) => setReferee({ ...referee, nationality: v })}
+                />
+                <Select
+                  label="Sex"
+                  value={referee.sex}
+                  onChange={(v) =>
+                    setReferee({ ...referee, sex: v as RefereeForm["sex"] })
+                  }
+                  options={[
+                    { value: "", label: "—" },
+                    { value: "male", label: "male" },
+                    { value: "female", label: "female" },
+                    { value: "other", label: "other" },
+                  ]}
+                />
+              </Section>
+              <Section title="Contact">
+                <Input
+                  label="Email"
+                  type="email"
+                  value={referee.email}
+                  onChange={(v) => setReferee({ ...referee, email: v })}
+                />
+                <Input
+                  label="Phone"
+                  value={referee.phone}
+                  onChange={(v) => setReferee({ ...referee, phone: v })}
+                />
+              </Section>
               <Section title="Credentials">
                 <Input
                   label="Sanctioning body"
@@ -492,6 +688,24 @@ export function CreateProfileModal({ kind, onClose, onCreated }: Props) {
                     setReferee({ ...referee, license_number: v })
                   }
                 />
+                <Select
+                  label="Certification level"
+                  value={referee.certification_level}
+                  onChange={(v) =>
+                    setReferee({
+                      ...referee,
+                      certification_level:
+                        v as RefereeForm["certification_level"],
+                    })
+                  }
+                  options={[
+                    { value: "", label: "—" },
+                    { value: "local", label: "local" },
+                    { value: "regional", label: "regional" },
+                    { value: "national", label: "national" },
+                    { value: "international", label: "international" },
+                  ]}
+                />
                 <Input
                   label="License expiry"
                   type="date"
@@ -500,8 +714,30 @@ export function CreateProfileModal({ kind, onClose, onCreated }: Props) {
                     setReferee({ ...referee, license_expiry: v })
                   }
                 />
+                <Input
+                  label="Years officiating"
+                  type="number"
+                  value={referee.years_officiating}
+                  onChange={(v) =>
+                    setReferee({ ...referee, years_officiating: v })
+                  }
+                />
+                <Input
+                  label="Languages"
+                  value={referee.languages}
+                  onChange={(v) => setReferee({ ...referee, languages: v })}
+                  placeholder="English, Spanish"
+                />
               </Section>
-              <Section title="Bio">
+              <Section title="Track record">
+                <Textarea
+                  label="Notable bouts officiated"
+                  value={referee.notable_bouts}
+                  onChange={(v) =>
+                    setReferee({ ...referee, notable_bouts: v })
+                  }
+                  rows={2}
+                />
                 <Textarea
                   label="Bio"
                   value={referee.bio}

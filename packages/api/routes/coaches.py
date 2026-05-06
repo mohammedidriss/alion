@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from datetime import date
 from uuid import UUID
 
 from fastapi import APIRouter, Depends, File, HTTPException, UploadFile, status
@@ -9,7 +10,7 @@ from pydantic import BaseModel
 
 from api.deps import coach_repo
 from api.services.photos import delete_photos_for, save_photo
-from store import CoachRepo
+from store import CoachingLevel, CoachRepo
 from store.models import CoachCreate, CoachRead
 
 router = APIRouter(prefix="/coaches", tags=["coaches"])
@@ -17,9 +18,20 @@ router = APIRouter(prefix="/coaches", tags=["coaches"])
 
 class CoachUpdate(BaseModel):
     name: str | None = None
+    dob: date | None = None
+    nationality: str | None = None
+    sex: str | None = None
+    email: str | None = None
+    phone: str | None = None
     gym: str | None = None
     specialties: str | None = None
+    coaching_level: CoachingLevel | None = None
     years_experience: int | None = None
+    certifications: str | None = None
+    license_number: str | None = None
+    license_expiry: date | None = None
+    languages: str | None = None
+    notable_fighters: str | None = None
     bio: str | None = None
     notes: str | None = None
 

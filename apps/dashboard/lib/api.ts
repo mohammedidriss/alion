@@ -58,13 +58,26 @@ export interface Fighter {
 
 export type FighterPatch = Partial<Omit<Fighter, "id" | "created_at">>;
 
+export type CoachingLevel = "amateur" | "professional" | "both";
+
 export interface Coach {
   id: string;
   name: string;
   photo_path: string | null;
+  dob: string | null;
+  nationality: string | null;
+  sex: string | null;
+  email: string | null;
+  phone: string | null;
   gym: string | null;
   specialties: string | null;
+  coaching_level: CoachingLevel | null;
   years_experience: number | null;
+  certifications: string | null;
+  license_number: string | null;
+  license_expiry: string | null;
+  languages: string | null;
+  notable_fighters: string | null;
   bio: string | null;
   notes: string | null;
   created_at: string;
@@ -72,13 +85,24 @@ export interface Coach {
 
 export type CoachPatch = Partial<Omit<Coach, "id" | "created_at">>;
 
+export type RefereeCertLevel = "local" | "regional" | "national" | "international";
+
 export interface Referee {
   id: string;
   name: string;
   photo_path: string | null;
+  dob: string | null;
+  nationality: string | null;
+  sex: string | null;
+  email: string | null;
+  phone: string | null;
   license_number: string | null;
   sanctioning_body: string | null;
+  certification_level: RefereeCertLevel | null;
   license_expiry: string | null;
+  years_officiating: number | null;
+  languages: string | null;
+  notable_bouts: string | null;
   bio: string | null;
   notes: string | null;
   created_at: string;

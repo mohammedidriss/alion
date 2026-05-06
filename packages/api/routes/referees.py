@@ -10,7 +10,7 @@ from pydantic import BaseModel
 
 from api.deps import referee_repo
 from api.services.photos import delete_photos_for, save_photo
-from store import RefereeRepo
+from store import RefereeCertLevel, RefereeRepo
 from store.models import RefereeCreate, RefereeRead
 
 router = APIRouter(prefix="/referees", tags=["referees"])
@@ -18,9 +18,18 @@ router = APIRouter(prefix="/referees", tags=["referees"])
 
 class RefereeUpdate(BaseModel):
     name: str | None = None
+    dob: date | None = None
+    nationality: str | None = None
+    sex: str | None = None
+    email: str | None = None
+    phone: str | None = None
     license_number: str | None = None
     sanctioning_body: str | None = None
+    certification_level: RefereeCertLevel | None = None
     license_expiry: date | None = None
+    years_officiating: int | None = None
+    languages: str | None = None
+    notable_bouts: str | None = None
     bio: str | None = None
     notes: str | None = None
 

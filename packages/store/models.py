@@ -293,19 +293,51 @@ class HRSampleRead(SQLModel):
 # ----------------------------------------------------------------------
 
 
+class CoachingLevel(StrEnum):
+    AMATEUR = "amateur"
+    PROFESSIONAL = "professional"
+    BOTH = "both"
+
+
 class Coach(SQLModel, table=True):
     """Coach profile — manages fighters, adds session observations."""
 
     id: UUID = Field(default_factory=uuid4, primary_key=True)
+    # Identity
     name: str = Field(min_length=1, max_length=120)
     photo_path: str | None = None
+    dob: date | None = None
+    nationality: str | None = Field(default=None, max_length=80)
+    sex: str | None = Field(default=None, max_length=16)
+    # Contact
+    email: str | None = Field(default=None, max_length=160)
+    phone: str | None = Field(default=None, max_length=40)
+    # Coaching context
     gym: str | None = Field(default=None, max_length=120)
     specialties: str | None = Field(
         default=None,
         max_length=200,
         description="Free-form list, e.g. 'head movement, defense, conditioning'",
     )
+    coaching_level: CoachingLevel | None = None
     years_experience: int | None = Field(default=None, ge=0, le=80)
+    # Credentials
+    certifications: str | None = Field(
+        default=None,
+        max_length=300,
+        description="Comma-separated, e.g. 'USA Boxing Level 2, AIBA 1-Star'",
+    )
+    license_number: str | None = Field(default=None, max_length=80)
+    license_expiry: date | None = None
+    # Other
+    languages: str | None = Field(
+        default=None, max_length=200, description="Comma-separated"
+    )
+    notable_fighters: str | None = Field(
+        default=None,
+        max_length=400,
+        description="Comma-separated names of notable fighters trained",
+    )
     bio: str | None = None
     notes: str | None = None
     created_at: datetime = Field(default_factory=lambda: datetime.now(UTC))
@@ -323,27 +355,62 @@ class CoachRead(SQLModel):
     id: UUID
     name: str
     photo_path: str | None = None
+    dob: date | None = None
+    nationality: str | None = None
+    sex: str | None = None
+    email: str | None = None
+    phone: str | None = None
     gym: str | None = None
     specialties: str | None = None
+    coaching_level: CoachingLevel | None = None
     years_experience: int | None = None
+    certifications: str | None = None
+    license_number: str | None = None
+    license_expiry: date | None = None
+    languages: str | None = None
+    notable_fighters: str | None = None
     bio: str | None = None
     notes: str | None = None
     created_at: datetime
+
+
+class RefereeCertLevel(StrEnum):
+    LOCAL = "local"
+    REGIONAL = "regional"
+    NATIONAL = "national"
+    INTERNATIONAL = "international"
 
 
 class Referee(SQLModel, table=True):
     """Referee profile — sanctioned official who oversees bouts."""
 
     id: UUID = Field(default_factory=uuid4, primary_key=True)
+    # Identity
     name: str = Field(min_length=1, max_length=120)
     photo_path: str | None = None
+    dob: date | None = None
+    nationality: str | None = Field(default=None, max_length=80)
+    sex: str | None = Field(default=None, max_length=16)
+    # Contact
+    email: str | None = Field(default=None, max_length=160)
+    phone: str | None = Field(default=None, max_length=40)
+    # Credentials
     license_number: str | None = Field(default=None, max_length=80)
     sanctioning_body: str | None = Field(
         default=None,
         max_length=120,
         description="e.g. 'USA Boxing', 'WBA', 'BBBofC'",
     )
+    certification_level: RefereeCertLevel | None = None
     license_expiry: date | None = None
+    years_officiating: int | None = Field(default=None, ge=0, le=80)
+    # Other
+    languages: str | None = Field(default=None, max_length=200)
+    notable_bouts: str | None = Field(
+        default=None,
+        max_length=400,
+        description="Comma-separated, e.g. 'Mayweather vs Pacquiao 2015'",
+    )
     bio: str | None = None
     notes: str | None = None
     created_at: datetime = Field(default_factory=lambda: datetime.now(UTC))
@@ -361,9 +428,18 @@ class RefereeRead(SQLModel):
     id: UUID
     name: str
     photo_path: str | None = None
+    dob: date | None = None
+    nationality: str | None = None
+    sex: str | None = None
+    email: str | None = None
+    phone: str | None = None
     license_number: str | None = None
     sanctioning_body: str | None = None
+    certification_level: RefereeCertLevel | None = None
     license_expiry: date | None = None
+    years_officiating: int | None = None
+    languages: str | None = None
+    notable_bouts: str | None = None
     bio: str | None = None
     notes: str | None = None
     created_at: datetime
