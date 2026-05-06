@@ -1,6 +1,11 @@
 "use client";
 
 import { useMemo } from "react";
+import {
+  HandSplitChart,
+  SessionFrequencyChart,
+  VelocityDistributionChart,
+} from "@/components/AggregateCharts";
 import { HrvMetric, ReadinessGauge } from "@/components/HrvCharts";
 import type { PunchEvent, Session } from "@/lib/api";
 
@@ -137,7 +142,50 @@ export function FighterDashboard({ sessionsWithEvents }: Props) {
         />
       </div>
 
-      {/* SECONDARY: cumulative volume — important context, but less actionable per session */}
+      {/* SECONDARY CHART ROW: aggregate distributions across all sessions */}
+      <div className="grid grid-cols-1 gap-4 lg:grid-cols-3">
+        <div className="card">
+          <div className="flex items-baseline justify-between">
+            <h3 className="text-base font-semibold">Hand split</h3>
+            <span className="text-xs text-neutral-500">all events</span>
+          </div>
+          <div className="mt-3">
+            <HandSplitChart
+              events={sessionsWithEvents.flatMap((s) => s.events)}
+            />
+          </div>
+        </div>
+        <div className="card">
+          <div className="flex items-baseline justify-between">
+            <h3 className="text-base font-semibold">Velocity distribution</h3>
+            <span className="text-xs text-neutral-500">amber=L · blue=R</span>
+          </div>
+          <p className="mt-1 text-[11px] text-neutral-500">
+            Punch peak velocities, bucketed; bars stack by hand.
+          </p>
+          <div className="mt-3">
+            <VelocityDistributionChart
+              events={sessionsWithEvents.flatMap((s) => s.events)}
+            />
+          </div>
+        </div>
+        <div className="card">
+          <div className="flex items-baseline justify-between">
+            <h3 className="text-base font-semibold">Training frequency</h3>
+            <span className="text-xs text-neutral-500">last 8 weeks</span>
+          </div>
+          <p className="mt-1 text-[11px] text-neutral-500">
+            Completed sessions per week.
+          </p>
+          <div className="mt-3">
+            <SessionFrequencyChart
+              sessions={sessionsWithEvents.map((s) => s.session)}
+            />
+          </div>
+        </div>
+      </div>
+
+      {/* TERTIARY: cumulative volume — totals are reference, not actionable */}
       <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
         <StatCard
           tint="purple"

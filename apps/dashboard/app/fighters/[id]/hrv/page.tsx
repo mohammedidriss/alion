@@ -2,6 +2,7 @@
 
 import Link from "next/link";
 import { useEffect, useState } from "react";
+import { HrvScoreScatter } from "@/components/AggregateCharts";
 import { HrvMetric, ReadinessGauge, RmssdTrend } from "@/components/HrvCharts";
 import { api, type MatrixResponse, type Session } from "@/lib/api";
 
@@ -173,6 +174,36 @@ export default function HrvTab({ params }: { params: { id: string } }) {
           </p>
         </div>
       </div>
+
+      {/* CORRELATION SCATTER — the dissertation's headline result, inline */}
+      {matrix && matrix.points.length > 0 && (
+        <div className="card">
+          <div className="flex items-baseline justify-between">
+            <h2 className="text-base font-semibold">
+              Resting HRV vs performance score
+            </h2>
+            <Link
+              href={`/fighters/${params.id}/matrix`}
+              className="text-xs text-emerald-400 hover:underline"
+            >
+              full matrix →
+            </Link>
+          </div>
+          <p className="mt-1 text-[11px] text-neutral-500">
+            Each dot is one session. Higher RMSSD (right) = better recovery;
+            higher score (up) = busier + faster session. Older sessions are
+            grey, recent ones amber.
+          </p>
+          <div className="mt-3">
+            <HrvScoreScatter
+              points={matrix.points}
+              pearson_r={matrix.pearson_r}
+              slope={matrix.slope}
+              intercept={matrix.intercept}
+            />
+          </div>
+        </div>
+      )}
 
       <div className="card">
         <h2 className="text-base font-semibold">Session baselines</h2>
