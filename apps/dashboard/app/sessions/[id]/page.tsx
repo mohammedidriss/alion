@@ -4,6 +4,8 @@ import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useEffect, useState } from "react";
 import { PunchChart } from "@/components/PunchChart";
+import { PunchTimeline } from "@/components/PunchTimeline";
+import { VelocityHistogram } from "@/components/VelocityHistogram";
 import {
   api,
   type Camera,
@@ -274,6 +276,32 @@ export default function SessionPage({ params }: { params: { id: string } }) {
       )}
 
       <PunchChart events={events} />
+
+      {events.length > 0 && status?.duration_ms && status.duration_ms > 0 && (
+        <section className="rounded-lg border border-neutral-800 p-4">
+          <h2 className="font-medium">Timeline</h2>
+          <p className="mt-1 text-xs text-neutral-500">
+            Each dot is a detected punch; size scales with peak velocity.
+            Hover for details.
+          </p>
+          <div className="mt-3">
+            <PunchTimeline events={events} durationMs={status.duration_ms} />
+          </div>
+        </section>
+      )}
+
+      {events.length > 1 && (
+        <section className="rounded-lg border border-neutral-800 p-4">
+          <h2 className="font-medium">Velocity distribution</h2>
+          <p className="mt-1 text-xs text-neutral-500">
+            How your punches stack across the velocity range. Bars stack
+            left + right counts within each bucket.
+          </p>
+          <div className="mt-3">
+            <VelocityHistogram events={events} />
+          </div>
+        </section>
+      )}
 
       <section className="rounded-lg border border-neutral-800 p-4">
         <h2 className="font-medium">
