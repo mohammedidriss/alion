@@ -117,9 +117,9 @@ export default function FighterPage({ params }: { params: { id: string } }) {
 
   if (!fighter) {
     return (
-      <main className="p-8 text-sm text-neutral-400">
+      <div className="text-sm text-neutral-400">
         {err ? <span className="text-red-400">{err}</span> : "Loading…"}
-      </main>
+      </div>
     );
   }
 
@@ -172,14 +172,7 @@ export default function FighterPage({ params }: { params: { id: string } }) {
   };
 
   return (
-    <main className="mx-auto max-w-7xl space-y-8">
-      <Link
-        href="/"
-        className="inline-flex items-center gap-1 text-sm text-neutral-400 hover:text-neutral-100"
-      >
-        <span aria-hidden>←</span> All fighters
-      </Link>
-
+    <div className="space-y-8">
       <header className="flex flex-wrap items-start justify-between gap-4">
         <div className="min-w-0">
           <div className="flex items-baseline gap-3">
@@ -234,11 +227,10 @@ export default function FighterPage({ params }: { params: { id: string } }) {
       )}
 
       <FighterDashboard
-        fighterId={fighter.id}
-        sessions={sessions.map((s) => s.session)}
-        totalPunches={aggregate.totalPunches}
-        peakVelocity={aggregate.peakVelocity}
-        totalDurationS={aggregate.totalDurationS}
+        sessionsWithEvents={sessions.map((s) => ({
+          session: s.session,
+          events: s.events,
+        }))}
       />
 
       {/* RECORD */}
@@ -436,60 +428,6 @@ export default function FighterPage({ params }: { params: { id: string } }) {
         />
       </section>
 
-      <section className="rounded-lg border border-neutral-800 p-4">
-        <h2 className="font-medium">All sessions ({sessions.length})</h2>
-        {sessions.length === 0 ? (
-          <p className="mt-2 text-sm text-neutral-500">No sessions yet.</p>
-        ) : (
-          <ul className="mt-3 divide-y divide-neutral-800">
-            {sessions
-              .slice()
-              .reverse()
-              .map((x) => (
-                <li
-                  key={x.session.id}
-                  className="flex items-center gap-3 py-2 text-sm"
-                >
-                  <Link
-                    href={`/sessions/${x.session.id}`}
-                    className="flex-1 hover:underline"
-                  >
-                    <span className="font-mono text-xs text-neutral-500">
-                      {x.session.id.slice(0, 8)}
-                    </span>{" "}
-                    · {new Date(x.session.started_at).toLocaleString()} ·{" "}
-                    {x.session.source} ·{" "}
-                    <span
-                      className={
-                        x.session.status === "completed"
-                          ? "text-emerald-400"
-                          : x.session.status === "failed"
-                          ? "text-red-400"
-                          : x.session.status === "capturing" ||
-                            x.session.status === "processing"
-                          ? "text-amber-400"
-                          : "text-neutral-400"
-                      }
-                    >
-                      {x.session.status}
-                    </span>{" "}
-                    <span className="text-neutral-500">
-                      {x.totalPunches > 0 && `· ${x.totalPunches} punches`}
-                      {x.peakVelocity > 0 && ` · peak ${x.peakVelocity.toFixed(2)} m/s`}
-                    </span>
-                  </Link>
-                  <button
-                    onClick={() => setConfirmDeleteSession(x.session.id)}
-                    className="text-xs text-red-400 hover:text-red-300"
-                  >
-                    Delete
-                  </button>
-                </li>
-              ))}
-          </ul>
-        )}
-      </section>
-
       {editing && (
         <EditModal
           fighter={fighter}
@@ -524,7 +462,7 @@ export default function FighterPage({ params }: { params: { id: string } }) {
           onConfirm={() => deleteSession(confirmDeleteSession)}
         />
       )}
-    </main>
+    </div>
   );
 }
 

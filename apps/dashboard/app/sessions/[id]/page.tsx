@@ -261,6 +261,54 @@ export default function SessionPage({ params }: { params: { id: string } }) {
         />
       </section>
 
+      {events.length > 0 && status?.duration_ms && status.duration_ms > 0 &&
+        (() => {
+          const sorted = [...events].map((e) => e.velocity_ms).sort((a, b) => a - b);
+          const k = (sorted.length - 1) * 0.9;
+          const lo = Math.floor(k);
+          const hi = Math.min(lo + 1, sorted.length - 1);
+          const peakP90 =
+            sorted[lo] * (1 - (k - lo)) + sorted[hi] * (k - lo);
+          const durationMin = status.duration_ms / 60_000;
+          const ppm = events.length / durationMin;
+          const score = peakP90 * (ppm / 60) * durationMin;
+          return (
+            <section className="rounded-lg border border-neutral-800 bg-neutral-950 p-4">
+              <h2 className="font-medium">Session performance</h2>
+              <p className="mt-1 text-xs text-neutral-500">
+                Transparent v1: peak_v_p90 × ppm/60 × duration_min. Same
+                formula as the per-fighter progress chart.
+              </p>
+              <div className="mt-3 grid grid-cols-2 gap-3 sm:grid-cols-4">
+                <div className="rounded border border-neutral-800 p-3">
+                  <div className="text-xs text-neutral-500">Peak v p90</div>
+                  <div className="mt-1 text-xl font-semibold tabular-nums">
+                    {peakP90.toFixed(2)} <span className="text-xs text-neutral-500">m/s</span>
+                  </div>
+                </div>
+                <div className="rounded border border-neutral-800 p-3">
+                  <div className="text-xs text-neutral-500">Throughput</div>
+                  <div className="mt-1 text-xl font-semibold tabular-nums">
+                    {ppm.toFixed(0)} <span className="text-xs text-neutral-500">ppm</span>
+                  </div>
+                </div>
+                <div className="rounded border border-neutral-800 p-3">
+                  <div className="text-xs text-neutral-500">Duration</div>
+                  <div className="mt-1 text-xl font-semibold tabular-nums">
+                    {durationMin.toFixed(2)} <span className="text-xs text-neutral-500">min</span>
+                  </div>
+                </div>
+                <div className="rounded border border-amber-700/40 bg-amber-950/30 p-3">
+                  <div className="text-xs text-amber-300/80">Score</div>
+                  <div className="mt-1 text-xl font-semibold tabular-nums text-amber-100">
+                    {score.toFixed(2)}
+                  </div>
+                </div>
+              </div>
+            </section>
+          );
+        })()}
+
       {events.length > 0 &&
         (() => {
           const hardest = events.reduce(

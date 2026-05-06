@@ -81,7 +81,7 @@ export default function Home() {
   const fighterById = new Map(rows.map((r) => [r.fighter.id, r.fighter]));
 
   return (
-    <div className="mx-auto max-w-7xl space-y-6">
+    <div className="mx-auto max-w-7xl space-y-6 px-8 py-8">
       <header className="flex flex-wrap items-center justify-between gap-4">
         <div>
           <h1 className="text-3xl font-semibold tracking-tight">Roster</h1>
