@@ -15,6 +15,7 @@ export type SessionStatus =
   | "failed";
 export type Hand = "left" | "right";
 export type LeadOrRear = "lead" | "rear";
+export type PunchType = "jab" | "cross" | "hook" | "uppercut";
 export type DetectionSource = "heuristic" | "lstm_v1";
 export type VelocitySource = "world" | "image_heuristic";
 export type SkillLevel =
@@ -100,6 +101,7 @@ export interface PunchEvent {
   lead_or_rear: LeadOrRear | null;
   velocity_ms: number;
   velocity_source: VelocitySource;
+  punch_type: PunchType | null;
   detected_by: DetectionSource;
   confidence: number;
 }

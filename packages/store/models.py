@@ -226,6 +226,13 @@ class VelocitySourceEnum(StrEnum):
     IMAGE_HEURISTIC = "image_heuristic"
 
 
+class PunchTypeEnum(StrEnum):
+    JAB = "jab"
+    CROSS = "cross"
+    HOOK = "hook"
+    UPPERCUT = "uppercut"
+
+
 class PunchEventRow(SQLModel, table=True):
     __tablename__ = "punch_event"
     id: int | None = Field(default=None, primary_key=True)
@@ -235,6 +242,7 @@ class PunchEventRow(SQLModel, table=True):
     lead_or_rear: LeadOrRearEnum | None = None
     velocity_ms: float
     velocity_source: VelocitySourceEnum = VelocitySourceEnum.IMAGE_HEURISTIC
+    punch_type: PunchTypeEnum | None = None
     detected_by: DetectionSourceEnum
     confidence: float
 
@@ -246,6 +254,7 @@ class PunchEventRead(SQLModel):
     lead_or_rear: LeadOrRearEnum | None = None
     velocity_ms: float
     velocity_source: VelocitySourceEnum = VelocitySourceEnum.IMAGE_HEURISTIC
+    punch_type: PunchTypeEnum | None = None
     detected_by: DetectionSourceEnum
     confidence: float
 

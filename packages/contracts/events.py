@@ -17,6 +17,7 @@ NUM_POSE_LANDMARKS = 33
 
 Hand = Literal["left", "right"]
 LeadOrRear = Literal["lead", "rear"]
+PunchType = Literal["jab", "cross", "hook", "uppercut"]
 SessionSource = Literal["live_webcam", "uploaded_video", "live_iphone"]
 DetectionSource = Literal["heuristic", "lstm_v1"]
 
@@ -67,6 +68,10 @@ class PunchEvent(_Frozen):
     lead_or_rear: LeadOrRear | None = None
     velocity_ms: float = Field(ge=0.0, description="peak wrist velocity in m/s")
     velocity_source: Literal["world", "image_heuristic"] = "image_heuristic"
+    # Phase 3 LSTM will populate this; today the heuristic classifier in
+    # analyze.punch_type_heuristic provides a v0.5 label when world
+    # landmarks are available. None when we can't classify reliably.
+    punch_type: PunchType | None = None
     detected_by: DetectionSource
     confidence: float = Field(ge=0.0, le=1.0)
 

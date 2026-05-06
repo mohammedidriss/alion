@@ -15,7 +15,7 @@ from uuid import UUID
 
 from sqlmodel import Session as DBSession
 
-from analyze import HeuristicPunchDetector
+from analyze import HeuristicPunchDetector, classify_punch_type, refine_peak_velocity
 from capture.cv import CapturePipeline, FileSource, WebcamSource
 from capture.cv.overlay import draw_pose
 from capture.cv.sources import FrameSource
@@ -27,6 +27,7 @@ from store import (
     LeadOrRearEnum,
     PunchEventRepo,
     PunchEventRow,
+    PunchTypeEnum,
     SessionRepo,
     SessionStatus,
     VelocitySourceEnum,
@@ -58,6 +59,32 @@ def _data_dir() -> Path:
 
 def _hand_to_enum(h: str) -> HandEnum:
     return HandEnum.LEFT if h == "left" else HandEnum.RIGHT
+
+
+def _refined_peak_for_event(pose_history: list[PoseFrame], hand: str) -> float | None:
+    """Build (t_ms, x, y, z) samples for the punching wrist and run sub-frame refinement."""
+    if len(pose_history) < 4:
+        return None
+    wrist_idx = 15 if hand == "left" else 16
+    use_world = all(f.world_landmarks is not None for f in pose_history)
+    samples: list[tuple[float, float, float, float]] = []
+    for f in pose_history:
+        if use_world and f.world_landmarks is not None:
+            wlm = f.world_landmarks[wrist_idx]
+            if wlm.visibility < 0.4:
+                continue
+            samples.append((f.t_ms, wlm.x, wlm.y, wlm.z))
+        else:
+            lm = f.landmarks[wrist_idx]
+            if lm.visibility < 0.4:
+                continue
+            # Image-plane mode: scale by an assumed body width so the result
+            # is comparable to the detector's m/s number. Crude but matches
+            # the legacy fallback path.
+            samples.append((f.t_ms, lm.x * 0.45, lm.y * 0.45, lm.z * 0.45))
+    if len(samples) < 4:
+        return None
+    return refine_peak_velocity(samples)
 
 
 def is_running(session_id: UUID) -> bool:
@@ -97,17 +124,32 @@ def _run_capture(
     )
     detector = HeuristicPunchDetector(stance=stance)
     buffered_events: list[PunchEventRow] = []
+    # Rolling pose history feeds the punch-type classifier (~last 8 frames).
+    pose_history: list[PoseFrame] = []
+    history_len = 8
 
     def on_frame(pose: PoseFrame) -> None:
+        pose_history.append(pose)
+        if len(pose_history) > history_len:
+            pose_history.pop(0)
         for ev in detector.feed(pose):
+            ptype = classify_punch_type(pose_history, ev.hand, stance)
+            # Refine the velocity using sub-frame interpolation across the
+            # recent pose history. We pull the wrist's world-coord trajectory
+            # (or image-plane fallback) and feed it to the refiner. If we get
+            # a higher peak than the detector reported, we use the refined
+            # value; otherwise stick with the detector's value.
+            refined_v = _refined_peak_for_event(pose_history, ev.hand)
+            final_v = max(ev.velocity_ms, refined_v) if refined_v is not None else ev.velocity_ms
             buffered_events.append(
                 PunchEventRow(
                     session_id=ev.session_id,
                     t_ms=ev.t_ms,
                     hand=_hand_to_enum(ev.hand),
                     lead_or_rear=LeadOrRearEnum(ev.lead_or_rear) if ev.lead_or_rear else None,
-                    velocity_ms=ev.velocity_ms,
+                    velocity_ms=round(final_v, 2),
                     velocity_source=VelocitySourceEnum(ev.velocity_source),
+                    punch_type=PunchTypeEnum(ptype) if ptype else None,
                     detected_by=DetectionSourceEnum(ev.detected_by),
                     confidence=ev.confidence,
                 )

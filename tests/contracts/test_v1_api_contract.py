@@ -27,7 +27,8 @@ def test_v1_health_shape(client: TestClient) -> None:
     r = client.get(f"{V1}/health")
     assert r.status_code == 200
     body = r.json()
-    assert set(body.keys()) == {"status", "schema_version"}
+    # Per ADR 005: required keys must be present; additions are non-breaking.
+    assert {"status", "schema_version"} <= set(body.keys())
     assert body["status"] == "ok"
     assert isinstance(body["schema_version"], str)
 
@@ -36,7 +37,7 @@ def test_v1_capabilities_shape(client: TestClient) -> None:
     r = client.get(f"{V1}/health/capabilities")
     assert r.status_code == 200
     body = r.json()
-    assert set(body.keys()) == {"cv_available", "cv_reason", "webcam_likely"}
+    assert {"cv_available", "cv_reason", "webcam_likely"} <= set(body.keys())
 
 
 # ---------- Cameras ----------
@@ -46,7 +47,7 @@ def test_v1_cameras_shape(client: TestClient) -> None:
     r = client.get(f"{V1}/cameras")
     assert r.status_code == 200
     body = r.json()
-    assert set(body.keys()) == {"cameras", "cv_available", "reason"}
+    assert {"cameras", "cv_available", "reason"} <= set(body.keys())
     assert isinstance(body["cameras"], list)
 
 
@@ -134,7 +135,7 @@ def test_v1_weigh_in_round_trip(client: TestClient) -> None:
     r = client.post(f"{V1}/fighters/{fid}/weigh-ins", json={"weight_kg": 72.5})
     assert r.status_code == 201
     wid = r.json()["id"]
-    assert set(r.json().keys()) == {"id", "fighter_id", "weight_kg", "recorded_at", "notes"}
+    assert {"id", "fighter_id", "weight_kg", "recorded_at", "notes"} <= set(r.json().keys())
 
     # Mirrored onto fighter row
     assert client.get(f"{V1}/fighters/{fid}").json()["weight_kg"] == 72.5
@@ -184,14 +185,14 @@ def test_v1_session_full_lifecycle(client: TestClient) -> None:
     r = client.get(f"{V1}/sessions/{sid}/capture/status")
     assert r.status_code == 200
     body = r.json()
-    assert set(body.keys()) == {
+    assert {
         "session_id",
         "status",
         "is_running",
         "frame_count",
         "duration_ms",
         "punch_count",
-    }
+    } <= set(body.keys())
     assert body["is_running"] is False
 
     # Stop with no running capture → 409
@@ -203,9 +204,7 @@ def test_v1_session_validation_errors_are_stable(client: TestClient) -> None:
     fid = client.post(f"{V1}/fighters", json={"name": "val-test"}).json()["id"]
     # Bad enum
     assert (
-        client.post(
-            f"{V1}/sessions", json={"fighter_id": fid, "source": "MARS_ROVER"}
-        ).status_code
+        client.post(f"{V1}/sessions", json={"fighter_id": fid, "source": "MARS_ROVER"}).status_code
         == 422
     )
     # Empty fighter name
