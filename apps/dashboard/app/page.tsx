@@ -2,6 +2,7 @@
 
 import Link from "next/link";
 import { useCallback, useEffect, useState } from "react";
+import { AlionWordmark } from "@/components/AlionLogo";
 import { CreateProfileModal } from "@/components/CreateProfileModal";
 import { ProfileAvatar } from "@/components/ProfileAvatar";
 import {
@@ -76,9 +77,12 @@ export default function Home() {
     <div className="mx-auto max-w-7xl space-y-6 px-8 py-8">
       <header className="flex flex-wrap items-center justify-between gap-4">
         <div>
-          <h1 className="text-3xl font-semibold tracking-tight">Roster</h1>
-          <p className="mt-1 text-sm text-neutral-400">
-            Sign in as an existing profile or create a new one.
+          <h1 className="text-3xl">
+            <AlionWordmark size={44} />
+          </h1>
+          <p className="mt-2 text-sm text-neutral-400">
+            Multi-modal AI coaching for combat sports · sign in or create a
+            profile to begin.
           </p>
         </div>
         <div className="flex items-center gap-3">
