@@ -39,7 +39,9 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-app.include_router(health.router)
-app.include_router(cameras.router)
-app.include_router(fighters.router)
-app.include_router(sessions.router)
+# Phase 1 routes are exposed at both unversioned paths (the dashboard uses
+# these) AND under /v1/. The /v1/ surface is the *frozen* contract — Phase 2
+# work introduces /v2/ if shapes change. Existing callers never break.
+for router in (health.router, cameras.router, fighters.router, sessions.router):
+    app.include_router(router)
+    app.include_router(router, prefix="/v1")

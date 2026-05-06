@@ -26,6 +26,7 @@ dev = [
     "numpy>=1.26",
     "pyarrow>=17.0",
     "python-multipart>=0.0.9",
+    "alembic>=1.13",
 ]
 # Heavy CV deps — install with `uv sync --extra dev --extra capture`.
 capture = [

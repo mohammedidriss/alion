@@ -91,14 +91,32 @@ alion/
 - **Small commits, conventional messages.** Every commit must build, test, and lint clean.
 - **ADR every non-obvious decision.** Add a markdown file under `decisions/`.
 
+## Phase isolation (post-ADR 004)
+
+Phase 1 is feature-frozen. The following rules keep new phase work from breaking it:
+
+- **Phase 1 modules are frozen.** `packages/capture/cv`, `packages/analyze/punch_detector_heuristic`, `packages/api/routes/{fighters,sessions,health,cameras}`, `packages/api/services/capture_runner`, and the Phase 1 columns on `packages/store/models` are off-limits for behavior/shape changes. Bug fixes welcome; new features go in new modules.
+- **API versioning.** Phase 1 routes are mounted at both `/...` (back-compat) and `/v1/...` (frozen contract). New shapes for Phase 2+ live under `/v2/...`. Editing `/v1` shape is a versioning event — bump to v2, leave v1.
+- **Locked contract tests** at `tests/contracts/test_v1_api_contract.py` capture every Phase 1 endpoint's status codes + response keys + validation. **Failures are fixed by introducing v2, never by relaxing assertions.**
+- **Schema migrations via Alembic.** Don't `rm data/alion.db`. Edit a SQLModel, then:
+  ```bash
+  make migration MSG="add foo to fighter"  # auto-generate
+  # review migrations/versions/*.py
+  make migrate                              # apply
+  ```
+  Existing DBs that pre-date Alembic: `make migrate-stamp` once.
+
 ## Do this / don't do this
 
 - ✅ Add a new infrastructure adapter? Create `packages/<name>/`, depend only on `contracts` + `common`, register in `pyproject.toml` `[tool.hatch]` and `[tool.importlinter]`.
 - ✅ Need to wire two feature modules? Do it in `api/services/`. That's the composition root.
+- ✅ New schema field? Add it to the model, run `make migration MSG="…"`, review the generated file, run `make migrate`.
 - ❌ Don't put working code in any `.runtime/`, sandbox, or scratch directory. Everything tracked by git. The `make fresh-clone-check` target proves a clean checkout works.
 - ❌ Don't commit athlete data, secrets, model binaries, or `.env` files. `data/`, `models/**/*.task`, `*.db`, `.env` are all gitignored.
 - ❌ Don't introduce backwards-compatibility shims, dead `# removed` comments, or feature flags for hypothetical future requirements. Change the code.
 - ❌ Don't bypass the architecture contract by `# noqa` or `# type: ignore` to silence import-linter. If a real cross-cutting concern emerges, it belongs in `common/` or `contracts/`.
+- ❌ Don't wipe `data/alion.db` to add a column. Write a migration. See above.
+- ❌ Don't change a `/v1/*` response shape. Add a `/v2/*` route instead.
 
 ## Caveats and known limits
 
