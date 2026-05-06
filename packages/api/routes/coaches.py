@@ -8,7 +8,7 @@ from fastapi import APIRouter, Depends, File, HTTPException, UploadFile, status
 from pydantic import BaseModel
 
 from api.deps import coach_repo
-from api.services.photos import save_photo
+from api.services.photos import delete_photos_for, save_photo
 from store import CoachRepo
 from store.models import CoachCreate, CoachRead
 
@@ -58,6 +58,7 @@ def update_coach(
 def delete_coach(coach_id: UUID, repo: CoachRepo = Depends(coach_repo)) -> None:
     if not repo.delete(coach_id):
         raise HTTPException(status_code=404, detail="coach not found")
+    delete_photos_for("coach", coach_id)
 
 
 @router.post("/{coach_id}/photo", response_model=CoachRead)

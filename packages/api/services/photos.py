@@ -23,6 +23,22 @@ def photos_root() -> Path:
     return Path("data/photos")
 
 
+def delete_photos_for(kind: ProfileKind, profile_id: UUID) -> int:
+    """Remove every photo file for this profile (any extension). Returns count
+    deleted. Safe to call when no photo exists — returns 0."""
+    out_dir = photos_root() / kind
+    if not out_dir.exists():
+        return 0
+    n = 0
+    for old in out_dir.glob(f"{profile_id}.*"):
+        try:
+            old.unlink()
+            n += 1
+        except OSError:
+            pass
+    return n
+
+
 async def save_photo(
     kind: ProfileKind, profile_id: UUID, file: UploadFile
 ) -> str:

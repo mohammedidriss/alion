@@ -9,7 +9,7 @@ from fastapi import APIRouter, Depends, File, HTTPException, UploadFile, status
 from pydantic import BaseModel
 
 from api.deps import referee_repo
-from api.services.photos import save_photo
+from api.services.photos import delete_photos_for, save_photo
 from store import RefereeRepo
 from store.models import RefereeCreate, RefereeRead
 
@@ -67,6 +67,7 @@ def delete_referee(
 ) -> None:
     if not repo.delete(referee_id):
         raise HTTPException(status_code=404, detail="referee not found")
+    delete_photos_for("referee", referee_id)
 
 
 @router.post("/{referee_id}/photo", response_model=RefereeRead)

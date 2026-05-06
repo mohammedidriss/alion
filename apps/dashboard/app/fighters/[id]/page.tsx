@@ -4,6 +4,7 @@ import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { FighterDashboard } from "@/components/FighterDashboard";
+import { ProfileAvatar } from "@/components/ProfileAvatar";
 import { Sparkline } from "@/components/Sparkline";
 import {
   api,
@@ -611,6 +612,9 @@ function EditModal({
 }) {
   const [draft, setDraft] = useState<Fighter>({ ...fighter });
   const [saving, setSaving] = useState(false);
+  const [photoPath, setPhotoPath] = useState<string | null>(fighter.photo_path);
+  const [photoBusy, setPhotoBusy] = useState(false);
+  const [photoErr, setPhotoErr] = useState<string | null>(null);
   const set = <K extends keyof Fighter>(k: K, v: Fighter[K]) =>
     setDraft((d) => ({ ...d, [k]: v }));
 
@@ -625,14 +629,56 @@ function EditModal({
     setSaving(false);
   };
 
+  const onPickPhoto = async (file: File) => {
+    setPhotoBusy(true);
+    setPhotoErr(null);
+    try {
+      const updated = await api.uploadFighterPhoto(fighter.id, file);
+      setPhotoPath(updated.photo_path);
+    } catch (e) {
+      setPhotoErr(String(e));
+    } finally {
+      setPhotoBusy(false);
+    }
+  };
+
   const num = (v: string) => (v === "" ? null : Number(v));
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center overflow-y-auto bg-black/70 p-4">
-      <div className="my-8 w-full max-w-2xl rounded-lg border border-neutral-800 bg-neutral-950 p-5 shadow-xl">
+    <div className="fixed inset-0 z-50 flex justify-center overflow-y-auto bg-black/70 p-4">
+      <div className="my-8 h-fit w-full max-w-2xl rounded-lg border border-neutral-800 bg-neutral-950 p-5 shadow-xl">
         <h3 className="text-lg font-medium">Edit profile</h3>
 
         <div className="mt-4 space-y-5 text-sm">
+          <Group title="Photo">
+            <div className="flex items-center gap-4">
+              <ProfileAvatar
+                name={draft.name || fighter.name}
+                photo_path={photoPath}
+                size={80}
+              />
+              <div className="flex-1">
+                <input
+                  type="file"
+                  accept="image/jpeg,image/png,image/webp"
+                  disabled={photoBusy}
+                  onChange={(e) =>
+                    e.target.files?.[0] && onPickPhoto(e.target.files[0])
+                  }
+                  className="text-xs"
+                />
+                <p className="mt-1 text-[11px] text-neutral-500">
+                  {photoBusy
+                    ? "Uploading…"
+                    : "JPG / PNG / WebP, max 5 MB. Saves immediately."}
+                </p>
+                {photoErr && (
+                  <p className="mt-1 text-xs text-red-300">{photoErr}</p>
+                )}
+              </div>
+            </div>
+          </Group>
+
           <Group title="Identity">
             <Row>
               <Lbl>Name</Lbl>

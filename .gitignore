@@ -17,9 +17,13 @@ node_modules/
 # Project data (athlete data — never commit)
 data/raw/
 data/processed/
+data/photos/
 *.db
 *.sqlite
 *.sqlite3
+
+# Per-user dev tooling — not portable across users
+.claude/launch.json
 
 # Trained models (too large for git; tracked via models/registry.json)
 models/**/weights.pt

@@ -17,7 +17,7 @@ from api.deps import (
     punch_event_repo,
     session_repo,
 )
-from api.services.photos import save_photo
+from api.services.photos import delete_photos_for, save_photo
 from store import (
     WEIGHT_CLASSES,
     AllergyCreate,
@@ -120,6 +120,7 @@ def update_fighter(
 def delete_fighter(fighter_id: UUID, repo: FighterRepo = Depends(fighter_repo)) -> None:
     if not repo.delete(fighter_id):
         raise HTTPException(status_code=404, detail="fighter not found")
+    delete_photos_for("fighter", fighter_id)
 
 
 # ---- weigh-ins ----
