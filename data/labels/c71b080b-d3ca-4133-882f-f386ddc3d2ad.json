@@ -1,0 +1,22 @@
+[
+  {
+    "t_ms": 2300.0,
+    "hand": "right",
+    "punch_type": "cross"
+  },
+  {
+    "t_ms": 3700.0,
+    "hand": "right",
+    "punch_type": "jab"
+  },
+  {
+    "t_ms": 10000.0,
+    "hand": "left",
+    "punch_type": "hook"
+  },
+  {
+    "t_ms": 11600.0,
+    "hand": "left",
+    "punch_type": "cross"
+  }
+]

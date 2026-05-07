@@ -585,4 +585,49 @@ export const api = {
     req<void>(`/fighters/${fighterId}/conditions/${conditionId}`, {
       method: "DELETE",
     }),
+
+  // ---- Detector evaluation (manual labels vs detections) ----
+  getLabels: (sessionId: string) =>
+    req<LabelsPayload | null>(`/sessions/${sessionId}/labels`),
+  putLabels: (sessionId: string, labels: GroundTruthPunch[]) =>
+    req<LabelsPayload>(`/sessions/${sessionId}/labels`, {
+      method: "PUT",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ labels }),
+    }),
+  deleteLabels: (sessionId: string) =>
+    req<void>(`/sessions/${sessionId}/labels`, { method: "DELETE" }),
+  sessionEvaluation: (sessionId: string, toleranceMs = 200) =>
+    req<EvaluationResponse>(
+      `/sessions/${sessionId}/evaluation?tolerance_ms=${toleranceMs}`,
+    ),
 };
+
+// ---- Evaluation types ----
+
+export interface GroundTruthPunch {
+  t_ms: number;
+  hand: "left" | "right";
+  punch_type?: "jab" | "cross" | "hook" | "uppercut" | null;
+}
+
+export interface LabelsPayload {
+  labels: GroundTruthPunch[];
+}
+
+export interface EvaluationResponse {
+  session_id: string;
+  has_labels: boolean;
+  label_count: number;
+  detection_count: number;
+  tolerance_ms: number;
+  true_positives: number;
+  false_positives: number;
+  false_negatives: number;
+  precision: number;
+  recall: number;
+  f1: number;
+  mean_temporal_offset_ms: number;
+  confusion: Record<string, Record<string, number>> | null;
+  classes: string[];
+}

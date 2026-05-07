@@ -32,6 +32,8 @@ from store.models import (
     SessionCreate,
     SessionRead,
 )
+from studies import DetectedPunch, confusion_matrix, match_events
+from studies.evaluation import load_labels
 
 router = APIRouter(prefix="/sessions", tags=["sessions"])
 
@@ -503,4 +505,143 @@ def session_performance(
         baseline_rmssd_ms=row.baseline_rmssd_ms,
         baseline_sdnn_ms=row.baseline_sdnn_ms,
         baseline_mean_hr_bpm=row.baseline_mean_hr_bpm,
+    )
+
+
+# ---------------------------------------------------------------------------
+# Detector evaluation — manual labels vs detector output
+# ---------------------------------------------------------------------------
+
+
+def _labels_path(session_id: UUID) -> Path:
+    base = Path("data/labels")
+    base.mkdir(parents=True, exist_ok=True)
+    return base / f"{session_id}.json"
+
+
+class GroundTruthPunchIn(BaseModel):
+    t_ms: float
+    hand: str  # "left" | "right"
+    punch_type: str | None = None  # "jab" | "cross" | "hook" | "uppercut" | None
+
+
+class LabelsPayload(BaseModel):
+    labels: list[GroundTruthPunchIn]
+
+
+class EvalResponse(BaseModel):
+    session_id: UUID
+    has_labels: bool
+    label_count: int
+    detection_count: int
+    tolerance_ms: float = 200.0
+    true_positives: int = 0
+    false_positives: int = 0
+    false_negatives: int = 0
+    precision: float = 0.0
+    recall: float = 0.0
+    f1: float = 0.0
+    mean_temporal_offset_ms: float = 0.0
+    confusion: dict[str, dict[str, int]] | None = None
+    classes: list[str] = []
+
+
+@router.get("/{session_id}/labels", response_model=LabelsPayload | None)
+def get_labels(
+    session_id: UUID,
+    repo: SessionRepo = Depends(session_repo),
+) -> LabelsPayload | None:
+    if repo.get(session_id) is None:
+        raise HTTPException(status_code=404, detail="session not found")
+    path = _labels_path(session_id)
+    if not path.exists():
+        return None
+    import json
+
+    raw = json.loads(path.read_text())
+    return LabelsPayload(labels=raw)
+
+
+@router.put("/{session_id}/labels", response_model=LabelsPayload)
+def put_labels(
+    session_id: UUID,
+    payload: LabelsPayload,
+    repo: SessionRepo = Depends(session_repo),
+) -> LabelsPayload:
+    if repo.get(session_id) is None:
+        raise HTTPException(status_code=404, detail="session not found")
+    import json
+
+    body = [lab.model_dump() for lab in payload.labels]
+    _labels_path(session_id).write_text(json.dumps(body, indent=2))
+    return payload
+
+
+@router.delete("/{session_id}/labels", status_code=status.HTTP_204_NO_CONTENT)
+def delete_labels(
+    session_id: UUID,
+    repo: SessionRepo = Depends(session_repo),
+) -> None:
+    if repo.get(session_id) is None:
+        raise HTTPException(status_code=404, detail="session not found")
+    p = _labels_path(session_id)
+    if p.exists():
+        p.unlink()
+
+
+@router.get("/{session_id}/evaluation", response_model=EvalResponse)
+def session_evaluation(
+    session_id: UUID,
+    tolerance_ms: float = 200.0,
+    sessions: SessionRepo = Depends(session_repo),
+    events: PunchEventRepo = Depends(punch_event_repo),
+) -> EvalResponse:
+    """Compare manual labels against detector output for this session.
+
+    The dissertation's defensible accuracy claim hinges on this number.
+    Returns zeroed metrics when no labels file exists for the session.
+    """
+    if sessions.get(session_id) is None:
+        raise HTTPException(status_code=404, detail="session not found")
+
+    detection_rows = events.list_for_session(session_id)
+    detected = [
+        DetectedPunch(
+            t_ms=r.t_ms,
+            hand=r.hand.value,
+            punch_type=r.punch_type.value if r.punch_type else None,
+            confidence=r.confidence,
+        )
+        for r in detection_rows
+    ]
+
+    label_path = _labels_path(session_id)
+    if not label_path.exists():
+        return EvalResponse(
+            session_id=session_id,
+            has_labels=False,
+            label_count=0,
+            detection_count=len(detected),
+            tolerance_ms=tolerance_ms,
+        )
+
+    truth = load_labels(label_path)
+    result = match_events(truth, detected, tolerance_ms=tolerance_ms)
+    classes = ["jab", "cross", "hook", "uppercut"]
+    cm = confusion_matrix(result.pairs, classes)
+    return EvalResponse(
+        session_id=session_id,
+        has_labels=True,
+        label_count=len(truth),
+        detection_count=len(detected),
+        tolerance_ms=tolerance_ms,
+        true_positives=result.true_positives,
+        false_positives=result.false_positives,
+        false_negatives=result.false_negatives,
+        precision=round(result.precision, 4),
+        recall=round(result.recall, 4),
+        f1=round(result.f1, 4),
+        mean_temporal_offset_ms=round(result.mean_temporal_offset_ms, 1),
+        confusion=cm,
+        classes=classes,
     )

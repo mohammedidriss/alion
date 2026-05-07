@@ -3,6 +3,7 @@
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useEffect, useState } from "react";
+import { EvaluationCard } from "@/components/EvaluationCard";
 import { HrvPanel } from "@/components/HrvPanel";
 import { PunchChart } from "@/components/PunchChart";
 import { PunchTimeline } from "@/components/PunchTimeline";
@@ -364,6 +365,13 @@ export default function SessionPage({ params }: { params: { id: string } }) {
             </div>
           );
         })()}
+
+      {/* Detector evaluation — labels-vs-detections accuracy.
+          Shown for any completed session; the card itself handles the
+          "no labels yet" empty state. */}
+      {session.status === "completed" && events.length > 0 && (
+        <EvaluationCard sessionId={id} />
+      )}
 
       {(session.status === "capturing" || session.status === "processing") && (
         <section className="rounded-lg border border-neutral-800 p-4">
