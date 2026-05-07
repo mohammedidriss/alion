@@ -1,7 +1,8 @@
 """Analyze — per-stream analytics. Depends only on `contracts` and `common`."""
 
 from analyze.hrv_metrics import RollingHRMetrics, mean_hr_bpm, rmssd_ms, sdnn_ms
-from analyze.performance import PerformanceScore, compute_score
+from analyze.load import TrimpResult, compute_trimp, estimate_hr_max
+from analyze.performance import PerformanceScore, compute_score, compute_swc
 from analyze.punch_detector_heuristic import HeuristicPunchDetector, detect_punches
 from analyze.punch_type_heuristic import PunchType, classify_punch_type
 from analyze.readiness import (
@@ -20,10 +21,14 @@ __all__ = [
     "Readiness",
     "ReadinessMode",
     "RollingHRMetrics",
+    "TrimpResult",
     "classify_punch_type",
     "compute_readiness",
     "compute_score",
+    "compute_swc",
+    "compute_trimp",
     "detect_punches",
+    "estimate_hr_max",
     "mean_hr_bpm",
     "refine_peak_velocity",
     "rmssd_ms",

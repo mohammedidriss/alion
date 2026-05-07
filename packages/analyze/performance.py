@@ -7,11 +7,19 @@ expect (faster + busier + longer = higher) without hidden weights:
 
 Revisit once we have labeled training data; meanwhile this gives us a
 single number per session for HRV-vs-performance scatter plots.
+
+Also exposes Hopkins' Smallest Worthwhile Change (SWC) so the UI can
+say "this session moved the needle" vs "this is within noise":
+
+    SWC = 0.2 * stdev(history)
+
+(Hopkins, *Sportscience* 2004; *Sports Medicine* 2009 vol. 39.)
 """
 
 from __future__ import annotations
 
 from dataclasses import dataclass
+from statistics import stdev
 
 
 @dataclass(frozen=True)
@@ -32,6 +40,23 @@ def _percentile(sorted_vals: list[float], p: float) -> float:
     hi = min(lo + 1, len(sorted_vals) - 1)
     frac = k - lo
     return sorted_vals[lo] * (1 - frac) + sorted_vals[hi] * frac
+
+
+def compute_swc(history: list[float]) -> float | None:
+    """Hopkins' Smallest Worthwhile Change.
+
+    Returns ``0.2 * stdev(history)`` — the minimum change that is unlikely
+    to be noise. Returns None when history is too short (< 3) for a
+    meaningful standard deviation.
+
+    Strictly speaking Hopkins defines SWC against between-subject SD for
+    a population. Within-fighter use here treats "between-session" SD as
+    the relevant noise floor, which is the right shape for longitudinal
+    monitoring of a single athlete.
+    """
+    if len(history) < 3:
+        return None
+    return round(0.2 * stdev(history), 4)
 
 
 def compute_score(velocities_ms: list[float], duration_ms: float) -> PerformanceScore:

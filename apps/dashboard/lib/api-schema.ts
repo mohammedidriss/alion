@@ -2547,6 +2547,8 @@ export interface components {
             slope?: number | null;
             /** Intercept */
             intercept?: number | null;
+            /** Swc */
+            swc?: number | null;
         };
         /** MedicalConditionCreate */
         MedicalConditionCreate: {

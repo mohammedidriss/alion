@@ -9,7 +9,7 @@ from fastapi import APIRouter, Depends, File, HTTPException, UploadFile, status
 from pydantic import BaseModel
 from sqlmodel import Session as DBSession
 
-from analyze import compute_readiness, compute_score
+from analyze import compute_readiness, compute_score, compute_swc
 from analyze.readiness import MIN_HISTORY
 from api.deps import (
     db_session,
@@ -198,6 +198,9 @@ class MatrixResponse(BaseModel):
     pearson_r: float | None = None
     slope: float | None = None
     intercept: float | None = None
+    # Hopkins' Smallest Worthwhile Change for the score series.
+    # None when fewer than 3 sessions in the matrix.
+    swc: float | None = None
 
 
 def _pearson(xs: list[float], ys: list[float]) -> tuple[float | None, float | None, float | None]:
@@ -314,6 +317,7 @@ def fighter_matrix(
         pearson_r=r,
         slope=slope,
         intercept=intercept,
+        swc=compute_swc(ys),
     )
 
 

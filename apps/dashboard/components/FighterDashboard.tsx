@@ -1,13 +1,18 @@
 "use client";
 
-import { useMemo } from "react";
+import { useEffect, useMemo, useState } from "react";
 import {
   HandSplitChart,
   SessionFrequencyChart,
   VelocityDistributionChart,
 } from "@/components/AggregateCharts";
 import { HrvMetric, ReadinessGauge } from "@/components/HrvCharts";
-import type { PunchEvent, Session } from "@/lib/api";
+import {
+  api,
+  type MatrixResponse,
+  type PunchEvent,
+  type Session,
+} from "@/lib/api";
 
 interface SessionWithEvents {
   session: Session;
@@ -15,6 +20,7 @@ interface SessionWithEvents {
 }
 
 interface Props {
+  fighterId: string;
   sessionsWithEvents: SessionWithEvents[];
 }
 
@@ -56,7 +62,17 @@ function metricsFor(s: SessionWithEvents): PerSessionMetrics {
   };
 }
 
-export function FighterDashboard({ sessionsWithEvents }: Props) {
+export function FighterDashboard({ fighterId, sessionsWithEvents }: Props) {
+  // SWC fetched alongside the matrix so the "vs previous" delta on the
+  // Output Index chart can be qualified as real-vs-noise.
+  const [swc, setSwc] = useState<number | null>(null);
+  useEffect(() => {
+    api
+      .fighterMatrix(fighterId)
+      .then((m: MatrixResponse) => setSwc(m.swc))
+      .catch(() => setSwc(null));
+  }, [fighterId]);
+
   const usable = useMemo(
     () =>
       sessionsWithEvents
@@ -135,6 +151,34 @@ export function FighterDashboard({ sessionsWithEvents }: Props) {
                     {totals.avgScore.toFixed(2)}
                   </div>
                 </div>
+                {swc != null && previous && (
+                  <div>
+                    <div
+                      className="text-[10px] uppercase tracking-wide text-neutral-500"
+                      title="Hopkins' Smallest Worthwhile Change = 0.2 × stdev(history). |delta| > SWC means a real change rather than noise."
+                    >
+                      SWC threshold
+                    </div>
+                    <div
+                      className={`text-lg font-semibold tabular-nums ${
+                        Math.abs(delta) > swc
+                          ? delta >= 0
+                            ? "text-lime-300"
+                            : "text-red-300"
+                          : "text-neutral-500"
+                      }`}
+                    >
+                      {swc.toFixed(2)}
+                    </div>
+                    <div className="mt-0.5 text-[10px] text-neutral-500">
+                      {Math.abs(delta) > swc
+                        ? delta >= 0
+                          ? "real improvement"
+                          : "real regression"
+                        : "within noise"}
+                    </div>
+                  </div>
+                )}
               </div>
               <ProgressChart series={usable} />
             </>

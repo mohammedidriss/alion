@@ -310,6 +310,10 @@ export interface MatrixResponse {
   pearson_r: number | null;
   slope: number | null;
   intercept: number | null;
+  /** Hopkins' Smallest Worthwhile Change (0.2 × stdev of session scores).
+   *  Use to threshold the "vs previous" delta: |delta| > swc means a real
+   *  change, not noise. None when n < 3. */
+  swc: number | null;
 }
 
 export type ReadinessMode = "z_score" | "absolute";

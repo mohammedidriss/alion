@@ -567,7 +567,37 @@ score = clamp(50 + 12.5 × z, 0, 100)
 
 Cold-start fallback (N < 5): legacy `clamp((rmssd − 20) / 70) × 100`. The mode (`z_score` / `absolute`) is exposed by the API and displayed honestly in the UI (cold-start banner, "calibrated" suffix).
 
-### 6.7 Evaluation — [packages/studies/evaluation.py](packages/studies/evaluation.py)
+### 6.7 SWC — Smallest Worthwhile Change ([compute_swc](packages/analyze/performance.py))
+
+Hopkins (2004, 2009) — `0.2 × stdev(history)`. Returns `None` when fewer
+than 3 sessions exist. Surfaced on the Dashboard's Output Index hero
+beside the "vs previous" delta so the UI distinguishes "real improvement"
+from "within noise" honestly. Returned by `GET /fighters/{id}/matrix`
+in the `swc` field. **Worth-knowing dissertation framing**: any change
+below SWC is statistical noise.
+
+### 6.8 TRIMP — Banister Training Impulse ([compute_trimp](packages/analyze/load.py))
+
+Banister (1991) internal-load metric:
+
+```
+HR_ratio = clamp((HR_avg − HR_rest) / (HR_max − HR_rest), 0, 1)
+y_male   = 0.64 · exp(1.92 · HR_ratio)
+y_female = 0.86 · exp(1.67 · HR_ratio)
+TRIMP    = duration_min × HR_ratio × y_factor
+```
+
+Plus `estimate_hr_max(age)` using Tanaka et al. (2001): `208 − 0.7 × age`.
+
+Contract is wired now; data flows when the Polar H10 BLE driver lands
+2026-05-16 (in-session HR streaming is the missing input). Until then
+no API endpoint exposes TRIMP — the function exists so adapters
+integrate without code churn at hardware-arrival.
+
+12 unit tests covering edge cases (resting, supraphysiological, sex
+formulas, duration scaling, HR_max estimator).
+
+### 6.9 Evaluation — [packages/studies/evaluation.py](packages/studies/evaluation.py)
 
 Greedy time-window matching of detector output against manually-labeled ground truth:
 
@@ -666,6 +696,7 @@ Run forward: `uv run alembic upgrade head`. Run back one step: `uv run alembic d
 | `tests/unit/test_readiness.py` | compute_readiness — z-score + cold-start |
 | `tests/unit/test_session_clock.py` | SessionClock anchors + offsets |
 | `tests/unit/test_evaluation.py` | match_events + confusion matrix + label loader |
+| `tests/unit/test_load_swc.py` | TRIMP (Banister) edge cases + SWC (Hopkins) thresholds |
 | `tests/integration/test_api_*.py` | API surface shapes (404s, 409s, validation) |
 
 Lint: `uv run ruff check`. Types: `uv run mypy packages`. Architecture: `uv run lint-imports`. Frontend: `pnpm tsc --noEmit`.
@@ -765,4 +796,4 @@ uv run python scripts/evaluate.py \
 
 ---
 
-_Last updated: 2026-05-07 (commit `e23e2f7`)._
+_Last updated: 2026-05-07 — 108 tests pass; types/lint/import-linter clean._

@@ -228,6 +228,7 @@ export default function FighterPage({ params }: { params: { id: string } }) {
       )}
 
       <FighterDashboard
+        fighterId={fighter.id}
         sessionsWithEvents={sessions.map((s) => ({
           session: s.session,
           events: s.events,
