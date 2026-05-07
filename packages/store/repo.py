@@ -12,9 +12,15 @@ from store.models import (
     Allergy,
     AllergyCreate,
     Coach,
+    CoachAssignment,
+    CoachAssignmentCreate,
     CoachCreate,
     Fighter,
     FighterCreate,
+    FighterSponsor,
+    FighterSponsorCreate,
+    FighterTitle,
+    FighterTitleCreate,
     HRSampleRow,
     MedicalCondition,
     MedicalConditionCreate,
@@ -447,6 +453,126 @@ class MedicalRepo:
 
     def delete_condition(self, fighter_id: UUID, condition_id: int) -> bool:
         row = self._session.get(MedicalCondition, condition_id)
+        if row is None or row.fighter_id != fighter_id:
+            return False
+        self._session.delete(row)
+        self._session.commit()
+        return True
+
+
+# ----------------------------------------------------------------------
+# Fighter team — titles, sponsors, coach assignments
+# ----------------------------------------------------------------------
+
+
+class FighterTeamRepo:
+    """Sub-collections that hang off a fighter for the Team tab.
+
+    Kept separate from FighterRepo so the surface stays small.
+    """
+
+    def __init__(self, session: DBSession) -> None:
+        self._session = session
+
+    # --- Titles ---
+
+    def add_title(
+        self, fighter_id: UUID, data: FighterTitleCreate
+    ) -> FighterTitle:
+        row = FighterTitle(fighter_id=fighter_id, **data.model_dump())
+        self._session.add(row)
+        self._session.commit()
+        self._session.refresh(row)
+        return row
+
+    def list_titles(self, fighter_id: UUID) -> list[FighterTitle]:
+        stmt = (
+            select(FighterTitle).where(FighterTitle.fighter_id == fighter_id)
+        )
+        rows = list(self._session.exec(stmt).all())
+        rows.sort(
+            key=lambda t: -(t.won_on.toordinal() if t.won_on else 0)
+        )
+        return rows
+
+    def delete_title(self, fighter_id: UUID, title_id: int) -> bool:
+        row = self._session.get(FighterTitle, title_id)
+        if row is None or row.fighter_id != fighter_id:
+            return False
+        self._session.delete(row)
+        self._session.commit()
+        return True
+
+    # --- Sponsors ---
+
+    def add_sponsor(
+        self, fighter_id: UUID, data: FighterSponsorCreate
+    ) -> FighterSponsor:
+        row = FighterSponsor(fighter_id=fighter_id, **data.model_dump())
+        self._session.add(row)
+        self._session.commit()
+        self._session.refresh(row)
+        return row
+
+    def list_sponsors(self, fighter_id: UUID) -> list[FighterSponsor]:
+        rows = list(
+            self._session.exec(
+                select(FighterSponsor).where(
+                    FighterSponsor.fighter_id == fighter_id
+                )
+            ).all()
+        )
+        # Sort in Python: current (no end date) first, then most-recent start.
+        rows.sort(
+            key=lambda s: (
+                s.ended_on is not None,
+                -(s.started_on.toordinal() if s.started_on else 0),
+            )
+        )
+        return rows
+
+    def delete_sponsor(self, fighter_id: UUID, sponsor_id: int) -> bool:
+        row = self._session.get(FighterSponsor, sponsor_id)
+        if row is None or row.fighter_id != fighter_id:
+            return False
+        self._session.delete(row)
+        self._session.commit()
+        return True
+
+    # --- Coach assignments (denormalises coach name+photo for the UI) ---
+
+    def add_coach_assignment(
+        self, fighter_id: UUID, data: CoachAssignmentCreate
+    ) -> CoachAssignment:
+        row = CoachAssignment(fighter_id=fighter_id, **data.model_dump())
+        self._session.add(row)
+        self._session.commit()
+        self._session.refresh(row)
+        return row
+
+    def list_coach_assignments(
+        self, fighter_id: UUID
+    ) -> list[tuple[CoachAssignment, str, str | None]]:
+        """Returns (assignment, coach_name, coach_photo_path) tuples for the
+        UI; the read DTO denormalises the coach so we don't make N+1 calls."""
+        stmt = (
+            select(CoachAssignment, Coach.name, Coach.photo_path)
+            .join(Coach, Coach.id == CoachAssignment.coach_id)  # type: ignore[arg-type]
+            .where(CoachAssignment.fighter_id == fighter_id)
+        )
+        rows = list(self._session.exec(stmt).all())
+        rows.sort(
+            key=lambda r: (
+                r[0].ended_on is not None,
+                -(r[0].started_on.toordinal() if r[0].started_on else 0),
+            )
+        )
+        return rows
+
+    def delete_coach_assignment(
+        self, fighter_id: UUID, assignment_id: int
+    ) -> bool:
+        row = self._session.get(CoachAssignment, assignment_id)
         if row is None or row.fighter_id != fighter_id:
             return False
         self._session.delete(row)

@@ -14,6 +14,7 @@ from analyze.readiness import MIN_HISTORY
 from api.deps import (
     db_session,
     fighter_repo,
+    fighter_team_repo,
     medical_repo,
     punch_event_repo,
     session_repo,
@@ -23,7 +24,15 @@ from store import (
     WEIGHT_CLASSES,
     AllergyCreate,
     AllergyRead,
+    CoachAssignmentCreate,
+    CoachAssignmentRead,
+    CoachRole,
     FighterRepo,
+    FighterSponsorCreate,
+    FighterSponsorRead,
+    FighterTeamRepo,
+    FighterTitleCreate,
+    FighterTitleRead,
     HandEnum,
     MedicalConditionCreate,
     MedicalConditionRead,
@@ -35,6 +44,7 @@ from store import (
     SessionRepo,
     SkillLevel,
     Stance,
+    TitleStatus,
     WeighInCreate,
     WeighInRead,
     WeighInRepo,
@@ -70,6 +80,8 @@ class FighterUpdate(BaseModel):
     boxrec_id: str | None = None
     usa_boxing_id: str | None = None
     notes: str | None = None
+    bio: str | None = None
+    career_history: str | None = None
 
 
 @router.get("/options", tags=["fighters"])
@@ -511,3 +523,193 @@ def delete_condition(
 ) -> None:
     if not med.delete_condition(fighter_id, condition_id):
         raise HTTPException(status_code=404, detail="condition not found")
+
+
+# ----------------------------------------------------------------------
+# Team — titles, sponsors, coach assignments
+# ----------------------------------------------------------------------
+
+# --- Titles ---
+
+
+@router.get("/{fighter_id}/titles", response_model=list[FighterTitleRead])
+def list_titles(
+    fighter_id: UUID,
+    fighters: FighterRepo = Depends(fighter_repo),
+    team: FighterTeamRepo = Depends(fighter_team_repo),
+) -> list[FighterTitleRead]:
+    if fighters.get(fighter_id) is None:
+        raise HTTPException(status_code=404, detail="fighter not found")
+    return [
+        FighterTitleRead.model_validate(t, from_attributes=True)
+        for t in team.list_titles(fighter_id)
+    ]
+
+
+@router.post(
+    "/{fighter_id}/titles",
+    response_model=FighterTitleRead,
+    status_code=status.HTTP_201_CREATED,
+)
+def add_title(
+    fighter_id: UUID,
+    data: FighterTitleCreate,
+    fighters: FighterRepo = Depends(fighter_repo),
+    team: FighterTeamRepo = Depends(fighter_team_repo),
+) -> FighterTitleRead:
+    if fighters.get(fighter_id) is None:
+        raise HTTPException(status_code=404, detail="fighter not found")
+    row = team.add_title(fighter_id, data)
+    return FighterTitleRead.model_validate(row, from_attributes=True)
+
+
+@router.delete(
+    "/{fighter_id}/titles/{title_id}", status_code=status.HTTP_204_NO_CONTENT
+)
+def delete_title(
+    fighter_id: UUID,
+    title_id: int,
+    team: FighterTeamRepo = Depends(fighter_team_repo),
+) -> None:
+    if not team.delete_title(fighter_id, title_id):
+        raise HTTPException(status_code=404, detail="title not found")
+
+
+# --- Sponsors ---
+
+
+@router.get("/{fighter_id}/sponsors", response_model=list[FighterSponsorRead])
+def list_sponsors(
+    fighter_id: UUID,
+    fighters: FighterRepo = Depends(fighter_repo),
+    team: FighterTeamRepo = Depends(fighter_team_repo),
+) -> list[FighterSponsorRead]:
+    if fighters.get(fighter_id) is None:
+        raise HTTPException(status_code=404, detail="fighter not found")
+    return [
+        FighterSponsorRead.model_validate(s, from_attributes=True)
+        for s in team.list_sponsors(fighter_id)
+    ]
+
+
+@router.post(
+    "/{fighter_id}/sponsors",
+    response_model=FighterSponsorRead,
+    status_code=status.HTTP_201_CREATED,
+)
+def add_sponsor(
+    fighter_id: UUID,
+    data: FighterSponsorCreate,
+    fighters: FighterRepo = Depends(fighter_repo),
+    team: FighterTeamRepo = Depends(fighter_team_repo),
+) -> FighterSponsorRead:
+    if fighters.get(fighter_id) is None:
+        raise HTTPException(status_code=404, detail="fighter not found")
+    row = team.add_sponsor(fighter_id, data)
+    return FighterSponsorRead.model_validate(row, from_attributes=True)
+
+
+@router.delete(
+    "/{fighter_id}/sponsors/{sponsor_id}",
+    status_code=status.HTTP_204_NO_CONTENT,
+)
+def delete_sponsor(
+    fighter_id: UUID,
+    sponsor_id: int,
+    team: FighterTeamRepo = Depends(fighter_team_repo),
+) -> None:
+    if not team.delete_sponsor(fighter_id, sponsor_id):
+        raise HTTPException(status_code=404, detail="sponsor not found")
+
+
+# --- Coach assignments ---
+
+
+@router.get(
+    "/{fighter_id}/coach-assignments",
+    response_model=list[CoachAssignmentRead],
+)
+def list_coach_assignments(
+    fighter_id: UUID,
+    fighters: FighterRepo = Depends(fighter_repo),
+    team: FighterTeamRepo = Depends(fighter_team_repo),
+) -> list[CoachAssignmentRead]:
+    if fighters.get(fighter_id) is None:
+        raise HTTPException(status_code=404, detail="fighter not found")
+    out: list[CoachAssignmentRead] = []
+    for a, coach_name, coach_photo_path in team.list_coach_assignments(fighter_id):
+        out.append(
+            CoachAssignmentRead(
+                id=a.id,
+                fighter_id=a.fighter_id,
+                coach_id=a.coach_id,
+                coach_name=coach_name,
+                coach_photo_path=coach_photo_path,
+                role=a.role,
+                started_on=a.started_on,
+                ended_on=a.ended_on,
+                notes=a.notes,
+                created_at=a.created_at,
+            )
+        )
+    return out
+
+
+@router.post(
+    "/{fighter_id}/coach-assignments",
+    response_model=CoachAssignmentRead,
+    status_code=status.HTTP_201_CREATED,
+)
+def add_coach_assignment(
+    fighter_id: UUID,
+    data: CoachAssignmentCreate,
+    fighters: FighterRepo = Depends(fighter_repo),
+    team: FighterTeamRepo = Depends(fighter_team_repo),
+    db: DBSession = Depends(db_session),
+) -> CoachAssignmentRead:
+    if fighters.get(fighter_id) is None:
+        raise HTTPException(status_code=404, detail="fighter not found")
+    from store import CoachRepo
+
+    coach = CoachRepo(db).get(data.coach_id)
+    if coach is None:
+        raise HTTPException(status_code=404, detail="coach not found")
+    row = team.add_coach_assignment(fighter_id, data)
+    return CoachAssignmentRead(
+        id=row.id,
+        fighter_id=row.fighter_id,
+        coach_id=row.coach_id,
+        coach_name=coach.name,
+        coach_photo_path=coach.photo_path,
+        role=row.role,
+        started_on=row.started_on,
+        ended_on=row.ended_on,
+        notes=row.notes,
+        created_at=row.created_at,
+    )
+
+
+@router.delete(
+    "/{fighter_id}/coach-assignments/{assignment_id}",
+    status_code=status.HTTP_204_NO_CONTENT,
+)
+def delete_coach_assignment(
+    fighter_id: UUID,
+    assignment_id: int,
+    team: FighterTeamRepo = Depends(fighter_team_repo),
+) -> None:
+    if not team.delete_coach_assignment(fighter_id, assignment_id):
+        raise HTTPException(status_code=404, detail="assignment not found")
+
+
+# --- Coach roles enum (for the UI dropdown) ---
+
+
+@router.get("/_meta/coach-roles", response_model=list[str])
+def list_coach_roles() -> list[str]:
+    return [r.value for r in CoachRole]
+
+
+@router.get("/_meta/title-statuses", response_model=list[str])
+def list_title_statuses() -> list[str]:
+    return [t.value for t in TitleStatus]

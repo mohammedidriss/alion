@@ -394,6 +394,145 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/fighters/{fighter_id}/titles": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** List Titles */
+        get: operations["list_titles_fighters__fighter_id__titles_get"];
+        put?: never;
+        /** Add Title */
+        post: operations["add_title_fighters__fighter_id__titles_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/fighters/{fighter_id}/titles/{title_id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post?: never;
+        /** Delete Title */
+        delete: operations["delete_title_fighters__fighter_id__titles__title_id__delete"];
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/fighters/{fighter_id}/sponsors": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** List Sponsors */
+        get: operations["list_sponsors_fighters__fighter_id__sponsors_get"];
+        put?: never;
+        /** Add Sponsor */
+        post: operations["add_sponsor_fighters__fighter_id__sponsors_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/fighters/{fighter_id}/sponsors/{sponsor_id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post?: never;
+        /** Delete Sponsor */
+        delete: operations["delete_sponsor_fighters__fighter_id__sponsors__sponsor_id__delete"];
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/fighters/{fighter_id}/coach-assignments": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** List Coach Assignments */
+        get: operations["list_coach_assignments_fighters__fighter_id__coach_assignments_get"];
+        put?: never;
+        /** Add Coach Assignment */
+        post: operations["add_coach_assignment_fighters__fighter_id__coach_assignments_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/fighters/{fighter_id}/coach-assignments/{assignment_id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post?: never;
+        /** Delete Coach Assignment */
+        delete: operations["delete_coach_assignment_fighters__fighter_id__coach_assignments__assignment_id__delete"];
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/fighters/_meta/coach-roles": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** List Coach Roles */
+        get: operations["list_coach_roles_fighters__meta_coach_roles_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/fighters/_meta/title-statuses": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** List Title Statuses */
+        get: operations["list_title_statuses_fighters__meta_title_statuses_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/v1/fighters/options": {
         parameters: {
             query?: never;
@@ -672,6 +811,145 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/v1/fighters/{fighter_id}/titles": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** List Titles */
+        get: operations["list_titles_v1_fighters__fighter_id__titles_get"];
+        put?: never;
+        /** Add Title */
+        post: operations["add_title_v1_fighters__fighter_id__titles_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/fighters/{fighter_id}/titles/{title_id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post?: never;
+        /** Delete Title */
+        delete: operations["delete_title_v1_fighters__fighter_id__titles__title_id__delete"];
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/fighters/{fighter_id}/sponsors": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** List Sponsors */
+        get: operations["list_sponsors_v1_fighters__fighter_id__sponsors_get"];
+        put?: never;
+        /** Add Sponsor */
+        post: operations["add_sponsor_v1_fighters__fighter_id__sponsors_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/fighters/{fighter_id}/sponsors/{sponsor_id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post?: never;
+        /** Delete Sponsor */
+        delete: operations["delete_sponsor_v1_fighters__fighter_id__sponsors__sponsor_id__delete"];
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/fighters/{fighter_id}/coach-assignments": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** List Coach Assignments */
+        get: operations["list_coach_assignments_v1_fighters__fighter_id__coach_assignments_get"];
+        put?: never;
+        /** Add Coach Assignment */
+        post: operations["add_coach_assignment_v1_fighters__fighter_id__coach_assignments_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/fighters/{fighter_id}/coach-assignments/{assignment_id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post?: never;
+        /** Delete Coach Assignment */
+        delete: operations["delete_coach_assignment_v1_fighters__fighter_id__coach_assignments__assignment_id__delete"];
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/fighters/_meta/coach-roles": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** List Coach Roles */
+        get: operations["list_coach_roles_v1_fighters__meta_coach_roles_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/fighters/_meta/title-statuses": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** List Title Statuses */
+        get: operations["list_title_statuses_v1_fighters__meta_title_statuses_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/sessions": {
         parameters: {
             query?: never;
@@ -937,6 +1215,48 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/sessions/{session_id}/labels": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Get Labels */
+        get: operations["get_labels_sessions__session_id__labels_get"];
+        /** Put Labels */
+        put: operations["put_labels_sessions__session_id__labels_put"];
+        post?: never;
+        /** Delete Labels */
+        delete: operations["delete_labels_sessions__session_id__labels_delete"];
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/sessions/{session_id}/evaluation": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Session Evaluation
+         * @description Compare manual labels against detector output for this session.
+         *
+         *     The dissertation's defensible accuracy claim hinges on this number.
+         *     Returns zeroed metrics when no labels file exists for the session.
+         */
+        get: operations["session_evaluation_sessions__session_id__evaluation_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/v1/sessions": {
         parameters: {
             query?: never;
@@ -1194,6 +1514,48 @@ export interface paths {
         };
         /** Session Performance */
         get: operations["session_performance_v1_sessions__session_id__performance_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/sessions/{session_id}/labels": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Get Labels */
+        get: operations["get_labels_v1_sessions__session_id__labels_get"];
+        /** Put Labels */
+        put: operations["put_labels_v1_sessions__session_id__labels_put"];
+        post?: never;
+        /** Delete Labels */
+        delete: operations["delete_labels_v1_sessions__session_id__labels_delete"];
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/sessions/{session_id}/evaluation": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Session Evaluation
+         * @description Compare manual labels against detector output for this session.
+         *
+         *     The dissertation's defensible accuracy claim hinges on this number.
+         *     Returns zeroed metrics when no labels file exists for the session.
+         */
+        get: operations["session_evaluation_v1_sessions__session_id__evaluation_get"];
         put?: never;
         post?: never;
         delete?: never;
@@ -1589,6 +1951,53 @@ export interface components {
             /** Punch Count */
             punch_count: number;
         };
+        /** CoachAssignmentCreate */
+        CoachAssignmentCreate: {
+            /**
+             * Coach Id
+             * Format: uuid
+             */
+            coach_id: string;
+            /** @default head_coach */
+            role: components["schemas"]["CoachRole"];
+            /** Started On */
+            started_on?: string | null;
+            /** Ended On */
+            ended_on?: string | null;
+            /** Notes */
+            notes?: string | null;
+        };
+        /** CoachAssignmentRead */
+        CoachAssignmentRead: {
+            /** Id */
+            id: number;
+            /**
+             * Fighter Id
+             * Format: uuid
+             */
+            fighter_id: string;
+            /**
+             * Coach Id
+             * Format: uuid
+             */
+            coach_id: string;
+            /** Coach Name */
+            coach_name: string;
+            /** Coach Photo Path */
+            coach_photo_path?: string | null;
+            role: components["schemas"]["CoachRole"];
+            /** Started On */
+            started_on?: string | null;
+            /** Ended On */
+            ended_on?: string | null;
+            /** Notes */
+            notes?: string | null;
+            /**
+             * Created At
+             * Format: date-time
+             */
+            created_at: string;
+        };
         /** CoachCreate */
         CoachCreate: {
             /** Name */
@@ -1650,6 +2059,13 @@ export interface components {
              */
             created_at: string;
         };
+        /**
+         * CoachRole
+         * @description Common coach roles. Free-text 'role' on the assignment lets us add new
+         *     ones without a migration; the enum just guides the UI.
+         * @enum {string}
+         */
+        CoachRole: "head_coach" | "striking" | "strength" | "conditioning" | "nutrition" | "cutman" | "mental" | "other";
         /** CoachUpdate */
         CoachUpdate: {
             /** Name */
@@ -1701,6 +2117,71 @@ export interface components {
          * @enum {string}
          */
         DetectionSourceEnum: "heuristic" | "lstm_v1";
+        /** EvalResponse */
+        EvalResponse: {
+            /**
+             * Session Id
+             * Format: uuid
+             */
+            session_id: string;
+            /** Has Labels */
+            has_labels: boolean;
+            /** Label Count */
+            label_count: number;
+            /** Detection Count */
+            detection_count: number;
+            /**
+             * Tolerance Ms
+             * @default 200
+             */
+            tolerance_ms: number;
+            /**
+             * True Positives
+             * @default 0
+             */
+            true_positives: number;
+            /**
+             * False Positives
+             * @default 0
+             */
+            false_positives: number;
+            /**
+             * False Negatives
+             * @default 0
+             */
+            false_negatives: number;
+            /**
+             * Precision
+             * @default 0
+             */
+            precision: number;
+            /**
+             * Recall
+             * @default 0
+             */
+            recall: number;
+            /**
+             * F1
+             * @default 0
+             */
+            f1: number;
+            /**
+             * Mean Temporal Offset Ms
+             * @default 0
+             */
+            mean_temporal_offset_ms: number;
+            /** Confusion */
+            confusion?: {
+                [key: string]: {
+                    [key: string]: number;
+                };
+            } | null;
+            /**
+             * Classes
+             * @default []
+             */
+            classes: string[];
+        };
         /**
          * FighterCreate
          * @description Light-weight create — most fields are filled in via Edit on the profile.
@@ -1777,6 +2258,93 @@ export interface components {
             notes?: string | null;
             /** Photo Path */
             photo_path?: string | null;
+            /** Bio */
+            bio?: string | null;
+            /** Career History */
+            career_history?: string | null;
+            /**
+             * Created At
+             * Format: date-time
+             */
+            created_at: string;
+        };
+        /** FighterSponsorCreate */
+        FighterSponsorCreate: {
+            /** Name */
+            name: string;
+            /** Started On */
+            started_on?: string | null;
+            /** Ended On */
+            ended_on?: string | null;
+            /** Website */
+            website?: string | null;
+            /** Notes */
+            notes?: string | null;
+        };
+        /** FighterSponsorRead */
+        FighterSponsorRead: {
+            /** Id */
+            id: number;
+            /**
+             * Fighter Id
+             * Format: uuid
+             */
+            fighter_id: string;
+            /** Name */
+            name: string;
+            /** Started On */
+            started_on?: string | null;
+            /** Ended On */
+            ended_on?: string | null;
+            /** Website */
+            website?: string | null;
+            /** Notes */
+            notes?: string | null;
+            /**
+             * Created At
+             * Format: date-time
+             */
+            created_at: string;
+        };
+        /** FighterTitleCreate */
+        FighterTitleCreate: {
+            /** Name */
+            name: string;
+            /** Organization */
+            organization?: string | null;
+            /** Weight Class */
+            weight_class?: string | null;
+            /** Won On */
+            won_on?: string | null;
+            /** Lost On */
+            lost_on?: string | null;
+            /** @default active */
+            status: components["schemas"]["TitleStatus"];
+            /** Notes */
+            notes?: string | null;
+        };
+        /** FighterTitleRead */
+        FighterTitleRead: {
+            /** Id */
+            id: number;
+            /**
+             * Fighter Id
+             * Format: uuid
+             */
+            fighter_id: string;
+            /** Name */
+            name: string;
+            /** Organization */
+            organization?: string | null;
+            /** Weight Class */
+            weight_class?: string | null;
+            /** Won On */
+            won_on?: string | null;
+            /** Lost On */
+            lost_on?: string | null;
+            status: components["schemas"]["TitleStatus"];
+            /** Notes */
+            notes?: string | null;
             /**
              * Created At
              * Format: date-time
@@ -1831,6 +2399,19 @@ export interface components {
             usa_boxing_id?: string | null;
             /** Notes */
             notes?: string | null;
+            /** Bio */
+            bio?: string | null;
+            /** Career History */
+            career_history?: string | null;
+        };
+        /** GroundTruthPunchIn */
+        GroundTruthPunchIn: {
+            /** T Ms */
+            t_ms: number;
+            /** Hand */
+            hand: string;
+            /** Punch Type */
+            punch_type?: string | null;
         };
         /**
          * HRMetricsWindow
@@ -1911,6 +2492,11 @@ export interface components {
             /** Sample Count */
             sample_count: number;
             metrics?: components["schemas"]["HRMetricsWindow"] | null;
+        };
+        /** LabelsPayload */
+        LabelsPayload: {
+            /** Labels */
+            labels: components["schemas"]["GroundTruthPunchIn"][];
         };
         /**
          * LeadOrRearEnum
@@ -2353,6 +2939,12 @@ export interface components {
          * @enum {string}
          */
         Stance: "orthodox" | "southpaw" | "switch";
+        /**
+         * TitleStatus
+         * @description Lifecycle of a championship title.
+         * @enum {string}
+         */
+        TitleStatus: "active" | "lost" | "vacated" | "retired";
         /** ValidationError */
         ValidationError: {
             /** Location */
@@ -3243,6 +3835,334 @@ export interface operations {
             };
         };
     };
+    list_titles_fighters__fighter_id__titles_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                fighter_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["FighterTitleRead"][];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    add_title_fighters__fighter_id__titles_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                fighter_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["FighterTitleCreate"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["FighterTitleRead"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    delete_title_fighters__fighter_id__titles__title_id__delete: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                fighter_id: string;
+                title_id: number;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    list_sponsors_fighters__fighter_id__sponsors_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                fighter_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["FighterSponsorRead"][];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    add_sponsor_fighters__fighter_id__sponsors_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                fighter_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["FighterSponsorCreate"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["FighterSponsorRead"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    delete_sponsor_fighters__fighter_id__sponsors__sponsor_id__delete: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                fighter_id: string;
+                sponsor_id: number;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    list_coach_assignments_fighters__fighter_id__coach_assignments_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                fighter_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["CoachAssignmentRead"][];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    add_coach_assignment_fighters__fighter_id__coach_assignments_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                fighter_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["CoachAssignmentCreate"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["CoachAssignmentRead"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    delete_coach_assignment_fighters__fighter_id__coach_assignments__assignment_id__delete: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                fighter_id: string;
+                assignment_id: number;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    list_coach_roles_fighters__meta_coach_roles_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": string[];
+                };
+            };
+        };
+    };
+    list_title_statuses_fighters__meta_title_statuses_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": string[];
+                };
+            };
+        };
+    };
     fighter_options_v1_fighters_options_get: {
         parameters: {
             query?: never;
@@ -3960,6 +4880,334 @@ export interface operations {
             };
         };
     };
+    list_titles_v1_fighters__fighter_id__titles_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                fighter_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["FighterTitleRead"][];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    add_title_v1_fighters__fighter_id__titles_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                fighter_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["FighterTitleCreate"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["FighterTitleRead"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    delete_title_v1_fighters__fighter_id__titles__title_id__delete: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                fighter_id: string;
+                title_id: number;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    list_sponsors_v1_fighters__fighter_id__sponsors_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                fighter_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["FighterSponsorRead"][];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    add_sponsor_v1_fighters__fighter_id__sponsors_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                fighter_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["FighterSponsorCreate"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["FighterSponsorRead"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    delete_sponsor_v1_fighters__fighter_id__sponsors__sponsor_id__delete: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                fighter_id: string;
+                sponsor_id: number;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    list_coach_assignments_v1_fighters__fighter_id__coach_assignments_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                fighter_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["CoachAssignmentRead"][];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    add_coach_assignment_v1_fighters__fighter_id__coach_assignments_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                fighter_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["CoachAssignmentCreate"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["CoachAssignmentRead"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    delete_coach_assignment_v1_fighters__fighter_id__coach_assignments__assignment_id__delete: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                fighter_id: string;
+                assignment_id: number;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    list_coach_roles_v1_fighters__meta_coach_roles_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": string[];
+                };
+            };
+        };
+    };
+    list_title_statuses_v1_fighters__meta_title_statuses_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": string[];
+                };
+            };
+        };
+    };
     list_sessions_sessions_get: {
         parameters: {
             query?: {
@@ -4507,6 +5755,134 @@ export interface operations {
             };
         };
     };
+    get_labels_sessions__session_id__labels_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                session_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["LabelsPayload"] | null;
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    put_labels_sessions__session_id__labels_put: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                session_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["LabelsPayload"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["LabelsPayload"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    delete_labels_sessions__session_id__labels_delete: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                session_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    session_evaluation_sessions__session_id__evaluation_get: {
+        parameters: {
+            query?: {
+                tolerance_ms?: number;
+            };
+            header?: never;
+            path: {
+                session_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["EvalResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
     list_sessions_v1_sessions_get: {
         parameters: {
             query?: {
@@ -5041,6 +6417,134 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["PerformanceResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    get_labels_v1_sessions__session_id__labels_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                session_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["LabelsPayload"] | null;
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    put_labels_v1_sessions__session_id__labels_put: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                session_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["LabelsPayload"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["LabelsPayload"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    delete_labels_v1_sessions__session_id__labels_delete: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                session_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    session_evaluation_v1_sessions__session_id__evaluation_get: {
+        parameters: {
+            query?: {
+                tolerance_ms?: number;
+            };
+            header?: never;
+            path: {
+                session_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["EvalResponse"];
                 };
             };
             /** @description Validation Error */

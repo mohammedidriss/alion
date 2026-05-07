@@ -53,10 +53,63 @@ export interface Fighter {
   usa_boxing_id: string | null;
   notes: string | null;
   photo_path: string | null;
+  bio: string | null;
+  career_history: string | null;
   created_at: string;
 }
 
 export type FighterPatch = Partial<Omit<Fighter, "id" | "created_at">>;
+
+// ---- Team: titles / sponsors / coach assignments ----
+
+export type TitleStatus = "active" | "lost" | "vacated" | "retired";
+
+export interface FighterTitle {
+  id: number;
+  fighter_id: string;
+  name: string;
+  organization: string | null;
+  weight_class: string | null;
+  won_on: string | null;
+  lost_on: string | null;
+  status: TitleStatus;
+  notes: string | null;
+  created_at: string;
+}
+
+export interface FighterSponsor {
+  id: number;
+  fighter_id: string;
+  name: string;
+  started_on: string | null;
+  ended_on: string | null;
+  website: string | null;
+  notes: string | null;
+  created_at: string;
+}
+
+export type CoachRole =
+  | "head_coach"
+  | "striking"
+  | "strength"
+  | "conditioning"
+  | "nutrition"
+  | "cutman"
+  | "mental"
+  | "other";
+
+export interface CoachAssignment {
+  id: number;
+  fighter_id: string;
+  coach_id: string;
+  coach_name: string;
+  coach_photo_path: string | null;
+  role: CoachRole;
+  started_on: string | null;
+  ended_on: string | null;
+  notes: string | null;
+  created_at: string;
+}
 
 export type CoachingLevel = "amateur" | "professional" | "both";
 
@@ -583,6 +636,73 @@ export const api = {
     }),
   deleteCondition: (fighterId: string, conditionId: number) =>
     req<void>(`/fighters/${fighterId}/conditions/${conditionId}`, {
+      method: "DELETE",
+    }),
+
+  // ---- Team: titles / sponsors / coach assignments ----
+  listTitles: (fighterId: string) =>
+    req<FighterTitle[]>(`/fighters/${fighterId}/titles`),
+  addTitle: (
+    fighterId: string,
+    data: {
+      name: string;
+      organization?: string;
+      weight_class?: string;
+      won_on?: string;
+      lost_on?: string;
+      status?: TitleStatus;
+      notes?: string;
+    },
+  ) =>
+    req<FighterTitle>(`/fighters/${fighterId}/titles`, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify(data),
+    }),
+  deleteTitle: (fighterId: string, titleId: number) =>
+    req<void>(`/fighters/${fighterId}/titles/${titleId}`, { method: "DELETE" }),
+
+  listSponsors: (fighterId: string) =>
+    req<FighterSponsor[]>(`/fighters/${fighterId}/sponsors`),
+  addSponsor: (
+    fighterId: string,
+    data: {
+      name: string;
+      started_on?: string;
+      ended_on?: string;
+      website?: string;
+      notes?: string;
+    },
+  ) =>
+    req<FighterSponsor>(`/fighters/${fighterId}/sponsors`, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify(data),
+    }),
+  deleteSponsor: (fighterId: string, sponsorId: number) =>
+    req<void>(`/fighters/${fighterId}/sponsors/${sponsorId}`, {
+      method: "DELETE",
+    }),
+
+  listCoachAssignments: (fighterId: string) =>
+    req<CoachAssignment[]>(`/fighters/${fighterId}/coach-assignments`),
+  addCoachAssignment: (
+    fighterId: string,
+    data: {
+      coach_id: string;
+      role?: CoachRole;
+      started_on?: string;
+      ended_on?: string;
+      notes?: string;
+    },
+  ) =>
+    req<CoachAssignment>(`/fighters/${fighterId}/coach-assignments`, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify(data),
+    }),
+  deleteCoachAssignment: (fighterId: string, assignmentId: number) =>
+    req<void>(`/fighters/${fighterId}/coach-assignments/${assignmentId}`, {
       method: "DELETE",
     }),
 

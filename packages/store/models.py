@@ -120,6 +120,8 @@ class Fighter(SQLModel, table=True):
 
     notes: str | None = None
     photo_path: str | None = None
+    bio: str | None = None  # Short paragraph for the Team tab header
+    career_history: str | None = None  # Long-form free text — career arc
     created_at: datetime = Field(default_factory=lambda: datetime.now(UTC))
 
 
@@ -157,6 +159,8 @@ class FighterRead(SQLModel):
     usa_boxing_id: str | None = None
     notes: str | None = None
     photo_path: str | None = None
+    bio: str | None = None
+    career_history: str | None = None
     created_at: datetime
 
 
@@ -586,5 +590,137 @@ class MedicalConditionRead(SQLModel):
     name: str
     diagnosed_on: date | None = None
     status: ConditionStatus
+    notes: str | None = None
+    created_at: datetime
+
+
+# ----------------------------------------------------------------------
+# Fighter team / titles / sponsors
+# ----------------------------------------------------------------------
+
+
+class TitleStatus(StrEnum):
+    """Lifecycle of a championship title."""
+
+    ACTIVE = "active"  # currently held
+    LOST = "lost"
+    VACATED = "vacated"
+    RETIRED = "retired"
+
+
+class FighterTitle(SQLModel, table=True):
+    __tablename__ = "fighter_title"
+    id: int | None = Field(default=None, primary_key=True)
+    fighter_id: UUID = Field(foreign_key="fighter.id", index=True)
+    name: str = Field(min_length=1, max_length=160)  # "WBC heavyweight"
+    organization: str | None = Field(default=None, max_length=80)  # WBC / WBA / IBF / ...
+    weight_class: str | None = Field(default=None, max_length=40)
+    won_on: date | None = None
+    lost_on: date | None = None
+    status: TitleStatus = TitleStatus.ACTIVE
+    notes: str | None = None
+    created_at: datetime = Field(default_factory=lambda: datetime.now(UTC))
+
+
+class FighterTitleCreate(SQLModel):
+    name: str = Field(min_length=1, max_length=160)
+    organization: str | None = None
+    weight_class: str | None = None
+    won_on: date | None = None
+    lost_on: date | None = None
+    status: TitleStatus = TitleStatus.ACTIVE
+    notes: str | None = None
+
+
+class FighterTitleRead(SQLModel):
+    id: int
+    fighter_id: UUID
+    name: str
+    organization: str | None = None
+    weight_class: str | None = None
+    won_on: date | None = None
+    lost_on: date | None = None
+    status: TitleStatus
+    notes: str | None = None
+    created_at: datetime
+
+
+class FighterSponsor(SQLModel, table=True):
+    __tablename__ = "fighter_sponsor"
+    id: int | None = Field(default=None, primary_key=True)
+    fighter_id: UUID = Field(foreign_key="fighter.id", index=True)
+    name: str = Field(min_length=1, max_length=160)
+    started_on: date | None = None
+    ended_on: date | None = None  # None = current
+    website: str | None = Field(default=None, max_length=200)
+    notes: str | None = None
+    created_at: datetime = Field(default_factory=lambda: datetime.now(UTC))
+
+
+class FighterSponsorCreate(SQLModel):
+    name: str = Field(min_length=1, max_length=160)
+    started_on: date | None = None
+    ended_on: date | None = None
+    website: str | None = None
+    notes: str | None = None
+
+
+class FighterSponsorRead(SQLModel):
+    id: int
+    fighter_id: UUID
+    name: str
+    started_on: date | None = None
+    ended_on: date | None = None
+    website: str | None = None
+    notes: str | None = None
+    created_at: datetime
+
+
+class CoachRole(StrEnum):
+    """Common coach roles. Free-text 'role' on the assignment lets us add new
+    ones without a migration; the enum just guides the UI."""
+
+    HEAD_COACH = "head_coach"
+    STRIKING = "striking"
+    STRENGTH = "strength"
+    CONDITIONING = "conditioning"
+    NUTRITION = "nutrition"
+    CUTMAN = "cutman"
+    MENTAL = "mental"
+    OTHER = "other"
+
+
+class CoachAssignment(SQLModel, table=True):
+    """Many-to-many: a fighter can have many coaches concurrently (head,
+    strength, cutman, …); a coach can train many fighters."""
+
+    __tablename__ = "coach_assignment"
+    id: int | None = Field(default=None, primary_key=True)
+    fighter_id: UUID = Field(foreign_key="fighter.id", index=True)
+    coach_id: UUID = Field(foreign_key="coach.id", index=True)
+    role: CoachRole = CoachRole.HEAD_COACH
+    started_on: date | None = None
+    ended_on: date | None = None  # None = current
+    notes: str | None = None
+    created_at: datetime = Field(default_factory=lambda: datetime.now(UTC))
+
+
+class CoachAssignmentCreate(SQLModel):
+    coach_id: UUID
+    role: CoachRole = CoachRole.HEAD_COACH
+    started_on: date | None = None
+    ended_on: date | None = None
+    notes: str | None = None
+
+
+class CoachAssignmentRead(SQLModel):
+    id: int
+    fighter_id: UUID
+    coach_id: UUID
+    coach_name: str  # denormalised for the UI; not a DB column
+    coach_photo_path: str | None = None  # ditto
+    role: CoachRole
+    started_on: date | None = None
+    ended_on: date | None = None
     notes: str | None = None
     created_at: datetime

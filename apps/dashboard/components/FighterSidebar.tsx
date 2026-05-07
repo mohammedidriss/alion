@@ -7,6 +7,7 @@ import type { Fighter } from "@/lib/api";
 
 const TABS = [
   { slug: "", label: "Dashboard", icon: "▦" },
+  { slug: "team", label: "Team", icon: "◈" },
   { slug: "sessions", label: "Sessions", icon: "▷" },
   { slug: "hrv", label: "HRV", icon: "♥" },
   { slug: "imu", label: "IMU", icon: "▤" },

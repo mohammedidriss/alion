@@ -10,6 +10,7 @@ from sqlmodel import Session
 from store import (
     CoachRepo,
     FighterRepo,
+    FighterTeamRepo,
     MedicalRepo,
     PunchEventRepo,
     RefereeRepo,
@@ -44,3 +45,7 @@ def referee_repo(session: Session = Depends(db_session)) -> RefereeRepo:
 
 def medical_repo(session: Session = Depends(db_session)) -> MedicalRepo:
     return MedicalRepo(session)
+
+
+def fighter_team_repo(session: Session = Depends(db_session)) -> FighterTeamRepo:
+    return FighterTeamRepo(session)
