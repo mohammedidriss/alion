@@ -4,6 +4,8 @@ Multi-modal AI coaching platform for combat sports. Validation artifact for a DB
 
 **Not a medical device. Not a diagnostic tool. Advisory only.**
 
+> 📘 **For a comprehensive feature & function reference see [PROJECT_OVERVIEW.md](PROJECT_OVERVIEW.md)** — every table, every endpoint, every page, every algorithm.
+>
 > Agents and contributors: read [`CLAUDE.md`](CLAUDE.md) before making structural changes.
 
 ## Quick start (native dev)
