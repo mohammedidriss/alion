@@ -44,3 +44,5 @@ models/**/*.task
 !models/.gitkeep
 !notebooks/.gitkeep
 !data/fixtures/
+~$*.docx
+~$*.doc
