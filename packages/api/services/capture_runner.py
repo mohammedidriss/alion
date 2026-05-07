@@ -19,7 +19,7 @@ from analyze import HeuristicPunchDetector, classify_punch_type, refine_peak_vel
 from capture.cv import CapturePipeline, FileSource, WebcamSource
 from capture.cv.overlay import draw_pose
 from capture.cv.sources import FrameSource
-from common import get_logger
+from common import SessionClock, get_logger
 from contracts import PoseFrame
 from store import (
     DetectionSourceEnum,
@@ -41,6 +41,10 @@ _active_jobs: dict[UUID, threading.Thread] = {}
 _stop_events: dict[UUID, threading.Event] = {}
 _pause_events: dict[UUID, threading.Event] = {}
 _preview_frames: dict[UUID, bytes] = {}  # latest JPEG, written by capture thread
+# Per-session T_0 reference. Other modalities (HRV BLE driver, IMU when wired)
+# fetch this via clock_for(session_id) so every stream tags samples with
+# offsets relative to the same instant. See common/time_utils.SessionClock.
+_session_clocks: dict[UUID, SessionClock] = {}
 _active_lock = threading.Lock()
 
 _PREVIEW_MAX_WIDTH = 480
@@ -50,6 +54,17 @@ _PREVIEW_JPEG_QUALITY = 70
 def latest_preview(session_id: UUID) -> bytes | None:
     with _active_lock:
         return _preview_frames.get(session_id)
+
+
+def clock_for(session_id: UUID) -> SessionClock | None:
+    """Return the SessionClock anchored when this session started capturing.
+
+    Returns None if capture hasn't started or has already ended. Used by the
+    HRV/IMU runners to convert their externally-timestamped samples into
+    offsets relative to the same T_0 the CV pipeline uses.
+    """
+    with _active_lock:
+        return _session_clocks.get(session_id)
 
 
 def _data_dir() -> Path:
@@ -224,6 +239,13 @@ def _run_capture(
         with db_factory() as db:
             SessionRepo(db).update_status(session_id, SessionStatus.CAPTURING)
 
+        # Anchor T_0 the moment we transition to CAPTURING. From here on,
+        # any other modality (HRV BLE, IMU) can fetch this clock via
+        # clock_for(session_id) and tag its samples with offsets relative
+        # to the same instant. Pre-condition for cross-stream alignment.
+        with _active_lock:
+            _session_clocks[session_id] = SessionClock.start()
+
         # The pipeline checks `should_stop` each frame; we use it as a
         # combined "block-while-paused, return-true-to-quit" signal so the
         # capture thread can pause without spinning.
@@ -298,6 +320,7 @@ def _run_capture(
             _stop_events.pop(session_id, None)
             _pause_events.pop(session_id, None)
             _preview_frames.pop(session_id, None)
+            _session_clocks.pop(session_id, None)
 
 
 def start_capture(
