@@ -9,7 +9,8 @@ from fastapi import APIRouter, Depends, File, HTTPException, UploadFile, status
 from pydantic import BaseModel
 from sqlmodel import Session as DBSession
 
-from analyze import compute_score
+from analyze import compute_readiness, compute_score
+from analyze.readiness import MIN_HISTORY
 from api.deps import (
     db_session,
     fighter_repo,
@@ -202,6 +203,57 @@ def _pearson(xs: list[float], ys: list[float]) -> tuple[float | None, float | No
     slope = sxy / sxx
     intercept = my - slope * mx
     return round(r, 4), round(slope, 4), round(intercept, 4)
+
+
+class ReadinessResponse(BaseModel):
+    fighter_id: UUID
+    score: int
+    mode: str  # "z_score" | "absolute"
+    rmssd_ms: float | None = None
+    history_n: int
+    baseline_mean_ms: float | None = None
+    baseline_sd_ms: float | None = None
+    z: float | None = None
+    min_history_required: int = MIN_HISTORY
+
+
+@router.get("/{fighter_id}/readiness", response_model=ReadinessResponse | None)
+def fighter_readiness(
+    fighter_id: UUID,
+    fighters: FighterRepo = Depends(fighter_repo),
+    sessions: SessionRepo = Depends(session_repo),
+) -> ReadinessResponse | None:
+    """Per-fighter readiness using z-score against the fighter's own RMSSD
+    history. Falls back to legacy absolute remap when history is insufficient
+    (< MIN_HISTORY baselines). Returns None if no baseline has been recorded
+    at all."""
+    if fighters.get(fighter_id) is None:
+        raise HTTPException(status_code=404, detail="fighter not found")
+    rows = sessions.list_for_fighter(fighter_id)
+    baselined = sorted(
+        (s for s in rows if s.baseline_rmssd_ms is not None),
+        key=lambda s: s.baseline_recorded_at or s.started_at,
+    )
+    if not baselined:
+        return None
+    latest = baselined[-1]
+    history = [
+        s.baseline_rmssd_ms
+        for s in baselined[:-1]
+        if s.baseline_rmssd_ms is not None
+    ]
+    assert latest.baseline_rmssd_ms is not None
+    r = compute_readiness(latest.baseline_rmssd_ms, history)
+    return ReadinessResponse(
+        fighter_id=fighter_id,
+        score=r.score,
+        mode=r.mode,
+        rmssd_ms=r.rmssd_ms,
+        history_n=r.history_n,
+        baseline_mean_ms=r.baseline_mean_ms,
+        baseline_sd_ms=r.baseline_sd_ms,
+        z=r.z,
+    )
 
 
 @router.get("/{fighter_id}/matrix", response_model=MatrixResponse)

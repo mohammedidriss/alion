@@ -259,6 +259,20 @@ export interface MatrixResponse {
   intercept: number | null;
 }
 
+export type ReadinessMode = "z_score" | "absolute";
+
+export interface FighterReadiness {
+  fighter_id: string;
+  score: number;
+  mode: ReadinessMode;
+  rmssd_ms: number | null;
+  history_n: number;
+  baseline_mean_ms: number | null;
+  baseline_sd_ms: number | null;
+  z: number | null;
+  min_history_required: number;
+}
+
 export interface Capabilities {
   cv_available: boolean;
   cv_reason: string | null;
@@ -429,6 +443,8 @@ export const api = {
     req<PerformanceScore>(`/sessions/${id}/performance`),
   fighterMatrix: (id: string) =>
     req<MatrixResponse>(`/fighters/${id}/matrix`),
+  fighterReadiness: (id: string) =>
+    req<FighterReadiness | null>(`/fighters/${id}/readiness`),
 
   // ---- Coaches ----
   listCoaches: () => req<Coach[]>("/coaches"),

@@ -4,18 +4,29 @@ import Link from "next/link";
 import { useEffect, useState } from "react";
 import { HrvScoreScatter } from "@/components/AggregateCharts";
 import { HrvMetric, ReadinessGauge, RmssdTrend } from "@/components/HrvCharts";
-import { api, type MatrixResponse, type Session } from "@/lib/api";
+import {
+  api,
+  type FighterReadiness,
+  type MatrixResponse,
+  type Session,
+} from "@/lib/api";
 
 export default function HrvTab({ params }: { params: { id: string } }) {
   const [sessions, setSessions] = useState<Session[]>([]);
   const [matrix, setMatrix] = useState<MatrixResponse | null>(null);
+  const [readiness, setReadiness] = useState<FighterReadiness | null>(null);
   const [err, setErr] = useState<string | null>(null);
 
   useEffect(() => {
-    Promise.all([api.listSessions(params.id), api.fighterMatrix(params.id)])
-      .then(([s, m]) => {
+    Promise.all([
+      api.listSessions(params.id),
+      api.fighterMatrix(params.id),
+      api.fighterReadiness(params.id),
+    ])
+      .then(([s, m, r]) => {
         setSessions(s);
         setMatrix(m);
+        setReadiness(r);
       })
       .catch((e) => setErr(String(e)));
   }, [params.id]);
@@ -62,23 +73,47 @@ export default function HrvTab({ params }: { params: { id: string } }) {
 
   const latest = baselined[baselined.length - 1];
   const rmssd = latest.baseline_rmssd_ms!;
-  const readiness = Math.round(
+  // Use defensible per-fighter z-score readiness when available; the
+  // legacy absolute remap is a clearly-flagged cold-start fallback.
+  const readinessScore = readiness?.score ?? Math.round(
     Math.max(0, Math.min(1, (rmssd - 20) / 70)) * 100,
   );
+  const readinessMode = readiness?.mode ?? "absolute";
 
   const r = matrix?.pearson_r ?? null;
+  const n = matrix?.points.length ?? 0;
+  // Don't slap a "very strong" label on n=3. With small samples the
+  // confidence interval on r is enormous; only show a strength descriptor
+  // when the sample is big enough that the label is statistically defensible.
+  const STRENGTH_MIN_N = 10;
   const correlationStrength =
     r == null
       ? "—"
-      : Math.abs(r) < 0.1
-        ? "no correlation"
-        : Math.abs(r) < 0.3
-          ? "weak"
-          : Math.abs(r) < 0.5
-            ? "moderate"
-            : Math.abs(r) < 0.7
-              ? "strong"
-              : "very strong";
+      : n < STRENGTH_MIN_N
+        ? `n=${n} (need ${STRENGTH_MIN_N}+ for strength label)`
+        : Math.abs(r) < 0.1
+          ? "no correlation"
+          : Math.abs(r) < 0.3
+            ? "weak"
+            : Math.abs(r) < 0.5
+              ? "moderate"
+              : Math.abs(r) < 0.7
+                ? "strong"
+                : "very strong";
+  // Fisher z-transform 95% CI for Pearson's r — communicates uncertainty
+  // honestly when the sample is small.
+  const ciOf = (rho: number, k: number): [number, number] | null => {
+    if (k < 4) return null;
+    const z = 0.5 * Math.log((1 + rho) / (1 - rho));
+    const se = 1 / Math.sqrt(k - 3);
+    const lo = z - 1.96 * se;
+    const hi = z + 1.96 * se;
+    return [
+      (Math.exp(2 * lo) - 1) / (Math.exp(2 * lo) + 1),
+      (Math.exp(2 * hi) - 1) / (Math.exp(2 * hi) + 1),
+    ];
+  };
+  const ci = r != null ? ciOf(r, n) : null;
 
   return (
     <div className="space-y-6">
@@ -94,14 +129,14 @@ export default function HrvTab({ params }: { params: { id: string } }) {
       <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
         <HeadlineStat
           label="Latest readiness"
-          value={readiness.toString()}
-          unit="/ 100"
+          value={readinessScore.toString()}
+          unit={readinessMode === "z_score" ? "/ 100 · calibrated" : "/ 100"}
           tone={
-            readiness >= 75
+            readinessScore >= 75
               ? "lime"
-              : readiness >= 55
+              : readinessScore >= 55
                 ? "yellow"
-                : readiness >= 35
+                : readinessScore >= 35
                   ? "orange"
                   : "red"
           }
@@ -122,9 +157,23 @@ export default function HrvTab({ params }: { params: { id: string } }) {
           label="HRV vs Score r"
           value={r != null ? r.toFixed(2) : "—"}
           unit={correlationStrength}
-          tone={r != null && Math.abs(r) >= 0.5 ? "lime" : "neutral"}
+          tone={
+            r != null && n >= STRENGTH_MIN_N && Math.abs(r) >= 0.5
+              ? "lime"
+              : "neutral"
+          }
         />
       </div>
+
+      {readiness && readiness.mode === "absolute" && (
+        <div className="rounded-2xl border border-amber-500/30 bg-amber-500/5 p-3 text-xs text-amber-200">
+          Readiness is using the cold-start absolute remap. After{" "}
+          {readiness.min_history_required} recorded baselines (currently{" "}
+          {readiness.history_n}), the score switches to a per-fighter
+          z-score against this fighter&apos;s own RMSSD history — far more
+          defensible. Keep recording resting HRV before sessions.
+        </div>
+      )}
 
       {/* PRIMARY CHARTS — readiness gauge + trend, both clearly visible */}
       <div className="grid grid-cols-1 gap-4 lg:grid-cols-3">
@@ -136,7 +185,7 @@ export default function HrvTab({ params }: { params: { id: string } }) {
             </span>
           </div>
           <div className="mt-2 flex justify-center">
-            <ReadinessGauge value={readiness} />
+            <ReadinessGauge value={readinessScore} />
           </div>
           <div className="mt-2 grid grid-cols-3 gap-2 text-center text-xs">
             <HrvMetric label="RMSSD" value={rmssd.toFixed(1)} unit="ms" />
@@ -152,8 +201,19 @@ export default function HrvTab({ params }: { params: { id: string } }) {
             />
           </div>
           <p className="mt-3 text-[11px] text-neutral-500">
-            Score = clamp((RMSSD − 20)/70). Heuristic; calibrate per fighter
-            once history accumulates.
+            {readinessMode === "z_score" && readiness ? (
+              <>
+                Per-fighter z-score: today&apos;s RMSSD vs this
+                fighter&apos;s rolling baseline (n={readiness.history_n},
+                mean {readiness.baseline_mean_ms?.toFixed(1)} ms ± SD{" "}
+                {readiness.baseline_sd_ms?.toFixed(1)} ms · z={readiness.z}).
+              </>
+            ) : (
+              <>
+                Cold-start formula: clamp((RMSSD − 20)/70). Universal remap;
+                will switch to per-fighter z-score after enough baselines.
+              </>
+            )}
           </p>
         </div>
 
@@ -202,6 +262,25 @@ export default function HrvTab({ params }: { params: { id: string } }) {
               intercept={matrix.intercept}
             />
           </div>
+          {r != null && (
+            <p className="mt-3 text-[11px] text-neutral-400">
+              Pearson r = {r.toFixed(2)} on n={n}.{" "}
+              {ci ? (
+                <>
+                  95% CI [{ci[0].toFixed(2)}, {ci[1].toFixed(2)}] (Fisher z).
+                </>
+              ) : (
+                <>Confidence interval requires n ≥ 4.</>
+              )}{" "}
+              {n < STRENGTH_MIN_N && (
+                <span className="text-amber-300">
+                  Sample is small ({n} sessions); the strength label is
+                  withheld until n ≥ {STRENGTH_MIN_N} so it isn&apos;t
+                  overclaimed.
+                </span>
+              )}
+            </p>
+          )}
         </div>
       )}
 

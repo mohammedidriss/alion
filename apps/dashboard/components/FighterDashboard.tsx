@@ -89,9 +89,12 @@ export function FighterDashboard({ sessionsWithEvents }: Props) {
       <div className="grid grid-cols-1 gap-4 lg:grid-cols-3">
         <div className="card lg:col-span-2">
           <div className="flex items-baseline justify-between">
-            <h3 className="text-base font-semibold">Performance progress</h3>
-            <span className="text-xs text-neutral-500">
-              score per session, chronological
+            <h3 className="text-base font-semibold">Output Index trend</h3>
+            <span
+              className="text-xs text-neutral-500"
+              title="Output Index is an ad-hoc ranking number (peak v p90 × ppm/60 × duration). It is not a physical measurement and has no clinical units."
+            >
+              ad-hoc ranking · not a physical metric
             </span>
           </div>
           {usable.length === 0 ? (
@@ -103,7 +106,7 @@ export function FighterDashboard({ sessionsWithEvents }: Props) {
               <div className="mt-3 flex flex-wrap items-end gap-x-6 gap-y-2">
                 <div>
                   <div className="text-[10px] uppercase tracking-wide text-neutral-500">
-                    Latest score
+                    Latest index
                   </div>
                   <div className="text-3xl font-bold tabular-nums">
                     {latestUsable.score.toFixed(2)}
@@ -215,9 +218,9 @@ export function FighterDashboard({ sessionsWithEvents }: Props) {
         <StatCard
           tint="lime"
           icon="◆"
-          label="Avg Score"
+          label="Avg Output Index"
           value={usable.length ? totals.avgScore.toFixed(2) : "—"}
-          hint="peak_v_p90 × ppm/60 × min"
+          hint="ranking only · not a physical metric"
         />
       </div>
     </section>
