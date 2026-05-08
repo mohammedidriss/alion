@@ -60,7 +60,7 @@ function metricsFor(s: SessionWithEvents): PerSessionMetrics {
     ppm,
     durationMin,
     score,
-    trimp: s.session.trimp_score ?? null,
+    trimp: null as number | null,
   };
 }
 

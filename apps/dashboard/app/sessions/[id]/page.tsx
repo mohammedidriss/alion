@@ -37,6 +37,13 @@ export default function SessionPage({ params }: { params: { id: string } }) {
   const [notesDraft, setNotesDraft] = useState<string>("");
   const [notesDirty, setNotesDirty] = useState(false);
   const [baselineUploading, setBaselineUploading] = useState(false);
+  const [now, setNow] = useState(() => Date.now());
+
+  useEffect(() => {
+    if (session?.status !== "capturing") return;
+    const t = setInterval(() => setNow(Date.now()), 250);
+    return () => clearInterval(t);
+  }, [session?.status]);
 
   const refresh = async () => {
     try {
@@ -284,7 +291,11 @@ export default function SessionPage({ params }: { params: { id: string } }) {
       {(session.status === "capturing" || session.status === "processing") && (
         <RoundTimer
           session={session}
-          durationMs={status?.duration_ms ?? 0}
+          durationMs={
+            session.status === "capturing" && session.started_at
+              ? Math.max(0, now - parseUtc(session.started_at).getTime())
+              : status?.duration_ms ?? 0
+          }
         />
       )}
 
@@ -719,6 +730,10 @@ export default function SessionPage({ params }: { params: { id: string } }) {
       )}
     </main>
   );
+}
+
+function parseUtc(s: string): Date {
+  return new Date(/[zZ]|[+-]\d\d:?\d\d$/.test(s) ? s : s + "Z");
 }
 
 function Stat({ label, value }: { label: string; value: string | number }) {

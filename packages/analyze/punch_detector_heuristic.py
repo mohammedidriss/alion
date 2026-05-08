@@ -197,6 +197,12 @@ class HeuristicPunchDetector:
             self._reset_hand(st)
             return None
 
+        wrist_vis: float
+        if use_world and frame.world_landmarks is not None:
+            wrist_vis = frame.world_landmarks[wrist_idx].visibility
+        else:
+            wrist_vis = frame.landmarks[wrist_idx].visibility
+
         # Same-shoulder anchor for forward-extension check.
         sh_vis: float
         sh_xyz: tuple[float, float, float]
@@ -255,12 +261,17 @@ class HeuristicPunchDetector:
                 )
 
             if crossed_threshold and decelerating and spaced and body_quiet and recently_extended:
-                conf = max(
+                base_conf = max(
                     0.1,
                     min(
                         1.0, (st.last_speed - effective_threshold) / max(effective_threshold, 1e-3)
                     ),
                 )
+                
+                # Dynamic CV confidence scoring: penalize for occlusion / low visibility
+                visibility_factor = min(sh_vis, wrist_vis)
+                conf = base_conf * visibility_factor
+
                 ev = PunchEvent(
                     session_id=frame.session_id,
                     t_ms=frame.t_ms,

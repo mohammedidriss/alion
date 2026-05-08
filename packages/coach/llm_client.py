@@ -12,7 +12,7 @@ from pydantic import BaseModel
 # Default to local LM Studio
 OPENAI_BASE_URL = os.getenv("OPENAI_BASE_URL", "http://localhost:1234/v1")
 OPENAI_API_KEY = os.getenv("OPENAI_API_KEY", "lm-studio")
-MODEL = os.getenv("COACH_MODEL", "meta-llama-3.1-8b-instruct")
+MODEL = os.getenv("COACH_MODEL", "google/gemma-4-e4b")
 
 client = AsyncOpenAI(base_url=OPENAI_BASE_URL, api_key=OPENAI_API_KEY)
 

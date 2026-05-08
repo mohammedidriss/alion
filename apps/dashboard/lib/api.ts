@@ -280,7 +280,6 @@ export interface Session {
   round_count: number | null;
   round_duration_s: number | null;
   rest_duration_s: number | null;
-  trimp_score: number | null;
 }
 
 export type AttachmentKind = "video" | "image" | "audio" | "document" | "other";

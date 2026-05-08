@@ -211,7 +211,6 @@ class Session(SQLModel, table=True):
     round_count: int | None = Field(default=None, ge=1, le=24)
     round_duration_s: int | None = Field(default=None, ge=10, le=900)
     rest_duration_s: int | None = Field(default=None, ge=0, le=600)
-    trimp_score: float | None = None
 
 
 class SessionCreate(SQLModel):
@@ -240,7 +239,6 @@ class SessionRead(SQLModel):
     round_count: int | None = None
     round_duration_s: int | None = None
     rest_duration_s: int | None = None
-    trimp_score: float | None = None
 
 
 class LeadOrRearEnum(StrEnum):
