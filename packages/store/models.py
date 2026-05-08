@@ -44,6 +44,7 @@ class HandEnum(StrEnum):
 class DetectionSourceEnum(StrEnum):
     HEURISTIC = "heuristic"
     LSTM_V1 = "lstm_v1"
+    CUSTOM_ML = "custom_ml"
 
 
 class SkillLevel(StrEnum):

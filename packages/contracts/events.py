@@ -19,7 +19,7 @@ Hand = Literal["left", "right"]
 LeadOrRear = Literal["lead", "rear"]
 PunchType = Literal["jab", "cross", "hook", "uppercut"]
 SessionSource = Literal["live_webcam", "uploaded_video", "live_iphone"]
-DetectionSource = Literal["heuristic", "lstm_v1"]
+DetectionSource = Literal["heuristic", "lstm_v1", "custom_ml"]
 
 
 class _Frozen(BaseModel):

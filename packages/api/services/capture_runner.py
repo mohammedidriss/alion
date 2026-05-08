@@ -179,6 +179,18 @@ def _run_capture(
     # Gym Mode: if webcam, require a "gloves up" gesture before we start.
     waiting_for_gesture = source_kind == "live_webcam"
     gesture_frames = 0
+    
+    # Try to load custom ML model
+    ml_model = None
+    try:
+        from pathlib import Path
+        import joblib
+        model_path = Path("data/ml/punch_classifier_v1.pkl")
+        if model_path.exists():
+            ml_model = joblib.load(model_path)
+            log.info("Loaded custom ML punch classifier.")
+    except Exception as e:
+        log.warning(f"Could not load ML classifier: {e}")
 
     def on_frame(pose: PoseFrame) -> None:
         nonlocal waiting_for_gesture, gesture_frames
@@ -214,7 +226,35 @@ def _run_capture(
         if len(pose_history) > history_len:
             pose_history.pop(0)
         for ev in detector.feed(pose):
-            ptype = classify_punch_type(pose_history, ev.hand, stance)
+            ptype = None
+            detected_by = ev.detected_by
+            
+            if ml_model is not None and pose.world_landmarks:
+                try:
+                    import pandas as pd
+                    ls = pose.world_landmarks[11]
+                    rs = pose.world_landmarks[12]
+                    lw = pose.world_landmarks[15]
+                    rw = pose.world_landmarks[16]
+                    is_left_hand = 1 if ev.hand == 'left' else 0
+                    
+                    features = pd.DataFrame([{
+                        "velocity": ev.velocity_ms,
+                        "is_left_hand": is_left_hand,
+                        "ls_x": ls.x, "ls_y": ls.y, "ls_z": ls.z,
+                        "rs_x": rs.x, "rs_y": rs.y, "rs_z": rs.z,
+                        "lw_x": lw.x, "lw_y": lw.y, "lw_z": lw.z,
+                        "rw_x": rw.x, "rw_y": rw.y, "rw_z": rw.z
+                    }])
+                    
+                    ptype = ml_model.predict(features)[0].lower()
+                    detected_by = "custom_ml"
+                except Exception as e:
+                    log.error(f"ML classification failed: {e}")
+            
+            if not ptype:
+                ptype = classify_punch_type(pose_history, ev.hand, stance)
+                
             # Refine the velocity using sub-frame interpolation across the
             # recent pose history. We pull the wrist's world-coord trajectory
             # (or image-plane fallback) and feed it to the refiner. If we get
@@ -231,7 +271,7 @@ def _run_capture(
                     velocity_ms=round(final_v, 2),
                     velocity_source=VelocitySourceEnum(ev.velocity_source),
                     punch_type=PunchTypeEnum(ptype) if ptype else None,
-                    detected_by=DetectionSourceEnum(ev.detected_by),
+                    detected_by=DetectionSourceEnum(detected_by),
                     confidence=ev.confidence,
                 )
             )

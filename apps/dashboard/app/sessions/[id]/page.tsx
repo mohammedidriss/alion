@@ -746,6 +746,7 @@ export default function SessionPage({ params }: { params: { id: string } }) {
               <tr>
                 <th className="py-1">#</th>
                 <th>Hand</th>
+                <th>Type</th>
                 <th>Time</th>
                 <th>Velocity (m/s)</th>
                 <th>Conf</th>
@@ -759,10 +760,13 @@ export default function SessionPage({ params }: { params: { id: string } }) {
                   <td className={e.hand === "left" ? "text-amber-300" : "text-sky-300"}>
                     {e.hand}
                   </td>
+                  <td className="capitalize text-neutral-300">{e.punch_type || "—"}</td>
                   <td className="font-mono">{formatPunchTime(session.started_at, e.t_ms)}</td>
                   <td className="font-mono">{e.velocity_ms.toFixed(2)}</td>
                   <td className="font-mono">{e.confidence.toFixed(2)}</td>
-                  <td className="text-neutral-500">{e.detected_by}</td>
+                  <td className="text-neutral-500">
+                    {e.detected_by === "custom_ml" ? "ML" : e.detected_by}
+                  </td>
                 </tr>
               ))}
             </tbody>

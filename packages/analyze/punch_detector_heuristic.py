@@ -30,6 +30,8 @@ from contracts import Hand, LeadOrRear, PoseFrame, PunchEvent
 LM_NOSE = 0
 LM_LEFT_SHOULDER = 11
 LM_RIGHT_SHOULDER = 12
+LM_LEFT_ELBOW = 13
+LM_RIGHT_ELBOW = 14
 LM_LEFT_WRIST = 15
 LM_RIGHT_WRIST = 16
 LM_LEFT_HIP = 23
@@ -48,6 +50,15 @@ DEFAULT_MIN_VISIBILITY = 0.5  # was 0.6 — extended arms have lower visibility
 DEFAULT_BODY_MOTION_THRESHOLD_MS = 2.0  # was 1.2 — stepping into a cross is normal
 DEFAULT_MIN_FORWARD_TRAVEL = 0.03  # was 0.05 — accommodate MediaPipe jitter
 DEFAULT_DECEL_FACTOR = 0.92  # speed must drop by ≥8% — was 15%, too noisy
+# Elbow-angle gate: at the moment a peak fires, the elbow must have opened
+# at least this much (degrees). Hooks/uppercuts keep ~90°; pure blocks
+# and guard adjustments are typically <70°, so 80° is the cutoff.
+DEFAULT_MIN_ELBOW_ANGLE_DEG = 80.0
+# Start-from-guard ratio: a real punch starts compact (wrist near
+# shoulder) and ends extended. Reject "events" where the wrist was
+# already extended for the whole window — those are hand-jitter, not
+# a thrown punch. peak_ext / min_ext_in_window must exceed this ratio.
+DEFAULT_MIN_EXTENSION_RATIO = 1.25
 
 
 @dataclass
@@ -76,6 +87,26 @@ class _BodyState:
 
 def _dist(a: tuple[float, float, float], b: tuple[float, float, float]) -> float:
     return math.sqrt(sum((a[i] - b[i]) ** 2 for i in range(3)))
+
+
+def _elbow_angle_deg(
+    shoulder: tuple[float, float, float],
+    elbow: tuple[float, float, float],
+    wrist: tuple[float, float, float],
+) -> float:
+    """Angle at the elbow joint, in degrees (180° = straight arm)."""
+    ux = shoulder[0] - elbow[0]
+    uy = shoulder[1] - elbow[1]
+    uz = shoulder[2] - elbow[2]
+    vx = wrist[0] - elbow[0]
+    vy = wrist[1] - elbow[1]
+    vz = wrist[2] - elbow[2]
+    nu = math.sqrt(ux * ux + uy * uy + uz * uz)
+    nv = math.sqrt(vx * vx + vy * vy + vz * vz)
+    if nu < 1e-6 or nv < 1e-6:
+        return 0.0
+    cos_a = max(-1.0, min(1.0, (ux * vx + uy * vy + uz * vz) / (nu * nv)))
+    return math.degrees(math.acos(cos_a))
 
 
 def _wrist_pos(frame: PoseFrame, lm_idx: int, *, world: bool) -> tuple[float, float, float] | None:
@@ -123,6 +154,8 @@ class HeuristicPunchDetector:
         refractory_ms: float = DEFAULT_REFRACTORY_MS,
         body_motion_threshold_ms: float = DEFAULT_BODY_MOTION_THRESHOLD_MS,
         min_forward_travel: float = DEFAULT_MIN_FORWARD_TRAVEL,
+        min_elbow_angle_deg: float = DEFAULT_MIN_ELBOW_ANGLE_DEG,
+        min_extension_ratio: float = DEFAULT_MIN_EXTENSION_RATIO,
         # Legacy params kept for backwards-compat with old tests.
         threshold_norm_per_s: float | None = None,
         body_width_m: float | None = None,
@@ -134,6 +167,8 @@ class HeuristicPunchDetector:
         self.refractory_ms = refractory_ms
         self.body_motion_threshold_ms = body_motion_threshold_ms
         self.min_forward_travel = min_forward_travel
+        self.min_elbow_angle_deg = min_elbow_angle_deg
+        self.min_extension_ratio = min_extension_ratio
         self._legacy_body_width = body_width_m or 0.45
         # If caller supplied normalized-per-second, translate to legacy m/s.
         if threshold_norm_per_s is not None:
@@ -157,10 +192,12 @@ class HeuristicPunchDetector:
 
         # 2. Per-hand step.
         events: list[PunchEvent] = []
-        ev_l = self._step(frame, "left", LM_LEFT_WRIST, LM_LEFT_SHOULDER, self._left)
+        ev_l = self._step(frame, "left", LM_LEFT_WRIST, LM_LEFT_SHOULDER, LM_LEFT_ELBOW, self._left)
         if ev_l is not None:
             events.append(ev_l)
-        ev_r = self._step(frame, "right", LM_RIGHT_WRIST, LM_RIGHT_SHOULDER, self._right)
+        ev_r = self._step(
+            frame, "right", LM_RIGHT_WRIST, LM_RIGHT_SHOULDER, LM_RIGHT_ELBOW, self._right
+        )
         if ev_r is not None:
             events.append(ev_r)
         return events
@@ -189,6 +226,7 @@ class HeuristicPunchDetector:
         hand: Hand,
         wrist_idx: int,
         shoulder_idx: int,
+        elbow_idx: int,
         st: _HandState,
     ) -> PunchEvent | None:
         use_world = frame.world_landmarks is not None
@@ -217,6 +255,19 @@ class HeuristicPunchDetector:
         if sh_vis < self._min_visibility:
             self._reset_hand(st)
             return None
+
+        # Elbow keypoint — required for the elbow-angle gate.
+        if use_world and frame.world_landmarks is not None:
+            wl_el = frame.world_landmarks[elbow_idx]
+            elbow_vis = wl_el.visibility
+            elbow_xyz: tuple[float, float, float] = (wl_el.x, wl_el.y, wl_el.z)
+        else:
+            l_el = frame.landmarks[elbow_idx]
+            elbow_vis = l_el.visibility
+            elbow_xyz = (l_el.x, l_el.y, l_el.z)
+        elbow_ok = elbow_vis >= self._min_visibility
+        elbow_angle = _elbow_angle_deg(sh_xyz, elbow_xyz, wrist) if elbow_ok else 180.0
+
         extension = _dist(wrist, sh_xyz)
 
         ev: PunchEvent | None = None
@@ -233,11 +284,24 @@ class HeuristicPunchDetector:
             spaced = st.last_event_t is None or (frame.t_ms - st.last_event_t) >= self.refractory_ms
             body_quiet = self._body.speed_ms < self.body_motion_threshold_ms
             recently_extended = self._has_forward_extended(st, extension)
+            # If elbow geometry is degenerate (shoulder and elbow at the
+            # same point — happens in 2D-only synthetic data, never in
+            # real MediaPipe output), skip this gate.
+            elbow_open_enough = (
+                elbow_angle <= 0.0 or elbow_angle >= self.min_elbow_angle_deg
+            )
+            extension_ratio_ok = self._extension_ratio_ok(st, extension)
 
             # Near-miss instrumentation: when a peak got close to firing but
             # didn't, record why. Helps tune thresholds from data.
             if st.last_speed >= effective_threshold * 0.7 and not (
-                crossed_threshold and decelerating and spaced and body_quiet and recently_extended
+                crossed_threshold
+                and decelerating
+                and spaced
+                and body_quiet
+                and recently_extended
+                and elbow_open_enough
+                and extension_ratio_ok
             ):
                 if not crossed_threshold:
                     reason = "below_threshold"
@@ -247,6 +311,10 @@ class HeuristicPunchDetector:
                     reason = "body_motion"
                 elif not recently_extended:
                     reason = "no_forward_extension"
+                elif not elbow_open_enough:
+                    reason = "elbow_too_bent"
+                elif not extension_ratio_ok:
+                    reason = "no_extension_growth"
                 elif not decelerating:
                     reason = "still_accelerating"
                 else:
@@ -260,14 +328,22 @@ class HeuristicPunchDetector:
                     }
                 )
 
-            if crossed_threshold and decelerating and spaced and body_quiet and recently_extended:
+            if (
+                crossed_threshold
+                and decelerating
+                and spaced
+                and body_quiet
+                and recently_extended
+                and elbow_open_enough
+                and extension_ratio_ok
+            ):
                 base_conf = max(
                     0.1,
                     min(
                         1.0, (st.last_speed - effective_threshold) / max(effective_threshold, 1e-3)
                     ),
                 )
-                
+
                 # Dynamic CV confidence scoring: penalize for occlusion / low visibility
                 visibility_factor = min(sh_vis, wrist_vis)
                 conf = base_conf * visibility_factor
@@ -291,6 +367,22 @@ class HeuristicPunchDetector:
         if len(st.extension_history) > 10:
             st.extension_history.pop(0)
         return ev
+
+    def _extension_ratio_ok(self, st: _HandState, current_ext: float) -> bool:
+        """True iff the wrist actually started compact and ended extended.
+
+        Catches the failure mode where MediaPipe jitters fast on a wrist
+        that was already extended (e.g. holding hands up, slight hand
+        wave). A real punch starts near the shoulder and ends extended.
+        """
+        if len(st.extension_history) < 4:
+            return False
+        window_min = min(st.extension_history[-10:])
+        # Wrist started at the shoulder (or with degenerate geometry) and
+        # ended meaningfully extended — that's an unambiguous punch.
+        if window_min < 1e-6:
+            return current_ext > 0.05
+        return current_ext / window_min >= self.min_extension_ratio
 
     def _has_forward_extended(self, st: _HandState, current_ext: float) -> bool:
         """True iff the wrist's distance from the shoulder grew by at least
@@ -321,9 +413,11 @@ def detect_punches(frames: Iterable[PoseFrame], *, stance: str | None = None) ->
 
 # Re-exported indices for tests and utilities.
 __all__ = [
+    "LM_LEFT_ELBOW",
     "LM_LEFT_HIP",
     "LM_LEFT_SHOULDER",
     "LM_LEFT_WRIST",
+    "LM_RIGHT_ELBOW",
     "LM_RIGHT_HIP",
     "LM_RIGHT_SHOULDER",
     "LM_RIGHT_WRIST",
