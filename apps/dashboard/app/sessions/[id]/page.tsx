@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { EvaluationCard } from "@/components/EvaluationCard";
 import { HrvPanel } from "@/components/HrvPanel";
 import { PunchChart } from "@/components/PunchChart";
@@ -44,6 +44,54 @@ export default function SessionPage({ params }: { params: { id: string } }) {
     const t = setInterval(() => setNow(Date.now()), 250);
     return () => clearInterval(t);
   }, [session?.status]);
+
+  // Auto-pause capture during rest, auto-resume during rounds. Skips
+  // recording rest frames so the saved video stays small. Reads phase
+  // from elapsed wall-clock since started_at.
+  const lastPhaseRef = useRef<"round" | "rest" | "done" | null>(null);
+  useEffect(() => {
+    if (session?.status !== "capturing" || !session.started_at) return;
+    const elapsedS =
+      (now - parseUtc(session.started_at).getTime()) / 1000;
+    const rounds = session.round_count ?? 3;
+    const roundS = session.round_duration_s ?? 180;
+    const restS = session.rest_duration_s ?? 60;
+    const totalS = rounds * roundS + Math.max(0, rounds - 1) * restS;
+    let phase: "round" | "rest" | "done" = "done";
+    if (elapsedS < totalS) {
+      let acc = 0;
+      for (let i = 1; i <= rounds; i++) {
+        if (elapsedS < acc + roundS) {
+          phase = "round";
+          break;
+        }
+        acc += roundS;
+        if (i < rounds && elapsedS < acc + restS) {
+          phase = "rest";
+          break;
+        }
+        acc += restS;
+      }
+    }
+    const prev = lastPhaseRef.current;
+    if (prev !== phase) {
+      lastPhaseRef.current = phase;
+      if (prev === "round" && phase === "rest" && !status?.is_paused) {
+        api.pauseCapture(id).catch(() => undefined);
+      } else if (prev === "rest" && phase === "round" && status?.is_paused) {
+        api.resumeCapture(id).catch(() => undefined);
+      }
+    }
+  }, [
+    now,
+    session?.status,
+    session?.started_at,
+    session?.round_count,
+    session?.round_duration_s,
+    session?.rest_duration_s,
+    status?.is_paused,
+    id,
+  ]);
 
   const refresh = async () => {
     try {

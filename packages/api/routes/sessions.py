@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import asyncio
 import csv
+import datetime
 import io
 import tempfile
 from collections.abc import AsyncIterator, Iterator
@@ -582,6 +583,98 @@ async def get_session_advice(
     return CoachAdviceResponse(
         summary=advice.summary,
         action_items=advice.action_items,
+    )
+
+
+# ---------------------------------------------------------------------------
+# Per-round structured export — for downstream LLM/AI analysis
+# ---------------------------------------------------------------------------
+
+
+class RoundEventOut(BaseModel):
+    t_ms: float
+    hand: str
+    velocity_ms: float
+    confidence: float | None = None
+
+
+class RoundExportItem(BaseModel):
+    round_number: int
+    start_ms: float
+    end_ms: float
+    duration_ms: float
+    rest_after_ms: float
+    punch_count: int
+    peak_velocity_ms: float | None
+    ppm: float | None
+    events: list[RoundEventOut]
+
+
+class RoundsExportResponse(BaseModel):
+    session_id: UUID
+    fighter_id: UUID
+    started_at: datetime.datetime
+    round_count: int
+    round_duration_s: int
+    rest_duration_s: int
+    rounds: list[RoundExportItem]
+
+
+@router.get("/{session_id}/rounds_export", response_model=RoundsExportResponse)
+def rounds_export(
+    session_id: UUID,
+    sessions: SessionRepo = Depends(session_repo),
+    events: PunchEventRepo = Depends(punch_event_repo),
+) -> RoundsExportResponse:
+    row = sessions.get(session_id)
+    if row is None:
+        raise HTTPException(status_code=404, detail="session not found")
+
+    rounds_n = row.round_count or 3
+    round_s = row.round_duration_s or 180
+    rest_s = row.rest_duration_s or 60
+    segment_ms = (round_s + rest_s) * 1000.0
+    round_ms = round_s * 1000.0
+
+    all_events = events.list_for_session(session_id)
+    items: list[RoundExportItem] = []
+    for i in range(rounds_n):
+        start = i * segment_ms
+        end = start + round_ms
+        round_events = [
+            RoundEventOut(
+                t_ms=e.t_ms,
+                hand=e.hand.value if hasattr(e.hand, "value") else str(e.hand),
+                velocity_ms=e.velocity_ms,
+                confidence=getattr(e, "confidence", None),
+            )
+            for e in all_events
+            if start <= e.t_ms < end
+        ]
+        peak = max((e.velocity_ms for e in round_events), default=None)
+        ppm = (len(round_events) / (round_s / 60.0)) if round_s > 0 else None
+        items.append(
+            RoundExportItem(
+                round_number=i + 1,
+                start_ms=start,
+                end_ms=end,
+                duration_ms=round_ms,
+                rest_after_ms=rest_s * 1000.0 if i < rounds_n - 1 else 0.0,
+                punch_count=len(round_events),
+                peak_velocity_ms=peak,
+                ppm=ppm,
+                events=round_events,
+            )
+        )
+
+    return RoundsExportResponse(
+        session_id=session_id,
+        fighter_id=row.fighter_id,
+        started_at=row.started_at,
+        round_count=rounds_n,
+        round_duration_s=round_s,
+        rest_duration_s=rest_s,
+        rounds=items,
     )
 
 
