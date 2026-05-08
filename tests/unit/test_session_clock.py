@@ -66,6 +66,9 @@ def test_wall_for_offset_inverts_offset_from_wall() -> None:
 
 
 def test_clock_is_frozen_dataclass() -> None:
+    """Frozen dataclasses raise FrozenInstanceError on attribute set."""
+    from dataclasses import FrozenInstanceError
+
     c = SessionClock.start()
-    with pytest.raises(Exception):
+    with pytest.raises(FrozenInstanceError):
         c.wall_t0 = datetime.now(UTC)  # type: ignore[misc]

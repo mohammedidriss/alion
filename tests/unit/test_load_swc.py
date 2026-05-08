@@ -6,7 +6,6 @@ import pytest
 
 from analyze import compute_swc, compute_trimp, estimate_hr_max
 
-
 # ---------- SWC (Smallest Worthwhile Change) ----------
 
 

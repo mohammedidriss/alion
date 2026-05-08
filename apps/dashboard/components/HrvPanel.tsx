@@ -187,7 +187,7 @@ export function HrvPanel({ sessionId }: Props) {
                     checked={realtime}
                     onChange={(e) => setRealtime(e.target.checked)}
                   />
-                  realtime (stream at the source's natural pace)
+                  realtime (stream at the source&apos;s natural pace)
                 </label>
               </>
             ) : (

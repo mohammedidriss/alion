@@ -5,16 +5,15 @@ Revises: 0092952195cf
 Create Date: 2026-05-07 17:39:45.177615
 
 """
-from typing import Sequence, Union
+from collections.abc import Sequence
 
-from alembic import op
 import sqlalchemy as sa
-
+from alembic import op
 
 revision: str = '61d4935702b2'
-down_revision: Union[str, Sequence[str], None] = '0092952195cf'
-branch_labels: Union[str, Sequence[str], None] = None
-depends_on: Union[str, Sequence[str], None] = None
+down_revision: str | Sequence[str] | None = '0092952195cf'
+branch_labels: str | Sequence[str] | None = None
+depends_on: str | Sequence[str] | None = None
 
 
 def upgrade() -> None:
