@@ -985,7 +985,8 @@ export interface paths {
         head?: never;
         /**
          * Annotate Session
-         * @description Update free-form session notes (Phase 1: just notes; Phase 7 adds tags).
+         * @description Update notes and/or round configuration. Only fields the client
+         *     explicitly sends are applied (None means "don't change").
          */
         patch: operations["annotate_session_sessions__session_id__patch"];
         trace?: never;
@@ -1257,6 +1258,41 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/sessions/{session_id}/attachments": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** List Attachments */
+        get: operations["list_attachments_sessions__session_id__attachments_get"];
+        put?: never;
+        /** Upload Attachment */
+        post: operations["upload_attachment_sessions__session_id__attachments_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/sessions/{session_id}/attachments/{attachment_id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post?: never;
+        /** Delete Attachment */
+        delete: operations["delete_attachment_sessions__session_id__attachments__attachment_id__delete"];
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/v1/sessions": {
         parameters: {
             query?: never;
@@ -1292,7 +1328,8 @@ export interface paths {
         head?: never;
         /**
          * Annotate Session
-         * @description Update free-form session notes (Phase 1: just notes; Phase 7 adds tags).
+         * @description Update notes and/or round configuration. Only fields the client
+         *     explicitly sends are applied (None means "don't change").
          */
         patch: operations["annotate_session_v1_sessions__session_id__patch"];
         trace?: never;
@@ -1559,6 +1596,41 @@ export interface paths {
         put?: never;
         post?: never;
         delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/sessions/{session_id}/attachments": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** List Attachments */
+        get: operations["list_attachments_v1_sessions__session_id__attachments_get"];
+        put?: never;
+        /** Upload Attachment */
+        post: operations["upload_attachment_v1_sessions__session_id__attachments_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/sessions/{session_id}/attachments/{attachment_id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post?: never;
+        /** Delete Attachment */
+        delete: operations["delete_attachment_v1_sessions__session_id__attachments__attachment_id__delete"];
         options?: never;
         head?: never;
         patch?: never;
@@ -1845,6 +1917,21 @@ export interface components {
          * @enum {string}
          */
         AllergySeverity: "mild" | "moderate" | "severe" | "anaphylactic";
+        /**
+         * AttachmentKind
+         * @enum {string}
+         */
+        AttachmentKind: "video" | "image" | "audio" | "document" | "other";
+        /** Body_upload_attachment_sessions__session_id__attachments_post */
+        Body_upload_attachment_sessions__session_id__attachments_post: {
+            /** File */
+            file: string;
+        };
+        /** Body_upload_attachment_v1_sessions__session_id__attachments_post */
+        Body_upload_attachment_v1_sessions__session_id__attachments_post: {
+            /** File */
+            file: string;
+        };
         /** Body_upload_baseline_sessions__session_id__baseline_upload_post */
         Body_upload_baseline_sessions__session_id__baseline_upload_post: {
             /** File */
@@ -2862,10 +2949,46 @@ export interface components {
             /** Notes */
             notes?: string | null;
         };
-        /** SessionAnnotation */
+        /**
+         * SessionAnnotation
+         * @description Patch payload — every field optional. Send only the keys you want
+         *     to change. Used for both notes and round-structure configuration.
+         */
         SessionAnnotation: {
             /** Notes */
             notes?: string | null;
+            /** Round Count */
+            round_count?: number | null;
+            /** Round Duration S */
+            round_duration_s?: number | null;
+            /** Rest Duration S */
+            rest_duration_s?: number | null;
+        };
+        /** SessionAttachmentRead */
+        SessionAttachmentRead: {
+            /** Id */
+            id: number;
+            /**
+             * Session Id
+             * Format: uuid
+             */
+            session_id: string;
+            /** Filename */
+            filename: string;
+            /** Path */
+            path: string;
+            /** Mime Type */
+            mime_type?: string | null;
+            /** Size Bytes */
+            size_bytes: number;
+            kind: components["schemas"]["AttachmentKind"];
+            /** Notes */
+            notes?: string | null;
+            /**
+             * Uploaded At
+             * Format: date-time
+             */
+            uploaded_at: string;
         };
         /** SessionCreate */
         SessionCreate: {
@@ -2919,6 +3042,12 @@ export interface components {
             baseline_mean_hr_bpm?: number | null;
             /** Baseline Recorded At */
             baseline_recorded_at?: string | null;
+            /** Round Count */
+            round_count?: number | null;
+            /** Round Duration S */
+            round_duration_s?: number | null;
+            /** Rest Duration S */
+            rest_duration_s?: number | null;
         };
         /**
          * SessionSourceEnum
@@ -5885,6 +6014,102 @@ export interface operations {
             };
         };
     };
+    list_attachments_sessions__session_id__attachments_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                session_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["SessionAttachmentRead"][];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    upload_attachment_sessions__session_id__attachments_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                session_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "multipart/form-data": components["schemas"]["Body_upload_attachment_sessions__session_id__attachments_post"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["SessionAttachmentRead"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    delete_attachment_sessions__session_id__attachments__attachment_id__delete: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                session_id: string;
+                attachment_id: number;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
     list_sessions_v1_sessions_get: {
         parameters: {
             query?: {
@@ -6548,6 +6773,102 @@ export interface operations {
                 content: {
                     "application/json": components["schemas"]["EvalResponse"];
                 };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    list_attachments_v1_sessions__session_id__attachments_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                session_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["SessionAttachmentRead"][];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    upload_attachment_v1_sessions__session_id__attachments_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                session_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "multipart/form-data": components["schemas"]["Body_upload_attachment_v1_sessions__session_id__attachments_post"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["SessionAttachmentRead"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    delete_attachment_v1_sessions__session_id__attachments__attachment_id__delete: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                session_id: string;
+                attachment_id: number;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
             };
             /** @description Validation Error */
             422: {

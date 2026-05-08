@@ -176,7 +176,40 @@ def _run_capture(
     pose_history: list[PoseFrame] = []
     history_len = 8
 
+    # Gym Mode: if webcam, require a "gloves up" gesture before we start.
+    waiting_for_gesture = source_kind == "live_webcam"
+    gesture_frames = 0
+
     def on_frame(pose: PoseFrame) -> None:
+        nonlocal waiting_for_gesture, gesture_frames
+        
+        if waiting_for_gesture:
+            if pose.landmarks:
+                try:
+                    nose = pose.landmarks[0]
+                    l_sh = pose.landmarks[11]
+                    r_sh = pose.landmarks[12]
+                    l_wr = pose.landmarks[15]
+                    r_wr = pose.landmarks[16]
+                    
+                    if (
+                        l_wr.y < l_sh.y and r_wr.y < r_sh.y and
+                        abs(l_wr.x - r_wr.x) < 0.2 and
+                        abs(l_wr.y - nose.y) < 0.25 and abs(r_wr.y - nose.y) < 0.25
+                    ):
+                        gesture_frames += 1
+                        if gesture_frames > 20: # roughly ~0.6 seconds at 30fps
+                            waiting_for_gesture = False
+                            with _active_lock:
+                                _session_clocks[session_id] = SessionClock.start()
+                            log.info("capture.gesture_detected", extra={"_ctx_session_id": str(session_id)})
+                    else:
+                        gesture_frames = 0
+                except IndexError:
+                    pass
+            if waiting_for_gesture:
+                return
+
         pose_history.append(pose)
         if len(pose_history) > history_len:
             pose_history.pop(0)
@@ -239,12 +272,11 @@ def _run_capture(
         with db_factory() as db:
             SessionRepo(db).update_status(session_id, SessionStatus.CAPTURING)
 
-        # Anchor T_0 the moment we transition to CAPTURING. From here on,
-        # any other modality (HRV BLE, IMU) can fetch this clock via
-        # clock_for(session_id) and tag its samples with offsets relative
-        # to the same instant. Pre-condition for cross-stream alignment.
-        with _active_lock:
-            _session_clocks[session_id] = SessionClock.start()
+        # If we are not waiting for a gesture, start clock immediately.
+        # Otherwise, the gesture detector will start it.
+        if not waiting_for_gesture:
+            with _active_lock:
+                _session_clocks[session_id] = SessionClock.start()
 
         # The pipeline checks `should_stop` each frame; we use it as a
         # combined "block-while-paused, return-true-to-quit" signal so the

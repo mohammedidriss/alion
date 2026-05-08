@@ -277,6 +277,24 @@ export interface Session {
   baseline_sdnn_ms: number | null;
   baseline_mean_hr_bpm: number | null;
   baseline_recorded_at: string | null;
+  round_count: number | null;
+  round_duration_s: number | null;
+  rest_duration_s: number | null;
+  trimp_score: number | null;
+}
+
+export type AttachmentKind = "video" | "image" | "audio" | "document" | "other";
+
+export interface SessionAttachment {
+  id: number;
+  session_id: string;
+  filename: string;
+  path: string;
+  mime_type: string | null;
+  size_bytes: number;
+  kind: AttachmentKind;
+  notes: string | null;
+  uploaded_at: string;
 }
 
 export interface PerformanceScore {
@@ -289,6 +307,12 @@ export interface PerformanceScore {
   baseline_rmssd_ms: number | null;
   baseline_sdnn_ms: number | null;
   baseline_mean_hr_bpm: number | null;
+  trimp_score: number | null;
+}
+
+export interface CoachAdviceResponse {
+  summary: string;
+  action_items: string[];
 }
 
 export interface MatrixPoint {
@@ -482,6 +506,35 @@ export const api = {
       headers: { "content-type": "application/json" },
       body: JSON.stringify({ notes }),
     }),
+  patchSessionConfig: (
+    id: string,
+    config: {
+      round_count?: number | null;
+      round_duration_s?: number | null;
+      rest_duration_s?: number | null;
+    },
+  ) =>
+    req<Session>(`/sessions/${id}`, {
+      method: "PATCH",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify(config),
+    }),
+  listAttachments: (id: string) =>
+    req<SessionAttachment[]>(`/sessions/${id}/attachments`),
+  uploadAttachment: async (id: string, file: File) => {
+    const fd = new FormData();
+    fd.append("file", file);
+    const r = await fetch(`${BASE}/sessions/${id}/attachments`, {
+      method: "POST",
+      body: fd,
+    });
+    if (!r.ok) throw new Error(`${r.status} ${await r.text()}`);
+    return r.json() as Promise<SessionAttachment>;
+  },
+  deleteAttachment: (id: string, attachmentId: number) =>
+    req<void>(`/sessions/${id}/attachments/${attachmentId}`, {
+      method: "DELETE",
+    }),
   eventsCsvUrl: (id: string) => `${BASE}/sessions/${id}/events.csv`,
   captureStatus: (id: string) =>
     req<CaptureStatus>(`/sessions/${id}/capture/status`),
@@ -498,6 +551,8 @@ export const api = {
   },
   sessionPerformance: (id: string) =>
     req<PerformanceScore>(`/sessions/${id}/performance`),
+  generateAdvice: (id: string) =>
+    req<CoachAdviceResponse>(`/sessions/${id}/advice`, { method: "POST" }),
   fighterMatrix: (id: string) =>
     req<MatrixResponse>(`/fighters/${id}/matrix`),
   fighterReadiness: (id: string) =>

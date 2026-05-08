@@ -206,6 +206,12 @@ class Session(SQLModel, table=True):
     baseline_sdnn_ms: float | None = None
     baseline_mean_hr_bpm: float | None = None
     baseline_recorded_at: datetime | None = None
+    # Round structure for the planned session — used by the in-session
+    # timer + reporting. Defaults match a typical 3×3-minute pro round.
+    round_count: int | None = Field(default=None, ge=1, le=24)
+    round_duration_s: int | None = Field(default=None, ge=10, le=900)
+    rest_duration_s: int | None = Field(default=None, ge=0, le=600)
+    trimp_score: float | None = None
 
 
 class SessionCreate(SQLModel):
@@ -231,6 +237,10 @@ class SessionRead(SQLModel):
     baseline_sdnn_ms: float | None = None
     baseline_mean_hr_bpm: float | None = None
     baseline_recorded_at: datetime | None = None
+    round_count: int | None = None
+    round_duration_s: int | None = None
+    rest_duration_s: int | None = None
+    trimp_score: float | None = None
 
 
 class LeadOrRearEnum(StrEnum):
@@ -720,3 +730,42 @@ class CoachAssignmentRead(SQLModel):
     ended_on: date | None = None
     notes: str | None = None
     created_at: datetime
+
+
+# ----------------------------------------------------------------------
+# Session attachments — arbitrary files (extra videos, sparring photos,
+# coach notes PDFs, etc.) hung off a session for reference.
+# ----------------------------------------------------------------------
+
+
+class AttachmentKind(StrEnum):
+    VIDEO = "video"
+    IMAGE = "image"
+    AUDIO = "audio"
+    DOCUMENT = "document"
+    OTHER = "other"
+
+
+class SessionAttachment(SQLModel, table=True):
+    __tablename__ = "session_attachment"
+    id: int | None = Field(default=None, primary_key=True)
+    session_id: UUID = Field(foreign_key="session.id", index=True)
+    filename: str = Field(min_length=1, max_length=255)
+    path: str = Field(max_length=400)
+    mime_type: str | None = Field(default=None, max_length=120)
+    size_bytes: int = Field(default=0, ge=0)
+    kind: AttachmentKind = AttachmentKind.OTHER
+    notes: str | None = None
+    uploaded_at: datetime = Field(default_factory=lambda: datetime.now(UTC))
+
+
+class SessionAttachmentRead(SQLModel):
+    id: int
+    session_id: UUID
+    filename: str
+    path: str
+    mime_type: str | None = None
+    size_bytes: int
+    kind: AttachmentKind
+    notes: str | None = None
+    uploaded_at: datetime

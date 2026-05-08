@@ -7,6 +7,11 @@ import { EvaluationCard } from "@/components/EvaluationCard";
 import { HrvPanel } from "@/components/HrvPanel";
 import { PunchChart } from "@/components/PunchChart";
 import { PunchTimeline } from "@/components/PunchTimeline";
+import {
+  AttachmentsCard,
+  RoundConfigCard,
+  RoundTimer,
+} from "@/components/SessionRounds";
 import { VelocityHistogram } from "@/components/VelocityHistogram";
 import {
   api,
@@ -197,9 +202,17 @@ export default function SessionPage({ params }: { params: { id: string } }) {
       </div>
 
       <header className="flex items-center justify-between">
-        <div>
-          <h1 className="text-2xl font-semibold">Session</h1>
-          <p className="font-mono text-xs text-neutral-500">{session.id}</p>
+        <div className="flex items-center gap-4">
+          <div>
+            <h1 className="text-2xl font-semibold">Session</h1>
+            <p className="font-mono text-xs text-neutral-500">{session.id}</p>
+          </div>
+          <Link
+            href={`/sessions/${id}/corner`}
+            className="rounded bg-amber-600/20 px-3 py-1.5 text-xs font-medium text-amber-300 hover:bg-amber-600/30"
+          >
+            🥊 Gym Mode
+          </Link>
         </div>
         <span
           className={`rounded-full px-3 py-1 text-xs font-medium ${
@@ -261,6 +274,19 @@ export default function SessionPage({ params }: { params: { id: string } }) {
           })()}
         />
       </section>
+
+      {/* Round configuration — editable while pending, locked once started.
+          Always visible so the planned structure stays readable post-session. */}
+      <RoundConfigCard session={session} onChange={setSession} />
+
+      {/* Live round timer — only during active capture. Reads elapsed time
+          from the capture-status poll; pure arithmetic, no separate clock. */}
+      {(session.status === "capturing" || session.status === "processing") && (
+        <RoundTimer
+          session={session}
+          durationMs={status?.duration_ms ?? 0}
+        />
+      )}
 
       {events.length > 0 && status?.duration_ms && status.duration_ms > 0 &&
         (() => {
@@ -588,6 +614,10 @@ export default function SessionPage({ params }: { params: { id: string } }) {
           )}
         </div>
       </section>
+
+      {/* Generic file uploads attached to this session — extra videos,
+          sparring photos, coach notes PDFs, etc. */}
+      <AttachmentsCard sessionId={id} />
 
       {events.length > 0 && (
         <section className="rounded-lg border border-neutral-800 p-4">

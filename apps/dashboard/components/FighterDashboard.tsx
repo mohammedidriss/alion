@@ -32,6 +32,7 @@ interface PerSessionMetrics {
   ppm: number;
   durationMin: number;
   score: number;
+  trimp: number | null;
 }
 
 function p90(values: number[]): number {
@@ -59,6 +60,7 @@ function metricsFor(s: SessionWithEvents): PerSessionMetrics {
     ppm,
     durationMin,
     score,
+    trimp: s.session.trimp_score ?? null,
   };
 }
 
@@ -97,7 +99,9 @@ export function FighterDashboard({ fighterId, sessionsWithEvents }: Props) {
 
   const latestUsable = usable[usable.length - 1];
   const previous = usable[usable.length - 2];
-  const delta = latestUsable && previous ? latestUsable.score - previous.score : 0;
+  const latestVal = latestUsable ? (latestUsable.trimp ?? latestUsable.score) : 0;
+  const prevVal = previous ? (previous.trimp ?? previous.score) : 0;
+  const delta = latestUsable && previous ? latestVal - prevVal : 0;
 
   return (
     <section className="space-y-5">
@@ -105,12 +109,12 @@ export function FighterDashboard({ fighterId, sessionsWithEvents }: Props) {
       <div className="grid grid-cols-1 gap-4 lg:grid-cols-3">
         <div className="card lg:col-span-2">
           <div className="flex items-baseline justify-between">
-            <h3 className="text-base font-semibold">Output Index trend</h3>
+            <h3 className="text-base font-semibold">TRIMP / Output Trend</h3>
             <span
               className="text-xs text-neutral-500"
-              title="Output Index is an ad-hoc ranking number (peak v p90 × ppm/60 × duration). It is not a physical measurement and has no clinical units."
+              title="Banister TRIMP (Training Impulse) when HRV is available, falling back to ad-hoc Output Index."
             >
-              ad-hoc ranking · not a physical metric
+              load metric
             </span>
           </div>
           {usable.length === 0 ? (
@@ -122,10 +126,10 @@ export function FighterDashboard({ fighterId, sessionsWithEvents }: Props) {
               <div className="mt-3 flex flex-wrap items-end gap-x-6 gap-y-2">
                 <div>
                   <div className="text-[10px] uppercase tracking-wide text-neutral-500">
-                    Latest index
+                    Latest
                   </div>
                   <div className="text-3xl font-bold tabular-nums">
-                    {latestUsable.score.toFixed(2)}
+                    {latestVal.toFixed(2)}
                   </div>
                 </div>
                 {previous && (
@@ -262,9 +266,9 @@ export function FighterDashboard({ fighterId, sessionsWithEvents }: Props) {
         <StatCard
           tint="lime"
           icon="◆"
-          label="Avg Output Index"
+          label="Avg Load"
           value={usable.length ? totals.avgScore.toFixed(2) : "—"}
-          hint="ranking only · not a physical metric"
+          hint="TRIMP / Output Index"
         />
       </div>
     </section>
@@ -316,13 +320,13 @@ function ProgressChart({ series }: { series: PerSessionMetrics[] }) {
   const padT = 16;
   const padB = 36;
   const xs = series.map((_, i) => i);
-  const ys = series.map((m) => m.score);
+  const ys = series.map((m) => m.trimp ?? m.score);
   const yMax = Math.max(...ys, 0.001) * 1.15;
   const xMax = Math.max(xs.length - 1, 1);
   const sx = (i: number) => padL + (i / xMax) * (W - padL - padR);
   const sy = (y: number) => H - padB - (y / yMax) * (H - padT - padB);
   const path = series
-    .map((m, i) => `${i === 0 ? "M" : "L"} ${sx(i)} ${sy(m.score)}`)
+    .map((m, i) => `${i === 0 ? "M" : "L"} ${sx(i)} ${sy(m.trimp ?? m.score)}`)
     .join(" ");
   const yTicks = 4;
   const yTickVals = Array.from(
@@ -368,20 +372,21 @@ function ProgressChart({ series }: { series: PerSessionMetrics[] }) {
           strokeLinecap="round"
         />
         {series.map((m, i) => {
-          const prev = i > 0 ? series[i - 1].score : m.score;
-          const delta = m.score - prev;
+          const val = m.trimp ?? m.score;
+          const prev = i > 0 ? (series[i - 1].trimp ?? series[i - 1].score) : val;
+          const delta = val - prev;
           return (
             <circle
               key={m.session.id}
               cx={sx(i)}
-              cy={sy(m.score)}
+              cy={sy(val)}
               r={4}
               fill={delta >= 0 ? "#a3e635" : "#f87171"}
               stroke="#0a0a0f"
               strokeWidth={1.5}
             >
               <title>
-                {`${new Date(m.session.started_at).toLocaleString()}\nscore ${m.score.toFixed(2)} (${delta >= 0 ? "+" : ""}${delta.toFixed(2)} vs prev)\n${m.punches} punches · peak ${m.peakVelocity.toFixed(1)} m/s · ${m.ppm.toFixed(0)} ppm`}
+                {`${new Date(m.session.started_at).toLocaleString()}\nscore ${val.toFixed(2)} (${delta >= 0 ? "+" : ""}${delta.toFixed(2)} vs prev)\n${m.punches} punches · peak ${m.peakVelocity.toFixed(1)} m/s · ${m.ppm.toFixed(0)} ppm`}
               </title>
             </circle>
           );

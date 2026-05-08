@@ -9,6 +9,7 @@ import tempfile
 from collections.abc import AsyncIterator, Iterator
 from contextlib import contextmanager
 from pathlib import Path
+from typing import Literal
 from uuid import UUID
 
 from fastapi import APIRouter, Depends, File, HTTPException, UploadFile, status
@@ -22,7 +23,10 @@ from api.services import capture_runner
 from capture.hrv import parse_rr_csv
 from contracts import HRSample
 from store import (
+    AttachmentKind,
     PunchEventRepo,
+    SessionAttachment,
+    SessionAttachmentRead,
     SessionRepo,
     SessionSourceEnum,
     SessionStatus,
@@ -411,7 +415,13 @@ def export_events_csv(
 
 
 class SessionAnnotation(BaseModel):
+    """Patch payload — every field optional. Send only the keys you want
+    to change. Used for both notes and round-structure configuration."""
+
     notes: str | None = None
+    round_count: int | None = None
+    round_duration_s: int | None = None
+    rest_duration_s: int | None = None
 
 
 @router.patch("/{session_id}", response_model=SessionRead)
@@ -421,11 +431,14 @@ def annotate_session(
     repo: SessionRepo = Depends(session_repo),
     db: DBSession = Depends(db_session),
 ) -> SessionRead:
-    """Update free-form session notes (Phase 1: just notes; Phase 7 adds tags)."""
+    """Update notes and/or round configuration. Only fields the client
+    explicitly sends are applied (None means "don't change")."""
     row = repo.get(session_id)
     if row is None:
         raise HTTPException(status_code=404, detail="session not found")
-    row.notes = data.notes
+    patch = data.model_dump(exclude_unset=True)
+    for k, v in patch.items():
+        setattr(row, k, v)
     db.add(row)
     db.commit()
     db.refresh(row)
@@ -442,6 +455,13 @@ class PerformanceResponse(BaseModel):
     baseline_rmssd_ms: float | None = None
     baseline_sdnn_ms: float | None = None
     baseline_mean_hr_bpm: float | None = None
+    trimp_score: float | None = None
+    trimp_duration_min: float | None = None
+
+
+class CoachAdviceResponse(BaseModel):
+    summary: str
+    action_items: list[str]
 
 
 @router.post("/{session_id}/baseline/upload", response_model=SessionRead)
@@ -487,6 +507,7 @@ def session_performance(
     session_id: UUID,
     sessions: SessionRepo = Depends(session_repo),
     events: PunchEventRepo = Depends(punch_event_repo),
+    db: DBSession = Depends(db_session),
 ) -> PerformanceResponse:
     row = sessions.get(session_id)
     if row is None:
@@ -494,6 +515,38 @@ def session_performance(
     rows = events.list_for_session(session_id)
     velocities = [e.velocity_ms for e in rows]
     score = compute_score(velocities, row.duration_ms)
+
+    import datetime
+
+    from sqlmodel import select
+
+    from analyze.load import compute_trimp, estimate_hr_max
+    from store.models import Fighter, HRSampleRow
+
+    fighter = db.get(Fighter, row.fighter_id)
+    hr_samples = list(
+        db.exec(select(HRSampleRow.hr_bpm).where(HRSampleRow.session_id == session_id)).all()
+    )
+
+    trimp_score = None
+    trimp_duration_min = None
+    if row.baseline_mean_hr_bpm and hr_samples and row.duration_ms > 0:
+        age_years = 25.0
+        if fighter and fighter.dob:
+            age_years = (datetime.datetime.now(datetime.UTC).date() - fighter.dob).days / 365.25
+        hr_max = estimate_hr_max(age_years)
+        sex: Literal["male", "female"] = "female" if fighter and fighter.sex == "female" else "male"
+        res = compute_trimp(
+            hr_samples,
+            duration_min=row.duration_ms / 60000.0,
+            hr_rest_bpm=row.baseline_mean_hr_bpm,
+            hr_max_bpm=hr_max,
+            sex=sex,
+        )
+        if res:
+            trimp_score = res.trimp
+            trimp_duration_min = res.duration_min
+
     return PerformanceResponse(
         session_id=session_id,
         peak_velocity_p90=score.peak_velocity_p90,
@@ -504,6 +557,31 @@ def session_performance(
         baseline_rmssd_ms=row.baseline_rmssd_ms,
         baseline_sdnn_ms=row.baseline_sdnn_ms,
         baseline_mean_hr_bpm=row.baseline_mean_hr_bpm,
+        trimp_score=trimp_score,
+        trimp_duration_min=trimp_duration_min,
+    )
+
+
+@router.post("/{session_id}/advice", response_model=CoachAdviceResponse)
+async def get_session_advice(
+    session_id: UUID,
+    sessions: SessionRepo = Depends(session_repo),
+    events: PunchEventRepo = Depends(punch_event_repo),
+    db: DBSession = Depends(db_session),
+) -> CoachAdviceResponse:
+    row = sessions.get(session_id)
+    if row is None:
+        raise HTTPException(status_code=404, detail="session not found")
+
+    perf = session_performance(session_id, sessions, events, db)
+    session_data = perf.model_dump_json()
+
+    from coach import CORNER_ADVICE_SYSTEM_PROMPT, generate_corner_advice
+
+    advice = await generate_corner_advice(CORNER_ADVICE_SYSTEM_PROMPT, session_data)
+    return CoachAdviceResponse(
+        summary=advice.summary,
+        action_items=advice.action_items,
     )
 
 
@@ -644,3 +722,124 @@ def session_evaluation(
         confusion=cm,
         classes=classes,
     )
+
+
+# ---------------------------------------------------------------------------
+# Session attachments — arbitrary files (extra videos, sparring photos,
+# coach notes PDFs, etc.) hung off a session for reference.
+# ---------------------------------------------------------------------------
+
+
+_ATTACHMENT_DIR = Path("data/raw/attachments")
+_ATTACHMENT_MAX_BYTES = 200 * 1024 * 1024  # 200 MB
+
+
+def _classify_kind(mime: str | None, filename: str) -> AttachmentKind:
+    if mime:
+        m = mime.lower()
+        if m.startswith("video/"):
+            return AttachmentKind.VIDEO
+        if m.startswith("image/"):
+            return AttachmentKind.IMAGE
+        if m.startswith("audio/"):
+            return AttachmentKind.AUDIO
+        if m in ("application/pdf",) or m.startswith("text/"):
+            return AttachmentKind.DOCUMENT
+    ext = Path(filename).suffix.lower()
+    if ext in {".mp4", ".mov", ".avi", ".mkv", ".webm"}:
+        return AttachmentKind.VIDEO
+    if ext in {".jpg", ".jpeg", ".png", ".webp", ".gif"}:
+        return AttachmentKind.IMAGE
+    if ext in {".mp3", ".wav", ".m4a", ".ogg"}:
+        return AttachmentKind.AUDIO
+    if ext in {".pdf", ".txt", ".md", ".doc", ".docx"}:
+        return AttachmentKind.DOCUMENT
+    return AttachmentKind.OTHER
+
+
+@router.get("/{session_id}/attachments", response_model=list[SessionAttachmentRead])
+def list_attachments(
+    session_id: UUID,
+    repo: SessionRepo = Depends(session_repo),
+    db: DBSession = Depends(db_session),
+) -> list[SessionAttachmentRead]:
+    if repo.get(session_id) is None:
+        raise HTTPException(status_code=404, detail="session not found")
+    from sqlmodel import select
+
+    rows = list(
+        db.exec(select(SessionAttachment).where(SessionAttachment.session_id == session_id)).all()
+    )
+    rows.sort(key=lambda a: a.uploaded_at, reverse=True)
+    return [SessionAttachmentRead.model_validate(r, from_attributes=True) for r in rows]
+
+
+@router.post(
+    "/{session_id}/attachments",
+    response_model=SessionAttachmentRead,
+    status_code=status.HTTP_201_CREATED,
+)
+async def upload_attachment(
+    session_id: UUID,
+    file: UploadFile = File(...),
+    repo: SessionRepo = Depends(session_repo),
+    db: DBSession = Depends(db_session),
+) -> SessionAttachmentRead:
+    if repo.get(session_id) is None:
+        raise HTTPException(status_code=404, detail="session not found")
+    body = await file.read()
+    if not body:
+        raise HTTPException(status_code=400, detail="empty upload")
+    if len(body) > _ATTACHMENT_MAX_BYTES:
+        raise HTTPException(
+            status_code=400,
+            detail=(f"file too large ({len(body)} bytes; max {_ATTACHMENT_MAX_BYTES})"),
+        )
+    out_dir = _ATTACHMENT_DIR / str(session_id)
+    out_dir.mkdir(parents=True, exist_ok=True)
+    fname = file.filename or "unnamed"
+    dest = out_dir / fname
+    # Avoid clobbering: if a file with the same name exists, append a counter.
+    if dest.exists():
+        stem = dest.stem
+        ext = dest.suffix
+        i = 1
+        while (out_dir / f"{stem} ({i}){ext}").exists():
+            i += 1
+        dest = out_dir / f"{stem} ({i}){ext}"
+    dest.write_bytes(body)
+    row = SessionAttachment(
+        session_id=session_id,
+        filename=dest.name,
+        path=str(dest),
+        mime_type=file.content_type,
+        size_bytes=len(body),
+        kind=_classify_kind(file.content_type, fname),
+    )
+    db.add(row)
+    db.commit()
+    db.refresh(row)
+    return SessionAttachmentRead.model_validate(row, from_attributes=True)
+
+
+@router.delete(
+    "/{session_id}/attachments/{attachment_id}",
+    status_code=status.HTTP_204_NO_CONTENT,
+)
+def delete_attachment(
+    session_id: UUID,
+    attachment_id: int,
+    repo: SessionRepo = Depends(session_repo),
+    db: DBSession = Depends(db_session),
+) -> None:
+    if repo.get(session_id) is None:
+        raise HTTPException(status_code=404, detail="session not found")
+    row = db.get(SessionAttachment, attachment_id)
+    if row is None or row.session_id != session_id:
+        raise HTTPException(status_code=404, detail="attachment not found")
+    try:
+        Path(row.path).unlink(missing_ok=True)
+    except OSError:
+        pass
+    db.delete(row)
+    db.commit()
