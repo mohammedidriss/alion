@@ -56,9 +56,7 @@ class Readiness:
         return self.mode == "z_score"
 
 
-def compute_readiness(
-    rmssd_ms: float, history_rmssd_ms: list[float]
-) -> Readiness:
+def compute_readiness(rmssd_ms: float, history_rmssd_ms: list[float]) -> Readiness:
     """Compute a readiness score from the fighter's latest RMSSD and history.
 
     `history_rmssd_ms` should NOT include the current measurement.

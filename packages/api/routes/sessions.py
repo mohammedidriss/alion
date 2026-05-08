@@ -470,8 +470,7 @@ async def upload_baseline(
     if len(samples) < 4:
         raise HTTPException(status_code=400, detail="need at least 4 RR intervals")
     hr_samples = [
-        HRSample(session_id=session_id, t_ms=t, rr_ms=rr, hr_bpm=60_000.0 / rr)
-        for t, rr in samples
+        HRSample(session_id=session_id, t_ms=t, rr_ms=rr, hr_bpm=60_000.0 / rr) for t, rr in samples
     ]
     row = repo.attach_baseline(
         session_id,

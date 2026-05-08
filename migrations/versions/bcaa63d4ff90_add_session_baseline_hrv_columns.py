@@ -5,14 +5,15 @@ Revises: 1f0501f1da74
 Create Date: 2026-05-06 16:12:52.673639
 
 """
+
 from collections.abc import Sequence
 
 import sqlalchemy as sa
 from alembic import op
 
 # revision identifiers, used by Alembic.
-revision: str = 'bcaa63d4ff90'
-down_revision: str | Sequence[str] | None = '1f0501f1da74'
+revision: str = "bcaa63d4ff90"
+down_revision: str | Sequence[str] | None = "1f0501f1da74"
 branch_labels: str | Sequence[str] | None = None
 depends_on: str | Sequence[str] | None = None
 

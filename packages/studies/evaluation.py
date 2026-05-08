@@ -79,11 +79,7 @@ class MatchResult:
 
     @property
     def mean_temporal_offset_ms(self) -> float:
-        return (
-            sum(p.abs_offset_ms for p in self.pairs) / len(self.pairs)
-            if self.pairs
-            else 0.0
-        )
+        return sum(p.abs_offset_ms for p in self.pairs) / len(self.pairs) if self.pairs else 0.0
 
 
 def match_events(
@@ -193,9 +189,7 @@ def render_report(
     lines.append(f"| Precision | {result.precision:.3f} |")
     lines.append(f"| Recall    | {result.recall:.3f} |")
     lines.append(f"| F1        | {result.f1:.3f} |")
-    lines.append(
-        f"| Mean abs temporal offset | {result.mean_temporal_offset_ms:.1f} ms |"
-    )
+    lines.append(f"| Mean abs temporal offset | {result.mean_temporal_offset_ms:.1f} ms |")
     lines.append("")
     if cm is not None and classes is not None:
         lines.append("## Punch-type confusion matrix")
@@ -226,11 +220,11 @@ def render_report(
 def load_labels(path: Path) -> list[GroundTruthPunch]:
     """Load a `labels.json` file. Format:
 
-        [
-          {"t_ms": 1234, "hand": "left", "punch_type": "jab"},
-          {"t_ms": 1700, "hand": "right", "punch_type": "cross"},
-          ...
-        ]
+    [
+      {"t_ms": 1234, "hand": "left", "punch_type": "jab"},
+      {"t_ms": 1700, "hand": "right", "punch_type": "cross"},
+      ...
+    ]
     """
     raw = json.loads(path.read_text())
     if not isinstance(raw, list):

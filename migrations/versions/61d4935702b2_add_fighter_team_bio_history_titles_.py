@@ -5,13 +5,14 @@ Revises: 0092952195cf
 Create Date: 2026-05-07 17:39:45.177615
 
 """
+
 from collections.abc import Sequence
 
 import sqlalchemy as sa
 from alembic import op
 
-revision: str = '61d4935702b2'
-down_revision: str | Sequence[str] | None = '0092952195cf'
+revision: str = "61d4935702b2"
+down_revision: str | Sequence[str] | None = "0092952195cf"
 branch_labels: str | Sequence[str] | None = None
 depends_on: str | Sequence[str] | None = None
 
@@ -21,9 +22,7 @@ def upgrade() -> None:
         batch_op.add_column(sa.Column("bio", sa.String(), nullable=True))
         batch_op.add_column(sa.Column("career_history", sa.String(), nullable=True))
 
-    title_status_enum = sa.Enum(
-        "ACTIVE", "LOST", "VACATED", "RETIRED", name="titlestatus"
-    )
+    title_status_enum = sa.Enum("ACTIVE", "LOST", "VACATED", "RETIRED", name="titlestatus")
     op.create_table(
         "fighter_title",
         sa.Column("id", sa.Integer(), primary_key=True, nullable=False),

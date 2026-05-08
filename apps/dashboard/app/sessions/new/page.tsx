@@ -1,10 +1,24 @@
 "use client";
 
 import { useRouter, useSearchParams } from "next/navigation";
-import { useEffect, useState } from "react";
+import { Suspense, useEffect, useState } from "react";
 import { api, type Fighter, type SessionSource } from "@/lib/api";
 
+// useSearchParams() forces client-side rendering at the prerender step,
+// which Next 14 requires us to opt into via a Suspense boundary. The
+// outer default export is the boundary; the inner function is the real
+// page component that calls useSearchParams.
 export default function NewSessionPage() {
+  return (
+    <Suspense
+      fallback={<main className="p-8 text-sm text-neutral-400">Loading…</main>}
+    >
+      <NewSessionInner />
+    </Suspense>
+  );
+}
+
+function NewSessionInner() {
   const router = useRouter();
   const params = useSearchParams();
   const presetFighter = params.get("fighter");

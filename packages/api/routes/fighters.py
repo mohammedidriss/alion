@@ -252,11 +252,7 @@ def fighter_readiness(
     if not baselined:
         return None
     latest = baselined[-1]
-    history = [
-        s.baseline_rmssd_ms
-        for s in baselined[:-1]
-        if s.baseline_rmssd_ms is not None
-    ]
+    history = [s.baseline_rmssd_ms for s in baselined[:-1] if s.baseline_rmssd_ms is not None]
     assert latest.baseline_rmssd_ms is not None
     r = compute_readiness(latest.baseline_rmssd_ms, history)
     return ReadinessResponse(
@@ -398,8 +394,7 @@ def list_allergies(
     if fighters.get(fighter_id) is None:
         raise HTTPException(status_code=404, detail="fighter not found")
     return [
-        AllergyRead.model_validate(a, from_attributes=True)
-        for a in med.list_allergies(fighter_id)
+        AllergyRead.model_validate(a, from_attributes=True) for a in med.list_allergies(fighter_id)
     ]
 
 
@@ -483,9 +478,7 @@ def delete_medication(
 # --- Medical conditions ---
 
 
-@router.get(
-    "/{fighter_id}/conditions", response_model=list[MedicalConditionRead]
-)
+@router.get("/{fighter_id}/conditions", response_model=list[MedicalConditionRead])
 def list_conditions(
     fighter_id: UUID,
     fighters: FighterRepo = Depends(fighter_repo),
@@ -567,9 +560,7 @@ def add_title(
     return FighterTitleRead.model_validate(row, from_attributes=True)
 
 
-@router.delete(
-    "/{fighter_id}/titles/{title_id}", status_code=status.HTTP_204_NO_CONTENT
-)
+@router.delete("/{fighter_id}/titles/{title_id}", status_code=status.HTTP_204_NO_CONTENT)
 def delete_title(
     fighter_id: UUID,
     title_id: int,

@@ -334,9 +334,7 @@ class Coach(SQLModel, table=True):
     license_number: str | None = Field(default=None, max_length=80)
     license_expiry: date | None = None
     # Other
-    languages: str | None = Field(
-        default=None, max_length=200, description="Comma-separated"
-    )
+    languages: str | None = Field(default=None, max_length=200, description="Comma-separated")
     notable_fighters: str | None = Field(
         default=None,
         max_length=400,
@@ -473,9 +471,7 @@ class MedicalRecord(SQLModel, table=True):
     without forcing the coach to enter everything up front."""
 
     __tablename__ = "medical_record"
-    fighter_id: UUID = Field(
-        foreign_key="fighter.id", primary_key=True, index=True
-    )
+    fighter_id: UUID = Field(foreign_key="fighter.id", primary_key=True, index=True)
     blood_type: str | None = Field(default=None, max_length=4)  # "A+", "O-", etc.
     last_clearance_date: date | None = None
     clearing_physician: str | None = Field(default=None, max_length=120)

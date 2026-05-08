@@ -357,9 +357,7 @@ class MedicalRepo:
     def get_record(self, fighter_id: UUID) -> MedicalRecord | None:
         return self._session.get(MedicalRecord, fighter_id)
 
-    def upsert_record(
-        self, fighter_id: UUID, patch: dict[str, object]
-    ) -> MedicalRecord:
+    def upsert_record(self, fighter_id: UUID, patch: dict[str, object]) -> MedicalRecord:
         row = self.get_record(fighter_id)
         if row is None:
             row = MedicalRecord(fighter_id=fighter_id)
@@ -407,9 +405,7 @@ class MedicalRepo:
 
     # --- Medications ---
 
-    def add_medication(
-        self, fighter_id: UUID, data: MedicationCreate
-    ) -> Medication:
+    def add_medication(self, fighter_id: UUID, data: MedicationCreate) -> Medication:
         row = Medication(fighter_id=fighter_id, **data.model_dump())
         self._session.add(row)
         self._session.commit()
@@ -434,9 +430,7 @@ class MedicalRepo:
 
     # --- Conditions ---
 
-    def add_condition(
-        self, fighter_id: UUID, data: MedicalConditionCreate
-    ) -> MedicalCondition:
+    def add_condition(self, fighter_id: UUID, data: MedicalConditionCreate) -> MedicalCondition:
         row = MedicalCondition(fighter_id=fighter_id, **data.model_dump())
         self._session.add(row)
         self._session.commit()
@@ -476,9 +470,7 @@ class FighterTeamRepo:
 
     # --- Titles ---
 
-    def add_title(
-        self, fighter_id: UUID, data: FighterTitleCreate
-    ) -> FighterTitle:
+    def add_title(self, fighter_id: UUID, data: FighterTitleCreate) -> FighterTitle:
         row = FighterTitle(fighter_id=fighter_id, **data.model_dump())
         self._session.add(row)
         self._session.commit()
@@ -486,13 +478,9 @@ class FighterTeamRepo:
         return row
 
     def list_titles(self, fighter_id: UUID) -> list[FighterTitle]:
-        stmt = (
-            select(FighterTitle).where(FighterTitle.fighter_id == fighter_id)
-        )
+        stmt = select(FighterTitle).where(FighterTitle.fighter_id == fighter_id)
         rows = list(self._session.exec(stmt).all())
-        rows.sort(
-            key=lambda t: -(t.won_on.toordinal() if t.won_on else 0)
-        )
+        rows.sort(key=lambda t: -(t.won_on.toordinal() if t.won_on else 0))
         return rows
 
     def delete_title(self, fighter_id: UUID, title_id: int) -> bool:
@@ -505,9 +493,7 @@ class FighterTeamRepo:
 
     # --- Sponsors ---
 
-    def add_sponsor(
-        self, fighter_id: UUID, data: FighterSponsorCreate
-    ) -> FighterSponsor:
+    def add_sponsor(self, fighter_id: UUID, data: FighterSponsorCreate) -> FighterSponsor:
         row = FighterSponsor(fighter_id=fighter_id, **data.model_dump())
         self._session.add(row)
         self._session.commit()
@@ -517,9 +503,7 @@ class FighterTeamRepo:
     def list_sponsors(self, fighter_id: UUID) -> list[FighterSponsor]:
         rows = list(
             self._session.exec(
-                select(FighterSponsor).where(
-                    FighterSponsor.fighter_id == fighter_id
-                )
+                select(FighterSponsor).where(FighterSponsor.fighter_id == fighter_id)
             ).all()
         )
         # Sort in Python: current (no end date) first, then most-recent start.
@@ -569,9 +553,7 @@ class FighterTeamRepo:
         )
         return rows
 
-    def delete_coach_assignment(
-        self, fighter_id: UUID, assignment_id: int
-    ) -> bool:
+    def delete_coach_assignment(self, fighter_id: UUID, assignment_id: int) -> bool:
         row = self._session.get(CoachAssignment, assignment_id)
         if row is None or row.fighter_id != fighter_id:
             return False

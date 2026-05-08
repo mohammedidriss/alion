@@ -5,13 +5,14 @@ Revises: bcaa63d4ff90
 Create Date: 2026-05-06 17:19:29.155090
 
 """
+
 from collections.abc import Sequence
 
 import sqlalchemy as sa
 from alembic import op
 
-revision: str = 'bd10d9e3e9bb'
-down_revision: str | Sequence[str] | None = 'bcaa63d4ff90'
+revision: str = "bd10d9e3e9bb"
+down_revision: str | Sequence[str] | None = "bcaa63d4ff90"
 branch_labels: str | Sequence[str] | None = None
 depends_on: str | Sequence[str] | None = None
 
@@ -69,15 +70,11 @@ def upgrade() -> None:
         sa.Column("updated_at", sa.DateTime(), nullable=False),
     )
 
-    severity_enum = sa.Enum(
-        "MILD", "MODERATE", "SEVERE", "ANAPHYLACTIC", name="allergyseverity"
-    )
+    severity_enum = sa.Enum("MILD", "MODERATE", "SEVERE", "ANAPHYLACTIC", name="allergyseverity")
     op.create_table(
         "allergy",
         sa.Column("id", sa.Integer(), primary_key=True, nullable=False),
-        sa.Column(
-            "fighter_id", sa.Uuid(), sa.ForeignKey("fighter.id"), nullable=False
-        ),
+        sa.Column("fighter_id", sa.Uuid(), sa.ForeignKey("fighter.id"), nullable=False),
         sa.Column("substance", sa.String(length=120), nullable=False),
         sa.Column("severity", severity_enum, nullable=False),
         sa.Column("notes", sa.String(), nullable=True),
@@ -88,9 +85,7 @@ def upgrade() -> None:
     op.create_table(
         "medication",
         sa.Column("id", sa.Integer(), primary_key=True, nullable=False),
-        sa.Column(
-            "fighter_id", sa.Uuid(), sa.ForeignKey("fighter.id"), nullable=False
-        ),
+        sa.Column("fighter_id", sa.Uuid(), sa.ForeignKey("fighter.id"), nullable=False),
         sa.Column("name", sa.String(length=120), nullable=False),
         sa.Column("dose", sa.String(length=80), nullable=True),
         sa.Column("frequency", sa.String(length=80), nullable=True),
@@ -102,24 +97,18 @@ def upgrade() -> None:
     )
     op.create_index("ix_medication_fighter_id", "medication", ["fighter_id"])
 
-    status_enum = sa.Enum(
-        "ACTIVE", "MANAGED", "RECOVERED", name="conditionstatus"
-    )
+    status_enum = sa.Enum("ACTIVE", "MANAGED", "RECOVERED", name="conditionstatus")
     op.create_table(
         "medical_condition",
         sa.Column("id", sa.Integer(), primary_key=True, nullable=False),
-        sa.Column(
-            "fighter_id", sa.Uuid(), sa.ForeignKey("fighter.id"), nullable=False
-        ),
+        sa.Column("fighter_id", sa.Uuid(), sa.ForeignKey("fighter.id"), nullable=False),
         sa.Column("name", sa.String(length=160), nullable=False),
         sa.Column("diagnosed_on", sa.Date(), nullable=True),
         sa.Column("status", status_enum, nullable=False),
         sa.Column("notes", sa.String(), nullable=True),
         sa.Column("created_at", sa.DateTime(), nullable=False),
     )
-    op.create_index(
-        "ix_medical_condition_fighter_id", "medical_condition", ["fighter_id"]
-    )
+    op.create_index("ix_medical_condition_fighter_id", "medical_condition", ["fighter_id"])
 
 
 def downgrade() -> None:

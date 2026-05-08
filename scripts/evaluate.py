@@ -38,11 +38,7 @@ PUNCH_CLASSES = ["jab", "cross", "hook", "uppercut"]
 
 
 def _load_detections(db: Session, session_id: UUID) -> list[DetectedPunch]:
-    rows = list(
-        db.exec(
-            select(PunchEventRow).where(PunchEventRow.session_id == session_id)
-        ).all()
-    )
+    rows = list(db.exec(select(PunchEventRow).where(PunchEventRow.session_id == session_id)).all())
     return [
         DetectedPunch(
             t_ms=r.t_ms,
@@ -57,18 +53,14 @@ def _load_detections(db: Session, session_id: UUID) -> list[DetectedPunch]:
 def main() -> int:
     ap = argparse.ArgumentParser(description=__doc__)
     ap.add_argument("--session", required=True, help="session UUID in the DB")
-    ap.add_argument(
-        "--labels", required=True, type=Path, help="path to labels.json"
-    )
+    ap.add_argument("--labels", required=True, type=Path, help="path to labels.json")
     ap.add_argument(
         "--tolerance-ms",
         type=float,
         default=200.0,
         help="time-window (ms) for matching detections to truth (default 200)",
     )
-    ap.add_argument(
-        "--out", type=Path, default=None, help="write the markdown report here"
-    )
+    ap.add_argument("--out", type=Path, default=None, help="write the markdown report here")
     args = ap.parse_args()
 
     truth: list[GroundTruthPunch] = load_labels(args.labels)

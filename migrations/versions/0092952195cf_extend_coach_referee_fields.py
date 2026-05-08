@@ -5,21 +5,20 @@ Revises: bd10d9e3e9bb
 Create Date: 2026-05-06 19:25:39.390203
 
 """
+
 from collections.abc import Sequence
 
 import sqlalchemy as sa
 from alembic import op
 
-revision: str = '0092952195cf'
-down_revision: str | Sequence[str] | None = 'bd10d9e3e9bb'
+revision: str = "0092952195cf"
+down_revision: str | Sequence[str] | None = "bd10d9e3e9bb"
 branch_labels: str | Sequence[str] | None = None
 depends_on: str | Sequence[str] | None = None
 
 
 def upgrade() -> None:
-    coaching_level_enum = sa.Enum(
-        "AMATEUR", "PROFESSIONAL", "BOTH", name="coachinglevel"
-    )
+    coaching_level_enum = sa.Enum("AMATEUR", "PROFESSIONAL", "BOTH", name="coachinglevel")
     cert_level_enum = sa.Enum(
         "LOCAL", "REGIONAL", "NATIONAL", "INTERNATIONAL", name="refereecertlevel"
     )

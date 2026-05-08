@@ -39,9 +39,7 @@ def delete_photos_for(kind: ProfileKind, profile_id: UUID) -> int:
     return n
 
 
-async def save_photo(
-    kind: ProfileKind, profile_id: UUID, file: UploadFile
-) -> str:
+async def save_photo(kind: ProfileKind, profile_id: UUID, file: UploadFile) -> str:
     """Save the upload to disk; return the relative path to persist on the row."""
     name = file.filename or ""
     ext = Path(name).suffix.lower()

@@ -35,23 +35,17 @@ class RefereeUpdate(BaseModel):
 
 
 @router.post("", response_model=RefereeRead, status_code=status.HTTP_201_CREATED)
-def create_referee(
-    data: RefereeCreate, repo: RefereeRepo = Depends(referee_repo)
-) -> RefereeRead:
+def create_referee(data: RefereeCreate, repo: RefereeRepo = Depends(referee_repo)) -> RefereeRead:
     return RefereeRead.model_validate(repo.create(data), from_attributes=True)
 
 
 @router.get("", response_model=list[RefereeRead])
 def list_referees(repo: RefereeRepo = Depends(referee_repo)) -> list[RefereeRead]:
-    return [
-        RefereeRead.model_validate(r, from_attributes=True) for r in repo.list_all()
-    ]
+    return [RefereeRead.model_validate(r, from_attributes=True) for r in repo.list_all()]
 
 
 @router.get("/{referee_id}", response_model=RefereeRead)
-def get_referee(
-    referee_id: UUID, repo: RefereeRepo = Depends(referee_repo)
-) -> RefereeRead:
+def get_referee(referee_id: UUID, repo: RefereeRepo = Depends(referee_repo)) -> RefereeRead:
     row = repo.get(referee_id)
     if row is None:
         raise HTTPException(status_code=404, detail="referee not found")
@@ -71,9 +65,7 @@ def update_referee(
 
 
 @router.delete("/{referee_id}", status_code=status.HTTP_204_NO_CONTENT)
-def delete_referee(
-    referee_id: UUID, repo: RefereeRepo = Depends(referee_repo)
-) -> None:
+def delete_referee(referee_id: UUID, repo: RefereeRepo = Depends(referee_repo)) -> None:
     if not repo.delete(referee_id):
         raise HTTPException(status_code=404, detail="referee not found")
     delete_photos_for("referee", referee_id)

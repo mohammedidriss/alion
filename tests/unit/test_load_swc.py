@@ -30,12 +30,7 @@ def test_swc_is_one_fifth_of_stdev() -> None:
 
 
 def test_trimp_none_when_no_samples() -> None:
-    assert (
-        compute_trimp(
-            [], duration_min=10.0, hr_rest_bpm=60, hr_max_bpm=190
-        )
-        is None
-    )
+    assert compute_trimp([], duration_min=10.0, hr_rest_bpm=60, hr_max_bpm=190) is None
 
 
 def test_trimp_none_when_duration_zero() -> None:
@@ -75,31 +70,21 @@ def test_trimp_at_resting_hr_is_zero() -> None:
 
 
 def test_trimp_increases_with_intensity() -> None:
-    light = compute_trimp(
-        [100.0] * 10, duration_min=20, hr_rest_bpm=60, hr_max_bpm=190
-    )
-    hard = compute_trimp(
-        [170.0] * 10, duration_min=20, hr_rest_bpm=60, hr_max_bpm=190
-    )
+    light = compute_trimp([100.0] * 10, duration_min=20, hr_rest_bpm=60, hr_max_bpm=190)
+    hard = compute_trimp([170.0] * 10, duration_min=20, hr_rest_bpm=60, hr_max_bpm=190)
     assert light is not None and hard is not None
     assert hard.trimp > light.trimp
 
 
 def test_trimp_increases_with_duration() -> None:
-    short = compute_trimp(
-        [140.0] * 5, duration_min=10, hr_rest_bpm=60, hr_max_bpm=190
-    )
-    long_ = compute_trimp(
-        [140.0] * 5, duration_min=40, hr_rest_bpm=60, hr_max_bpm=190
-    )
+    short = compute_trimp([140.0] * 5, duration_min=10, hr_rest_bpm=60, hr_max_bpm=190)
+    long_ = compute_trimp([140.0] * 5, duration_min=40, hr_rest_bpm=60, hr_max_bpm=190)
     assert short is not None and long_ is not None
     assert long_.trimp == pytest.approx(short.trimp * 4, rel=0.01)
 
 
 def test_trimp_male_vs_female_at_same_intensity() -> None:
-    male = compute_trimp(
-        [150.0] * 5, duration_min=20, hr_rest_bpm=60, hr_max_bpm=190, sex="male"
-    )
+    male = compute_trimp([150.0] * 5, duration_min=20, hr_rest_bpm=60, hr_max_bpm=190, sex="male")
     female = compute_trimp(
         [150.0] * 5,
         duration_min=20,

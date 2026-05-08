@@ -79,9 +79,7 @@ def main() -> int:
     print("\nThis cannot be undone. There is no backup.\n")
 
     if not args.yes:
-        typed = input(
-            f"Type {CONFIRM_PHRASE!r} to proceed (or anything else to abort): "
-        )
+        typed = input(f"Type {CONFIRM_PHRASE!r} to proceed (or anything else to abort): ")
         if typed != CONFIRM_PHRASE:
             print("Aborted.")
             return 1
