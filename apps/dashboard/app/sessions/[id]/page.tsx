@@ -38,6 +38,11 @@ export default function SessionPage({ params }: { params: { id: string } }) {
   const [notesDirty, setNotesDirty] = useState(false);
   const [baselineUploading, setBaselineUploading] = useState(false);
   const [now, setNow] = useState(() => Date.now());
+  // Manual-pause bookkeeping. Timer freezes only when the user hits the
+  // pause button — not when auto-rest pauses the camera (the timer must
+  // keep counting through rest so it can flip back to round).
+  const [manualPauseStart, setManualPauseStart] = useState<number | null>(null);
+  const [manualPauseAccumMs, setManualPauseAccumMs] = useState(0);
 
   useEffect(() => {
     if (session?.status !== "capturing") return;
@@ -51,8 +56,12 @@ export default function SessionPage({ params }: { params: { id: string } }) {
   const lastPhaseRef = useRef<"round" | "rest" | "done" | null>(null);
   useEffect(() => {
     if (session?.status !== "capturing" || !session.started_at) return;
+    const livePauseMs =
+      manualPauseStart != null ? now - manualPauseStart : 0;
     const elapsedS =
-      (now - parseUtc(session.started_at).getTime()) / 1000;
+      (now - parseUtc(session.started_at).getTime() -
+        manualPauseAccumMs - livePauseMs) /
+      1000;
     const rounds = session.round_count ?? 3;
     const roundS = session.round_duration_s ?? 180;
     const restS = session.rest_duration_s ?? 60;
@@ -158,6 +167,7 @@ export default function SessionPage({ params }: { params: { id: string } }) {
   const pause = async () => {
     try {
       await api.pauseCapture(id);
+      setManualPauseStart(Date.now());
       await refresh();
     } catch (e) {
       setErr(String(e));
@@ -167,6 +177,10 @@ export default function SessionPage({ params }: { params: { id: string } }) {
   const resume = async () => {
     try {
       await api.resumeCapture(id);
+      if (manualPauseStart != null) {
+        setManualPauseAccumMs((a) => a + (Date.now() - manualPauseStart));
+        setManualPauseStart(null);
+      }
       await refresh();
     } catch (e) {
       setErr(String(e));
@@ -341,7 +355,12 @@ export default function SessionPage({ params }: { params: { id: string } }) {
           session={session}
           durationMs={
             session.status === "capturing" && session.started_at
-              ? Math.max(0, now - parseUtc(session.started_at).getTime())
+              ? Math.max(
+                  0,
+                  now - parseUtc(session.started_at).getTime() -
+                    manualPauseAccumMs -
+                    (manualPauseStart != null ? now - manualPauseStart : 0),
+                )
               : status?.duration_ms ?? 0
           }
         />
