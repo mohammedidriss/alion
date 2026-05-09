@@ -183,8 +183,7 @@ def _run_capture(
     import os as _os
 
     waiting_for_gesture = (
-        source_kind == "live_webcam"
-        and _os.environ.get("ALION_REQUIRE_GLOVES_UP") == "1"
+        source_kind == "live_webcam" and _os.environ.get("ALION_REQUIRE_GLOVES_UP") == "1"
     )
     gesture_frames = 0
 

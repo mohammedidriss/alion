@@ -340,6 +340,59 @@ class IMUSampleRead(SQLModel):
 
 
 # ----------------------------------------------------------------------
+# RQ1 study tables — advice cache + rater scores.
+# Cache fixes the "same session generates different advice each click"
+# problem: every (session, payload_mode, prompt_version) tuple is
+# generated once and reused for every rater. Ratings live on the server
+# so a study can pool data across raters and machines.
+# ----------------------------------------------------------------------
+
+
+class PayloadModeEnum(StrEnum):
+    CV = "cv"
+    HRV = "hrv"
+    IMU = "imu"
+    FUSED = "fused"
+
+
+class CoachAdviceCacheRow(SQLModel, table=True):
+    __tablename__ = "coach_advice_cache"
+    id: int | None = Field(default=None, primary_key=True)
+    session_id: UUID = Field(foreign_key="session.id", index=True)
+    payload_mode: PayloadModeEnum
+    # Bumping `prompt_version` invalidates the cache; the route checks
+    # it against `coach.PROMPT_VERSION` and regenerates on mismatch.
+    prompt_version: str = "v1"
+    summary: str
+    # JSON-encoded list[str] for portability across SQLite + Postgres.
+    action_items_json: str
+    created_at: datetime = Field(default_factory=lambda: datetime.now(UTC))
+
+
+class RaterScoreRow(SQLModel, table=True):
+    __tablename__ = "rq1_rating"
+    id: int | None = Field(default=None, primary_key=True)
+    session_id: UUID = Field(foreign_key="session.id", index=True)
+    payload_mode: PayloadModeEnum
+    rater_id: str = Field(min_length=1, max_length=80, index=True)
+    # 4-criterion Likert; one row per (rater, session, mode, criterion).
+    criterion: str = Field(min_length=1, max_length=40)
+    score: int = Field(ge=1, le=5)
+    notes: str | None = None
+    created_at: datetime = Field(default_factory=lambda: datetime.now(UTC))
+
+
+class RaterScoreRead(SQLModel):
+    session_id: UUID
+    payload_mode: PayloadModeEnum
+    rater_id: str
+    criterion: str
+    score: int
+    notes: str | None = None
+    created_at: datetime
+
+
+# ----------------------------------------------------------------------
 # Coach + Referee profiles
 # ----------------------------------------------------------------------
 

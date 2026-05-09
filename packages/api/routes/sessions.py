@@ -568,6 +568,7 @@ def session_performance(
 async def get_session_advice(
     session_id: UUID,
     payload_mode: Literal["cv", "hrv", "imu", "fused"] = "fused",
+    force_regenerate: bool = False,
     sessions: SessionRepo = Depends(session_repo),
     events: PunchEventRepo = Depends(punch_event_repo),
     db: DBSession = Depends(db_session),
@@ -577,10 +578,34 @@ async def get_session_advice(
     `payload_mode` is the RQ1 study lever — same LLM, same prompt, but a
     sliced view of the per-round fused export. Lets us measure marginal
     advice quality contributed by each modality.
+
+    Cached per `(session_id, payload_mode, prompt_version)` so every
+    rater scores the same generation. Pass `force_regenerate=true` to
+    bypass and overwrite the cache.
     """
+    import json as _json
+
+    from sqlmodel import select as _select
+
+    from coach import CORNER_ADVICE_SYSTEM_PROMPT, PROMPT_VERSION, generate_corner_advice
+    from store import CoachAdviceCacheRow, PayloadModeEnum
+
     row = sessions.get(session_id)
     if row is None:
         raise HTTPException(status_code=404, detail="session not found")
+
+    mode_enum = PayloadModeEnum(payload_mode)
+    cache_stmt = _select(CoachAdviceCacheRow).where(
+        CoachAdviceCacheRow.session_id == session_id,  # type: ignore[arg-type]
+        CoachAdviceCacheRow.payload_mode == mode_enum,  # type: ignore[arg-type]
+        CoachAdviceCacheRow.prompt_version == PROMPT_VERSION,  # type: ignore[arg-type]
+    )
+    cached = db.exec(cache_stmt).first()
+    if cached is not None and not force_regenerate:
+        return CoachAdviceResponse(
+            summary=cached.summary,
+            action_items=_json.loads(cached.action_items_json),
+        )
 
     fused = rounds_export(session_id, sessions, events, db)
     rounds_payload: list[dict[str, object]] = []
@@ -602,13 +627,26 @@ async def get_session_advice(
         "payload_mode": payload_mode,
         "rounds": rounds_payload,
     }
-    import json as _json
-
     session_data = _json.dumps(payload)
 
-    from coach import CORNER_ADVICE_SYSTEM_PROMPT, generate_corner_advice
-
     advice = await generate_corner_advice(CORNER_ADVICE_SYSTEM_PROMPT, session_data)
+
+    # Upsert cache. Replace any stale row for the same (session, mode,
+    # prompt_version) tuple so force_regenerate ends up with a clean state.
+    if cached is not None:
+        db.delete(cached)
+        db.commit()
+    db.add(
+        CoachAdviceCacheRow(
+            session_id=session_id,
+            payload_mode=mode_enum,
+            prompt_version=PROMPT_VERSION,
+            summary=advice.summary,
+            action_items_json=_json.dumps(advice.action_items),
+        )
+    )
+    db.commit()
+
     return CoachAdviceResponse(
         summary=advice.summary,
         action_items=advice.action_items,

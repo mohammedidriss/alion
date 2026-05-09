@@ -81,8 +81,9 @@ def load_hrv_csv_sync(
     rows. Intended for RQ1 study setup and offline analysis where the
     SSE stream isn't needed.
     """
-    from capture.hrv import parse_rr_csv as _parse
     from sqlmodel import delete as sqlmodel_delete
+
+    from capture.hrv import parse_rr_csv as _parse
 
     if repo.get(session_id) is None:
         raise HTTPException(status_code=404, detail="session not found")

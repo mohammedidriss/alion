@@ -45,25 +45,30 @@ export function RQ1RaterCard({ sessionId }: Props) {
     return arr;
   }, [sessionId]);
 
-  const storageKey = (rater: string) =>
-    `rq1:${rater || "anon"}:${sessionId}`;
-
+  // Persist the rater id locally so a single coach doesn't have to
+  // retype it on every session — but the actual scores live server-side.
   useEffect(() => {
     setRaterId(localStorage.getItem("rq1:rater") ?? "");
   }, []);
 
+  // Pull this rater's existing scores for this session so a refresh
+  // doesn't lose work.
   useEffect(() => {
-    const raw = localStorage.getItem(storageKey(raterId));
-    if (raw) {
-      try {
-        setRatings(JSON.parse(raw));
-      } catch {
-        // ignore
-      }
-    } else {
-      setRatings({ cv: {}, hrv: {}, imu: {}, fused: {} });
-    }
     setRevealed(false);
+    if (!raterId) {
+      setRatings({ cv: {}, hrv: {}, imu: {}, fused: {} });
+      return;
+    }
+    api
+      .rq1ListRatings(sessionId, raterId)
+      .then((rows) => {
+        const next: typeof ratings = { cv: {}, hrv: {}, imu: {}, fused: {} };
+        for (const r of rows) {
+          next[r.payload_mode][r.criterion as Criterion] = r.score;
+        }
+        setRatings(next);
+      })
+      .catch(() => undefined);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [raterId, sessionId]);
 
@@ -84,11 +89,23 @@ export function RQ1RaterCard({ sessionId }: Props) {
   };
 
   const setScore = (mode: PayloadMode, c: Criterion, value: number) => {
-    setRatings((prev) => {
-      const upd = { ...prev, [mode]: { ...prev[mode], [c]: value } };
-      localStorage.setItem(storageKey(raterId), JSON.stringify(upd));
-      return upd;
-    });
+    if (!raterId) {
+      setErr("Set a rater id first.");
+      return;
+    }
+    // Optimistic update — flip the UI, then persist to the server.
+    setRatings((prev) => ({
+      ...prev,
+      [mode]: { ...prev[mode], [c]: value },
+    }));
+    api
+      .rq1UpsertRating(sessionId, {
+        payload_mode: mode,
+        rater_id: raterId,
+        criterion: c,
+        score: value,
+      })
+      .catch((e) => setErr(String(e)));
   };
 
   const exportRatings = () => {

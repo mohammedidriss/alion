@@ -314,6 +314,24 @@ export interface CoachAdviceResponse {
   action_items: string[];
 }
 
+export interface RQ1Rating {
+  session_id: string;
+  payload_mode: PayloadMode;
+  rater_id: string;
+  criterion: string;
+  score: number;
+  notes: string | null;
+  created_at: string;
+}
+
+export interface RQ1RatingUpsert {
+  payload_mode: PayloadMode;
+  rater_id: string;
+  criterion: string;
+  score: number;
+  notes?: string | null;
+}
+
 export type PayloadMode = "cv" | "hrv" | "imu" | "fused";
 
 export interface IMUSample {
@@ -619,6 +637,20 @@ export const api = {
     req<number>(`/sessions/${id}/imu/synth`, { method: "POST" }),
   loadHrvSync: (id: string) =>
     req<number>(`/v2/sessions/${id}/hrv/load`, { method: "POST" }),
+
+  // ---- RQ1 study ----
+  rq1ListRatings: (sessionId: string, raterId?: string) =>
+    req<RQ1Rating[]>(
+      `/studies/rq1/sessions/${sessionId}/ratings${
+        raterId ? `?rater_id=${encodeURIComponent(raterId)}` : ""
+      }`,
+    ),
+  rq1UpsertRating: (sessionId: string, body: RQ1RatingUpsert) =>
+    req<RQ1Rating>(`/studies/rq1/sessions/${sessionId}/ratings`, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify(body),
+    }),
   fighterMatrix: (id: string) =>
     req<MatrixResponse>(`/fighters/${id}/matrix`),
   fighterReadiness: (id: string) =>

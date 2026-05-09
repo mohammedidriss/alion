@@ -286,9 +286,7 @@ class HeuristicPunchDetector:
             # If elbow geometry is degenerate (shoulder and elbow at the
             # same point — happens in 2D-only synthetic data, never in
             # real MediaPipe output), skip this gate.
-            elbow_open_enough = (
-                elbow_angle <= 0.0 or elbow_angle >= self.min_elbow_angle_deg
-            )
+            elbow_open_enough = elbow_angle <= 0.0 or elbow_angle >= self.min_elbow_angle_deg
             extension_ratio_ok = self._extension_ratio_ok(st, extension)
 
             # Near-miss instrumentation: when a peak got close to firing but

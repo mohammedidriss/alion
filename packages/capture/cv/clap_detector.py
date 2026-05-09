@@ -4,9 +4,10 @@ from __future__ import annotations
 
 from contracts import PoseFrame
 
+
 class ClapDetector:
     """Detects a physical 'clap' gesture (wrists meeting rapidly) to synchronize IMU and CV streams.
-    
+
     This records the exact `t_ms` of the visual clap, which the Fusion Engine
     will later align against the IMU's accelerometer spike.
     """
