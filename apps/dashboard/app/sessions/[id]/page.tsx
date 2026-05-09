@@ -485,8 +485,8 @@ export default function SessionPage({ params }: { params: { id: string } }) {
           the right. Stacks on mobile. */}
       <div className="grid grid-cols-1 gap-6 lg:grid-cols-[300px_minmax(0,1fr)]">
         <aside className="space-y-4 lg:sticky lg:top-4 lg:self-start">
-          <RoundConfigCard session={session} onChange={setSession} />
           {isLive && <RoundTimer session={session} durationMs={liveDurationMs} />}
+          <RoundConfigCard session={session} onChange={setSession} />
         </aside>
         <div className="space-y-6">
           <LiveAdviceCard sessionId={session.id} status={session.status} />
