@@ -95,6 +95,11 @@ export default function SessionPage({ params }: { params: { id: string } }) {
         api.resumeCapture(id).catch(() => undefined);
       }
     }
+    // Auto-stop the session once the planned rounds are done. Only fire
+    // once — refresh() will flip status to "completed" on the next poll.
+    if (phase === "done" && session?.status === "capturing") {
+      api.stopCapture(id).catch(() => undefined);
+    }
   }, [
     now,
     session?.status,
