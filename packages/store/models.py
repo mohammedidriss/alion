@@ -210,7 +210,7 @@ class Session(SQLModel, table=True):
     # Round structure for the planned session — used by the in-session
     # timer + reporting. Defaults match a typical 3×3-minute pro round.
     round_count: int | None = Field(default=None, ge=1, le=24)
-    round_duration_s: int | None = Field(default=None, ge=10, le=900)
+    round_duration_s: int | None = Field(default=None, ge=1, le=900)
     rest_duration_s: int | None = Field(default=None, ge=0, le=600)
 
 

@@ -33,8 +33,8 @@ function NewSessionInner() {
   // doesn't have to configure mid-flow. Defaults match a typical pro
   // 3×3-minute round with 1-minute rest.
   const [rounds, setRounds] = useState<number>(3);
-  const [roundS, setRoundS] = useState<number>(180);
-  const [restS, setRestS] = useState<number>(60);
+  const [roundS, setRoundS] = useState<number>(3);
+  const [restS, setRestS] = useState<number>(3);
   // Optional file payloads picked at create-time so the user doesn't
   // have to land on the session page just to upload an asset.
   const [videoFile, setVideoFile] = useState<File | null>(null);
@@ -323,7 +323,7 @@ function NewSessionInner() {
             <NumberField
               label="Round duration (s)"
               value={roundS}
-              min={10}
+              min={1}
               max={900}
               step={10}
               onChange={setRoundS}

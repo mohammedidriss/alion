@@ -692,8 +692,8 @@ def rounds_export(
         raise HTTPException(status_code=404, detail="session not found")
 
     rounds_n = row.round_count or 3
-    round_s = row.round_duration_s or 180
-    rest_s = row.rest_duration_s or 60
+    round_s = row.round_duration_s or 3
+    rest_s = row.rest_duration_s if row.rest_duration_s is not None else 3
     segment_ms = (round_s + rest_s) * 1000.0
     round_ms = round_s * 1000.0
 

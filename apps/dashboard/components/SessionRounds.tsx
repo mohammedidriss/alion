@@ -23,15 +23,15 @@ export function RoundConfigCard({
   onChange: (s: Session) => void;
 }) {
   const [rounds, setRounds] = useState<number>(session.round_count ?? 3);
-  const [roundS, setRoundS] = useState<number>(session.round_duration_s ?? 180);
-  const [restS, setRestS] = useState<number>(session.rest_duration_s ?? 60);
+  const [roundS, setRoundS] = useState<number>(session.round_duration_s ?? 3);
+  const [restS, setRestS] = useState<number>(session.rest_duration_s ?? 3);
   const [saving, setSaving] = useState(false);
   const [err, setErr] = useState<string | null>(null);
 
   useEffect(() => {
     setRounds(session.round_count ?? 3);
-    setRoundS(session.round_duration_s ?? 180);
-    setRestS(session.rest_duration_s ?? 60);
+    setRoundS(session.round_duration_s ?? 3);
+    setRestS(session.rest_duration_s ?? 3);
   }, [session.round_count, session.round_duration_s, session.rest_duration_s]);
 
   const totalS =
@@ -82,7 +82,7 @@ export function RoundConfigCard({
         <NumberField
           label="Round duration (s)"
           value={roundS}
-          min={10}
+          min={1}
           max={900}
           step={10}
           disabled={!editable || saving}
@@ -216,8 +216,8 @@ export function RoundTimer({
   durationMs: number;
 }) {
   const rounds = session.round_count ?? 3;
-  const roundS = session.round_duration_s ?? 180;
-  const restS = session.rest_duration_s ?? 60;
+  const roundS = session.round_duration_s ?? 3;
+  const restS = session.rest_duration_s ?? 3;
   const segmentS = roundS + restS;
   const elapsedS = durationMs / 1000;
   // Total session time (no rest after the last round)
