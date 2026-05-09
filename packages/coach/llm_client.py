@@ -35,8 +35,8 @@ async def generate_corner_advice(system_prompt: str, session_data_json: str) -> 
                 {"role": "system", "content": system_prompt},
                 {"role": "user", "content": session_data_json},
             ],
-            temperature=0.7,
-            max_tokens=500,
+            temperature=0.5,
+            max_tokens=800,
         )
     except Exception as e:
         return CoachAdvice(
@@ -45,20 +45,64 @@ async def generate_corner_advice(system_prompt: str, session_data_json: str) -> 
         )
 
     content = completion.choices[0].message.content or "{}"
+    return _parse_advice(content)
 
-    # Strip out markdown code blocks if the model wrapped the JSON
-    content = re.sub(r"^```json\s*", "", content)
-    content = re.sub(r"^```\s*", "", content)
-    content = re.sub(r"\s*```$", "", content)
 
+def _parse_advice(content: str) -> CoachAdvice:
+    """Robust JSON extraction.
+
+    Small open-source models occasionally:
+    - wrap in ```json``` fences,
+    - return trailing commentary,
+    - nest the real JSON inside the `summary` field as a string.
+    Try the obvious parse first, then a brace-balanced extract, then
+    grep the inner JSON. Last resort: surface the raw text.
+    """
+    s = content.strip()
+    # 1. Strip markdown fences.
+    s = re.sub(r"^```(?:json)?\s*", "", s)
+    s = re.sub(r"\s*```$", "", s)
+    # 2. Brace-balanced extract — first {...} that parses.
+    candidate = _first_balanced_object(s) or s
     try:
-        data = json.loads(content)
-        return CoachAdvice(
-            summary=data.get("summary", "No summary provided."),
-            action_items=data.get("action_items", []),
-        )
+        data = json.loads(candidate)
     except json.JSONDecodeError:
+        # 3. Try to greedy-find a "summary" key in the raw text.
+        m = re.search(r'"summary"\s*:\s*"([^"]+)"', content, re.S)
+        items = re.findall(r'"([^"]{6,160})"\s*[,\]]', content)
         return CoachAdvice(
-            summary=content.strip(),
-            action_items=[],
+            summary=m.group(1) if m else content[:300].strip(),
+            action_items=items[:3] if m else [],
         )
+    # 4. Sometimes the model nests another JSON inside summary.
+    summary = data.get("summary")
+    actions = data.get("action_items") or []
+    if isinstance(summary, str) and summary.lstrip().startswith("{"):
+        try:
+            inner = json.loads(_first_balanced_object(summary) or summary)
+            summary = inner.get("summary", summary)
+            if not actions:
+                actions = inner.get("action_items", [])
+        except json.JSONDecodeError:
+            pass
+    return CoachAdvice(
+        summary=summary or "No summary provided.",
+        action_items=list(actions),
+    )
+
+
+def _first_balanced_object(s: str) -> str | None:
+    """Return the first {...} substring with balanced braces, or None."""
+    start = s.find("{")
+    if start < 0:
+        return None
+    depth = 0
+    for i in range(start, len(s)):
+        c = s[i]
+        if c == "{":
+            depth += 1
+        elif c == "}":
+            depth -= 1
+            if depth == 0:
+                return s[start : i + 1]
+    return None

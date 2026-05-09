@@ -51,14 +51,13 @@ DEFAULT_BODY_MOTION_THRESHOLD_MS = 2.0  # was 1.2 — stepping into a cross is n
 DEFAULT_MIN_FORWARD_TRAVEL = 0.03  # was 0.05 — accommodate MediaPipe jitter
 DEFAULT_DECEL_FACTOR = 0.92  # speed must drop by ≥8% — was 15%, too noisy
 # Elbow-angle gate: at the moment a peak fires, the elbow must have opened
-# at least this much (degrees). Hooks/uppercuts keep ~90°; pure blocks
-# and guard adjustments are typically <70°, so 80° is the cutoff.
-DEFAULT_MIN_ELBOW_ANGLE_DEG = 80.0
+# at least this much (degrees). Set permissively by default — strict
+# gates rejected too many real punches in live testing on 2026-05-09.
+# Tighten on a per-fighter basis once we have labeled data.
+DEFAULT_MIN_ELBOW_ANGLE_DEG = 60.0  # was 80; hooks ~90°, blocks <50°
 # Start-from-guard ratio: a real punch starts compact (wrist near
-# shoulder) and ends extended. Reject "events" where the wrist was
-# already extended for the whole window — those are hand-jitter, not
-# a thrown punch. peak_ext / min_ext_in_window must exceed this ratio.
-DEFAULT_MIN_EXTENSION_RATIO = 1.25
+# shoulder) and ends extended. Permissive default for the same reason.
+DEFAULT_MIN_EXTENSION_RATIO = 1.05  # was 1.25
 
 
 @dataclass
