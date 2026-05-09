@@ -359,7 +359,13 @@ export default function SessionPage({ params }: { params: { id: string } }) {
       {(showStart ||
         isLive ||
         (session.source === "uploaded_video" && !session.video_path)) && (
-        <section className="rounded-lg border border-neutral-800 bg-neutral-950/60 p-4">
+        <section className="space-y-4 rounded-lg border border-neutral-800 bg-neutral-950/60 p-4">
+          {/* Round timer pinned at the top of the capture panel during
+              live capture so the fighter can read elapsed/round-left
+              while looking at the camera. */}
+          {isLive && (
+            <RoundTimer session={session} durationMs={liveDurationMs} />
+          )}
           <div
             className={`grid grid-cols-1 gap-4 ${
               isLive ? "lg:grid-cols-[1fr_minmax(0,420px)]" : ""
@@ -480,7 +486,6 @@ export default function SessionPage({ params }: { params: { id: string } }) {
           analysis (middle), AI corner advice (right). Stacks on mobile. */}
       <div className="grid grid-cols-1 gap-6 xl:grid-cols-[280px_minmax(0,1fr)_320px]">
         <aside className="space-y-4 xl:sticky xl:top-4 xl:self-start">
-          {isLive && <RoundTimer session={session} durationMs={liveDurationMs} />}
           <RoundConfigCard session={session} onChange={setSession} />
         </aside>
         <div className="space-y-6">
