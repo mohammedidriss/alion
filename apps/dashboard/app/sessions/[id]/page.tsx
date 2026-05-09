@@ -368,92 +368,125 @@ export default function SessionPage({ params }: { params: { id: string } }) {
         />
       )}
 
-      {events.length > 0 && status?.duration_ms && status.duration_ms > 0 &&
-        (() => {
-          const sorted = [...events].map((e) => e.velocity_ms).sort((a, b) => a - b);
+      {(() => {
+        // Always show Session performance — placeholders ("—") when
+        // no events yet so the panel structure is visible during a
+        // fresh capture before the first detection lands.
+        const durationMs = status?.duration_ms ?? 0;
+        const hasData = events.length > 0 && durationMs > 0;
+        let peakP90: number | null = null;
+        let ppm: number | null = null;
+        let score: number | null = null;
+        let durationMin = durationMs / 60_000;
+        if (hasData) {
+          const sorted = [...events]
+            .map((e) => e.velocity_ms)
+            .sort((a, b) => a - b);
           const k = (sorted.length - 1) * 0.9;
           const lo = Math.floor(k);
           const hi = Math.min(lo + 1, sorted.length - 1);
-          const peakP90 =
-            sorted[lo] * (1 - (k - lo)) + sorted[hi] * (k - lo);
-          const durationMin = status.duration_ms / 60_000;
-          const ppm = events.length / durationMin;
-          const score = peakP90 * (ppm / 60) * durationMin;
-          return (
-            <section className="rounded-lg border border-neutral-800 bg-neutral-950 p-4">
-              <h2 className="font-medium">Session performance</h2>
-              <p className="mt-1 text-xs text-neutral-500">
-                Transparent v1: peak_v_p90 × ppm/60 × duration_min. Same
-                formula as the per-fighter progress chart.
+          peakP90 = sorted[lo] * (1 - (k - lo)) + sorted[hi] * (k - lo);
+          ppm = events.length / Math.max(durationMin, 1e-6);
+          score = peakP90 * (ppm / 60) * durationMin;
+        }
+        const fmt = (v: number | null, d = 2) => (v === null ? "—" : v.toFixed(d));
+        return (
+          <section className="rounded-lg border border-neutral-800 bg-neutral-950 p-4">
+            <h2 className="font-medium">Session performance</h2>
+            <p className="mt-1 text-xs text-neutral-500">
+              Transparent v1: peak_v_p90 × ppm/60 × duration_min. Same
+              formula as the per-fighter progress chart.
+            </p>
+            <div className="mt-3 grid grid-cols-2 gap-3 sm:grid-cols-4">
+              <div className="rounded border border-neutral-800 p-3">
+                <div className="text-xs text-neutral-500">Peak v p90</div>
+                <div className="mt-1 text-xl font-semibold tabular-nums">
+                  {fmt(peakP90)} <span className="text-xs text-neutral-500">m/s</span>
+                </div>
+              </div>
+              <div className="rounded border border-neutral-800 p-3">
+                <div className="text-xs text-neutral-500">Throughput</div>
+                <div className="mt-1 text-xl font-semibold tabular-nums">
+                  {fmt(ppm, 0)} <span className="text-xs text-neutral-500">ppm</span>
+                </div>
+              </div>
+              <div className="rounded border border-neutral-800 p-3">
+                <div className="text-xs text-neutral-500">Duration</div>
+                <div className="mt-1 text-xl font-semibold tabular-nums">
+                  {durationMin > 0 ? durationMin.toFixed(2) : "—"}{" "}
+                  <span className="text-xs text-neutral-500">min</span>
+                </div>
+              </div>
+              <div className="rounded border border-amber-700/40 bg-amber-950/30 p-3">
+                <div className="text-xs text-amber-300/80">Score</div>
+                <div className="mt-1 text-xl font-semibold tabular-nums text-amber-100">
+                  {fmt(score)}
+                </div>
+              </div>
+            </div>
+            {!hasData && (
+              <p className="mt-3 text-[11px] text-neutral-500">
+                Waiting for the first detected punch — metrics populate live as the detector fires.
               </p>
-              <div className="mt-3 grid grid-cols-2 gap-3 sm:grid-cols-4">
-                <div className="rounded border border-neutral-800 p-3">
-                  <div className="text-xs text-neutral-500">Peak v p90</div>
-                  <div className="mt-1 text-xl font-semibold tabular-nums">
-                    {peakP90.toFixed(2)} <span className="text-xs text-neutral-500">m/s</span>
-                  </div>
-                </div>
-                <div className="rounded border border-neutral-800 p-3">
-                  <div className="text-xs text-neutral-500">Throughput</div>
-                  <div className="mt-1 text-xl font-semibold tabular-nums">
-                    {ppm.toFixed(0)} <span className="text-xs text-neutral-500">ppm</span>
-                  </div>
-                </div>
-                <div className="rounded border border-neutral-800 p-3">
-                  <div className="text-xs text-neutral-500">Duration</div>
-                  <div className="mt-1 text-xl font-semibold tabular-nums">
-                    {durationMin.toFixed(2)} <span className="text-xs text-neutral-500">min</span>
-                  </div>
-                </div>
-                <div className="rounded border border-amber-700/40 bg-amber-950/30 p-3">
-                  <div className="text-xs text-amber-300/80">Score</div>
-                  <div className="mt-1 text-xl font-semibold tabular-nums text-amber-100">
-                    {score.toFixed(2)}
-                  </div>
-                </div>
-              </div>
-            </section>
-          );
-        })()}
+            )}
+          </section>
+        );
+      })()}
 
-      {events.length > 0 &&
-        (() => {
-          const hardest = events.reduce(
-            (m, e) => (e.velocity_ms > m.velocity_ms ? e : m),
-            events[0],
-          );
-          return (
-            <section className="rounded-lg border border-amber-700/40 bg-gradient-to-br from-amber-950/30 to-neutral-950 p-4">
-              <div className="flex items-baseline justify-between">
-                <h2 className="font-medium text-amber-200">Hardest punch</h2>
-                <span className="text-xs text-neutral-500">
-                  {formatPunchTime(session.started_at, hardest.t_ms)}
+      {(() => {
+        // Always show the hardest-punch panel; placeholders when no
+        // events yet so the user sees the structure during a fresh
+        // capture.
+        const hardest =
+          events.length > 0
+            ? events.reduce(
+                (m, e) => (e.velocity_ms > m.velocity_ms ? e : m),
+                events[0],
+              )
+            : null;
+        return (
+          <section className="rounded-lg border border-amber-700/40 bg-gradient-to-br from-amber-950/30 to-neutral-950 p-4">
+            <div className="flex items-baseline justify-between">
+              <h2 className="font-medium text-amber-200">Hardest punch</h2>
+              <span className="text-xs text-neutral-500">
+                {hardest ? formatPunchTime(session.started_at, hardest.t_ms) : "—"}
+              </span>
+            </div>
+            <div className="mt-3 flex items-baseline gap-3">
+              <span className="text-4xl font-bold tabular-nums text-amber-100">
+                {hardest ? hardest.velocity_ms.toFixed(2) : "—"}
+              </span>
+              <span className="text-sm text-neutral-400">m/s</span>
+            </div>
+            <div className="mt-2 flex flex-wrap gap-x-4 gap-y-1 text-xs text-neutral-400">
+              <span>
+                hand:{" "}
+                <span
+                  className={
+                    hardest?.hand === "left"
+                      ? "text-amber-300"
+                      : hardest?.hand === "right"
+                        ? "text-sky-300"
+                        : "text-neutral-500"
+                  }
+                >
+                  {hardest?.hand ?? "—"}
                 </span>
-              </div>
-              <div className="mt-3 flex items-baseline gap-3">
-                <span className="text-4xl font-bold tabular-nums text-amber-100">
-                  {hardest.velocity_ms.toFixed(2)}
-                </span>
-                <span className="text-sm text-neutral-400">m/s</span>
-              </div>
-              <div className="mt-2 flex flex-wrap gap-x-4 gap-y-1 text-xs text-neutral-400">
-                <span>
-                  hand:{" "}
-                  <span
-                    className={
-                      hardest.hand === "left" ? "text-amber-300" : "text-sky-300"
-                    }
-                  >
-                    {hardest.hand}
-                  </span>
-                </span>
-                {hardest.punch_type && <span>type: {hardest.punch_type}</span>}
-                {hardest.lead_or_rear && <span>{hardest.lead_or_rear}</span>}
-                <span>conf: {hardest.confidence.toFixed(2)}</span>
-              </div>
-            </section>
-          );
-        })()}
+              </span>
+              {hardest?.punch_type && <span>type: {hardest.punch_type}</span>}
+              {hardest?.lead_or_rear && <span>{hardest.lead_or_rear}</span>}
+              <span>
+                conf: {hardest ? hardest.confidence.toFixed(2) : "—"}
+              </span>
+            </div>
+            {!hardest && (
+              <p className="mt-3 text-[11px] text-neutral-500">
+                Will surface the highest-velocity detection of this session as soon as one fires.
+              </p>
+            )}
+          </section>
+        );
+      })()}
 
       {events.length >= 5 &&
         (() => {
