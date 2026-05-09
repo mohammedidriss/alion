@@ -176,8 +176,16 @@ def _run_capture(
     pose_history: list[PoseFrame] = []
     history_len = 8
 
-    # Gym Mode: if webcam, require a "gloves up" gesture before we start.
-    waiting_for_gesture = source_kind == "live_webcam"
+    # Gym Mode: optional "gloves up" gesture before detection starts.
+    # Disabled by default — it silently swallowed every detection when
+    # the fighter forgot the gesture (2026-05-09 bug). Re-enable per
+    # session via env var if/when we want it back.
+    import os as _os
+
+    waiting_for_gesture = (
+        source_kind == "live_webcam"
+        and _os.environ.get("ALION_REQUIRE_GLOVES_UP") == "1"
+    )
     gesture_frames = 0
 
     # Try to load custom ML model
