@@ -347,24 +347,117 @@ export default function SessionPage({ params }: { params: { id: string } }) {
         </div>
       )}
 
-      <section className="grid grid-cols-2 gap-3 sm:grid-cols-4">
-        <Stat label="Frames" value={status?.frame_count ?? 0} />
-        <Stat
-          label="Duration"
-          value={`${((status?.duration_ms ?? 0) / 1000).toFixed(1)}s`}
-        />
-        <Stat label="Punches" value={status?.punch_count ?? 0} />
-        <Stat
-          label="Punches / min"
-          value={(() => {
-            const ms = status?.duration_ms ?? 0;
-            const n = status?.punch_count ?? 0;
-            if (!ms || !n) return "—";
-            const ppm = (n / (ms / 1000)) * 60;
-            return ppm.toFixed(0);
-          })()}
-        />
-      </section>
+      {/* Top action bar — Start, camera selection, pause/resume/stop,
+          and the upload-MP4 control. Sits above the main 3-column
+          layout so the primary capture controls are always one click
+          away regardless of state. */}
+      {(showStart ||
+        isLive ||
+        (session.source === "uploaded_video" && !session.video_path)) && (
+        <section className="flex flex-wrap items-end gap-3 rounded-lg border border-neutral-800 bg-neutral-950/60 p-4">
+          {session.source === "uploaded_video" && !session.video_path && (
+            <div className="flex flex-col">
+              <label className="mb-1 text-xs text-neutral-400">Upload MP4</label>
+              <input
+                type="file"
+                accept="video/mp4,video/quicktime"
+                disabled={uploading}
+                onChange={(e) => e.target.files?.[0] && upload(e.target.files[0])}
+                className="text-xs"
+              />
+            </div>
+          )}
+          {showStart &&
+            session.source === "live_webcam" &&
+            cameras.length > 0 && (
+              <div className="flex flex-col">
+                <label className="mb-1 text-xs text-neutral-400">Camera</label>
+                <select
+                  className="rounded bg-neutral-900 px-3 py-2 text-sm"
+                  value={cameraIndex}
+                  onChange={(e) => setCameraIndex(Number(e.target.value))}
+                >
+                  {cameras.map((c) => (
+                    <option key={c.index} value={c.index}>
+                      #{c.index} — {c.width}×{c.height} @ {Math.round(c.fps)} fps
+                    </option>
+                  ))}
+                </select>
+              </div>
+            )}
+          {showStart && (
+            <button
+              onClick={start}
+              disabled={!cvAvailable}
+              title={
+                cvAvailable
+                  ? undefined
+                  : "Disabled — capture is not available on this server. Run on the host."
+              }
+              className="rounded bg-emerald-600 px-4 py-2 font-medium hover:bg-emerald-500 disabled:cursor-not-allowed disabled:bg-neutral-700 disabled:text-neutral-400"
+            >
+              {session.source === "live_webcam"
+                ? "Start live capture"
+                : "Process video"}
+            </button>
+          )}
+          {isLive && (
+            <>
+              {status?.is_paused ? (
+                <button
+                  onClick={resume}
+                  className="rounded bg-emerald-600 px-4 py-2 font-medium hover:bg-emerald-500"
+                >
+                  Resume
+                </button>
+              ) : (
+                <button
+                  onClick={pause}
+                  className="rounded bg-amber-600 px-4 py-2 font-medium hover:bg-amber-500"
+                >
+                  Pause
+                </button>
+              )}
+              <button
+                onClick={stop}
+                className="rounded bg-red-600 px-4 py-2 font-medium hover:bg-red-500"
+              >
+                Stop capture
+              </button>
+              {status?.is_paused && (
+                <span className="self-center text-xs text-amber-300">paused</span>
+              )}
+            </>
+          )}
+        </section>
+      )}
+
+      {/* 3-col layout: timer + round config (left), all metrics +
+          analysis (middle), AI corner advice (right). Stacks on mobile. */}
+      <div className="grid grid-cols-1 gap-6 xl:grid-cols-[280px_minmax(0,1fr)_320px]">
+        <aside className="space-y-4 xl:sticky xl:top-4 xl:self-start">
+          {isLive && <RoundTimer session={session} durationMs={liveDurationMs} />}
+          <RoundConfigCard session={session} onChange={setSession} />
+        </aside>
+        <div className="space-y-6">
+          <section className="grid grid-cols-2 gap-3 sm:grid-cols-4">
+            <Stat label="Frames" value={status?.frame_count ?? 0} />
+            <Stat
+              label="Duration"
+              value={`${((status?.duration_ms ?? 0) / 1000).toFixed(1)}s`}
+            />
+            <Stat label="Punches" value={status?.punch_count ?? 0} />
+            <Stat
+              label="Punches / min"
+              value={(() => {
+                const ms = status?.duration_ms ?? 0;
+                const n = status?.punch_count ?? 0;
+                if (!ms || !n) return "—";
+                const ppm = (n / (ms / 1000)) * 60;
+                return ppm.toFixed(0);
+              })()}
+            />
+          </section>
 
       {(() => {
         // Always show Session performance — placeholders ("—") when
@@ -486,15 +579,6 @@ export default function SessionPage({ params }: { params: { id: string } }) {
         );
       })()}
 
-      {/* Below-the-fold: timer pinned on the left, all other panels on
-          the right. Stacks on mobile. */}
-      <div className="grid grid-cols-1 gap-6 lg:grid-cols-[300px_minmax(0,1fr)]">
-        <aside className="space-y-4 lg:sticky lg:top-4 lg:self-start">
-          {isLive && <RoundTimer session={session} durationMs={liveDurationMs} />}
-          <RoundConfigCard session={session} onChange={setSession} />
-        </aside>
-        <div className="space-y-6">
-          <LiveAdviceCard sessionId={session.id} status={session.status} />
 
       {events.length >= 5 &&
         (() => {
@@ -543,82 +627,6 @@ export default function SessionPage({ params }: { params: { id: string } }) {
         </section>
       )}
 
-      {session.source === "uploaded_video" && !session.video_path && (
-        <section className="rounded-lg border border-neutral-800 p-4">
-          <h2 className="font-medium">Upload MP4</h2>
-          <input
-            type="file"
-            accept="video/mp4,video/quicktime"
-            disabled={uploading}
-            onChange={(e) => e.target.files?.[0] && upload(e.target.files[0])}
-            className="mt-3 w-full text-sm"
-          />
-        </section>
-      )}
-
-      {showStart && session.source === "live_webcam" && cameras.length > 0 && (
-        <section className="rounded-lg border border-neutral-800 p-4">
-          <label className="text-sm font-medium text-neutral-300">Camera</label>
-          <select
-            className="mt-2 w-full rounded bg-neutral-900 p-2 text-sm"
-            value={cameraIndex}
-            onChange={(e) => setCameraIndex(Number(e.target.value))}
-          >
-            {cameras.map((c) => (
-              <option key={c.index} value={c.index}>
-                #{c.index} — {c.width}×{c.height} @ {Math.round(c.fps)} fps
-              </option>
-            ))}
-          </select>
-          <p className="mt-2 text-xs text-neutral-500">
-            {cameras.length} camera{cameras.length === 1 ? "" : "s"} available.
-          </p>
-        </section>
-      )}
-
-      {showStart && (
-        <button
-          onClick={start}
-          disabled={!cvAvailable}
-          title={
-            cvAvailable
-              ? undefined
-              : "Disabled — capture is not available on this server. Run on the host."
-          }
-          className="rounded bg-emerald-600 px-4 py-2 font-medium hover:bg-emerald-500 disabled:cursor-not-allowed disabled:bg-neutral-700 disabled:text-neutral-400 disabled:hover:bg-neutral-700"
-        >
-          {session.source === "live_webcam" ? "Start live capture" : "Process video"}
-        </button>
-      )}
-
-      {(session.status === "capturing" || session.status === "processing") && (
-        <div className="flex flex-wrap gap-2">
-          {status?.is_paused ? (
-            <button
-              onClick={resume}
-              className="rounded bg-emerald-600 px-4 py-2 font-medium hover:bg-emerald-500"
-            >
-              Resume
-            </button>
-          ) : (
-            <button
-              onClick={pause}
-              className="rounded bg-amber-600 px-4 py-2 font-medium hover:bg-amber-500"
-            >
-              Pause
-            </button>
-          )}
-          <button
-            onClick={stop}
-            className="rounded bg-red-600 px-4 py-2 font-medium hover:bg-red-500"
-          >
-            Stop capture
-          </button>
-          {status?.is_paused && (
-            <span className="self-center text-xs text-amber-300">paused</span>
-          )}
-        </div>
-      )}
 
       <HrvPanel sessionId={session.id} />
       <IMUPanel sessionId={session.id} punchEvents={events} />
@@ -818,6 +826,9 @@ export default function SessionPage({ params }: { params: { id: string } }) {
         )}
       </section>
         </div>
+        <aside className="space-y-4 xl:sticky xl:top-4 xl:self-start">
+          <LiveAdviceCard sessionId={session.id} status={session.status} />
+        </aside>
       </div>
 
       {confirmDelete && (
