@@ -6,6 +6,7 @@ import { useEffect, useRef, useState } from "react";
 import { EvaluationCard } from "@/components/EvaluationCard";
 import { HrvPanel } from "@/components/HrvPanel";
 import { IMUPanel } from "@/components/IMUPanel";
+import { LiveAdviceCard } from "@/components/LiveAdviceCard";
 import { RQ1RaterCard } from "@/components/RQ1RaterCard";
 import { PunchChart } from "@/components/PunchChart";
 import { PunchTimeline } from "@/components/PunchTimeline";
@@ -491,6 +492,7 @@ export default function SessionPage({ params }: { params: { id: string } }) {
           )}
         </aside>
         <div className="space-y-6">
+          <LiveAdviceCard sessionId={session.id} status={session.status} />
           {isLive && <RoundConfigCard session={session} onChange={setSession} />}
 
       {events.length >= 5 &&
