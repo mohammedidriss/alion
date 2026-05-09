@@ -69,6 +69,45 @@ def upload_hrv_csv(
     return SessionRead.model_validate(row, from_attributes=True)
 
 
+@router.post("/{session_id}/hrv/load", response_model=int, tags=["hrv"])
+def load_hrv_csv_sync(
+    session_id: UUID,
+    repo: SessionRepo = Depends(session_repo),
+    db: DBSession = Depends(db_session),
+) -> int:
+    """Synchronously bulk-load the uploaded RR CSV into `hr_sample`.
+
+    Skips the realtime replay loop — just parses the file and inserts
+    rows. Intended for RQ1 study setup and offline analysis where the
+    SSE stream isn't needed.
+    """
+    from capture.hrv import parse_rr_csv as _parse
+    from sqlmodel import delete as sqlmodel_delete
+
+    if repo.get(session_id) is None:
+        raise HTTPException(status_code=404, detail="session not found")
+    csv_path = _HRV_DIR / f"{session_id}.csv"
+    if not csv_path.exists():
+        raise HTTPException(status_code=400, detail="upload an HRV CSV first")
+    rows = _parse(csv_path)
+    db.exec(
+        sqlmodel_delete(HRSampleRow).where(HRSampleRow.session_id == session_id)  # type: ignore[arg-type]
+    )
+    n = 0
+    for t_ms, rr_ms in rows:
+        db.add(
+            HRSampleRow(
+                session_id=session_id,
+                t_ms=t_ms,
+                rr_ms=rr_ms,
+                hr_bpm=60000.0 / max(rr_ms, 1.0),
+            )
+        )
+        n += 1
+    db.commit()
+    return n
+
+
 @router.post("/{session_id}/hrv/start", response_model=HrvStatusResponse, tags=["hrv"])
 def start_hrv_replay(
     session_id: UUID,

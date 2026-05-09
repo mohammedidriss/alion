@@ -16,7 +16,7 @@ export type SessionStatus =
 export type Hand = "left" | "right";
 export type LeadOrRear = "lead" | "rear";
 export type PunchType = "jab" | "cross" | "hook" | "uppercut";
-export type DetectionSource = "heuristic" | "lstm_v1";
+export type DetectionSource = "heuristic" | "lstm_v1" | "custom_ml";
 export type VelocitySource = "world" | "image_heuristic";
 export type SkillLevel =
   | "recreational"
@@ -314,6 +314,63 @@ export interface CoachAdviceResponse {
   action_items: string[];
 }
 
+export type PayloadMode = "cv" | "hrv" | "imu" | "fused";
+
+export interface IMUSample {
+  session_id: string;
+  t_ms: number;
+  ax_g: number;
+  ay_g: number;
+  az_g: number;
+  gx_dps: number;
+  gy_dps: number;
+  gz_dps: number;
+  hand: "left" | "right" | null;
+}
+
+export interface RoundCvBlock {
+  punch_count: number;
+  peak_velocity_ms: number | null;
+  ppm: number | null;
+}
+export interface RoundHrvBlock {
+  sample_count: number;
+  mean_hr_bpm: number | null;
+  peak_hr_bpm: number | null;
+  rmssd_ms: number | null;
+  rmssd_delta_vs_baseline_ms: number | null;
+}
+export interface RoundImuBlock {
+  sample_count: number;
+  peak_g: number | null;
+  n_impacts: number;
+  cv_imu_match_rate: number | null;
+}
+
+export interface RoundExportItem {
+  round_number: number;
+  start_ms: number;
+  end_ms: number;
+  duration_ms: number;
+  rest_after_ms: number;
+  punch_count: number;
+  peak_velocity_ms: number | null;
+  ppm: number | null;
+  cv: RoundCvBlock;
+  hrv: RoundHrvBlock;
+  imu: RoundImuBlock;
+}
+
+export interface RoundsExportResponse {
+  session_id: string;
+  fighter_id: string;
+  started_at: string;
+  round_count: number;
+  round_duration_s: number;
+  rest_duration_s: number;
+  rounds: RoundExportItem[];
+}
+
 export interface MatrixPoint {
   session_id: string;
   started_at: string;
@@ -550,8 +607,18 @@ export const api = {
   },
   sessionPerformance: (id: string) =>
     req<PerformanceScore>(`/sessions/${id}/performance`),
-  generateAdvice: (id: string) =>
-    req<CoachAdviceResponse>(`/sessions/${id}/advice`, { method: "POST" }),
+  generateAdvice: (id: string, payload_mode: PayloadMode = "fused") =>
+    req<CoachAdviceResponse>(
+      `/sessions/${id}/advice?payload_mode=${payload_mode}`,
+      { method: "POST" },
+    ),
+  roundsExport: (id: string) =>
+    req<RoundsExportResponse>(`/sessions/${id}/rounds_export`),
+  imuSamples: (id: string) => req<IMUSample[]>(`/sessions/${id}/imu/samples`),
+  synthesizeIMU: (id: string) =>
+    req<number>(`/sessions/${id}/imu/synth`, { method: "POST" }),
+  loadHrvSync: (id: string) =>
+    req<number>(`/v2/sessions/${id}/hrv/load`, { method: "POST" }),
   fighterMatrix: (id: string) =>
     req<MatrixResponse>(`/fighters/${id}/matrix`),
   fighterReadiness: (id: string) =>

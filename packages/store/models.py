@@ -302,6 +302,44 @@ class HRSampleRead(SQLModel):
 
 
 # ----------------------------------------------------------------------
+# IMU samples — wrist/glove inertial sensor (accelerometer + gyroscope).
+# Until real Hykso/Corner trackers arrive, the rows are populated by the
+# synthetic generator, the phone-IMU bridge, or a CSV upload.
+# ----------------------------------------------------------------------
+
+
+class IMUSampleRow(SQLModel, table=True):
+    __tablename__ = "imu_sample"
+    id: int | None = Field(default=None, primary_key=True)
+    session_id: UUID = Field(foreign_key="session.id", index=True)
+    t_ms: float
+    # Accelerometer (g). Magnitude is the most useful quantity for punch
+    # detection; component axes preserved for downstream classifiers.
+    ax_g: float
+    ay_g: float
+    az_g: float
+    # Gyroscope (deg/s). Optional but kept symmetric so a single-row
+    # contract works for both wrist IMUs and 6-DOF glove sensors.
+    gx_dps: float = 0.0
+    gy_dps: float = 0.0
+    gz_dps: float = 0.0
+    # Which hand the sensor was on, when known.
+    hand: HandEnum | None = None
+
+
+class IMUSampleRead(SQLModel):
+    session_id: UUID
+    t_ms: float
+    ax_g: float
+    ay_g: float
+    az_g: float
+    gx_dps: float = 0.0
+    gy_dps: float = 0.0
+    gz_dps: float = 0.0
+    hand: HandEnum | None = None
+
+
+# ----------------------------------------------------------------------
 # Coach + Referee profiles
 # ----------------------------------------------------------------------
 

@@ -179,12 +179,14 @@ def _run_capture(
     # Gym Mode: if webcam, require a "gloves up" gesture before we start.
     waiting_for_gesture = source_kind == "live_webcam"
     gesture_frames = 0
-    
+
     # Try to load custom ML model
     ml_model = None
     try:
         from pathlib import Path
+
         import joblib
+
         model_path = Path("data/ml/punch_classifier_v1.pkl")
         if model_path.exists():
             ml_model = joblib.load(model_path)
@@ -194,7 +196,7 @@ def _run_capture(
 
     def on_frame(pose: PoseFrame) -> None:
         nonlocal waiting_for_gesture, gesture_frames
-        
+
         if waiting_for_gesture:
             if pose.landmarks:
                 try:
@@ -203,18 +205,23 @@ def _run_capture(
                     r_sh = pose.landmarks[12]
                     l_wr = pose.landmarks[15]
                     r_wr = pose.landmarks[16]
-                    
+
                     if (
-                        l_wr.y < l_sh.y and r_wr.y < r_sh.y and
-                        abs(l_wr.x - r_wr.x) < 0.2 and
-                        abs(l_wr.y - nose.y) < 0.25 and abs(r_wr.y - nose.y) < 0.25
+                        l_wr.y < l_sh.y
+                        and r_wr.y < r_sh.y
+                        and abs(l_wr.x - r_wr.x) < 0.2
+                        and abs(l_wr.y - nose.y) < 0.25
+                        and abs(r_wr.y - nose.y) < 0.25
                     ):
                         gesture_frames += 1
-                        if gesture_frames > 20: # roughly ~0.6 seconds at 30fps
+                        if gesture_frames > 20:  # roughly ~0.6 seconds at 30fps
                             waiting_for_gesture = False
                             with _active_lock:
                                 _session_clocks[session_id] = SessionClock.start()
-                            log.info("capture.gesture_detected", extra={"_ctx_session_id": str(session_id)})
+                            log.info(
+                                "capture.gesture_detected",
+                                extra={"_ctx_session_id": str(session_id)},
+                            )
                     else:
                         gesture_frames = 0
                 except IndexError:
@@ -228,33 +235,46 @@ def _run_capture(
         for ev in detector.feed(pose):
             ptype = None
             detected_by = ev.detected_by
-            
+
             if ml_model is not None and pose.world_landmarks:
                 try:
                     import pandas as pd
+
                     ls = pose.world_landmarks[11]
                     rs = pose.world_landmarks[12]
                     lw = pose.world_landmarks[15]
                     rw = pose.world_landmarks[16]
-                    is_left_hand = 1 if ev.hand == 'left' else 0
-                    
-                    features = pd.DataFrame([{
-                        "velocity": ev.velocity_ms,
-                        "is_left_hand": is_left_hand,
-                        "ls_x": ls.x, "ls_y": ls.y, "ls_z": ls.z,
-                        "rs_x": rs.x, "rs_y": rs.y, "rs_z": rs.z,
-                        "lw_x": lw.x, "lw_y": lw.y, "lw_z": lw.z,
-                        "rw_x": rw.x, "rw_y": rw.y, "rw_z": rw.z
-                    }])
-                    
+                    is_left_hand = 1 if ev.hand == "left" else 0
+
+                    features = pd.DataFrame(
+                        [
+                            {
+                                "velocity": ev.velocity_ms,
+                                "is_left_hand": is_left_hand,
+                                "ls_x": ls.x,
+                                "ls_y": ls.y,
+                                "ls_z": ls.z,
+                                "rs_x": rs.x,
+                                "rs_y": rs.y,
+                                "rs_z": rs.z,
+                                "lw_x": lw.x,
+                                "lw_y": lw.y,
+                                "lw_z": lw.z,
+                                "rw_x": rw.x,
+                                "rw_y": rw.y,
+                                "rw_z": rw.z,
+                            }
+                        ]
+                    )
+
                     ptype = ml_model.predict(features)[0].lower()
                     detected_by = "custom_ml"
                 except Exception as e:
                     log.error(f"ML classification failed: {e}")
-            
+
             if not ptype:
                 ptype = classify_punch_type(pose_history, ev.hand, stance)
-                
+
             # Refine the velocity using sub-frame interpolation across the
             # recent pose history. We pull the wrist's world-coord trajectory
             # (or image-plane fallback) and feed it to the refiner. If we get

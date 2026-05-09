@@ -5,6 +5,8 @@ import { useRouter } from "next/navigation";
 import { useEffect, useRef, useState } from "react";
 import { EvaluationCard } from "@/components/EvaluationCard";
 import { HrvPanel } from "@/components/HrvPanel";
+import { IMUPanel } from "@/components/IMUPanel";
+import { RQ1RaterCard } from "@/components/RQ1RaterCard";
 import { PunchChart } from "@/components/PunchChart";
 import { PunchTimeline } from "@/components/PunchTimeline";
 import {
@@ -577,8 +579,9 @@ export default function SessionPage({ params }: { params: { id: string } }) {
         </div>
       )}
 
-      {(session.source === "polar_h10_only" ||
-        session.source === "hrv_replay") && <HrvPanel sessionId={session.id} />}
+      <HrvPanel sessionId={session.id} />
+      <IMUPanel sessionId={session.id} punchEvents={events} />
+      <RQ1RaterCard sessionId={session.id} />
 
       <PunchChart events={events} />
 

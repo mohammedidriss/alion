@@ -11,6 +11,7 @@ from store import (
     CoachRepo,
     FighterRepo,
     FighterTeamRepo,
+    IMUSampleRepo,
     MedicalRepo,
     PunchEventRepo,
     RefereeRepo,
@@ -33,6 +34,10 @@ def session_repo(session: Session = Depends(db_session)) -> SessionRepo:
 
 def punch_event_repo(session: Session = Depends(db_session)) -> PunchEventRepo:
     return PunchEventRepo(session)
+
+
+def imu_sample_repo(session: Session = Depends(db_session)) -> IMUSampleRepo:
+    return IMUSampleRepo(session)
 
 
 def coach_repo(session: Session = Depends(db_session)) -> CoachRepo:

@@ -1216,6 +1216,47 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/sessions/{session_id}/advice": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Get Session Advice
+         * @description Generate corner advice from a chosen payload subset.
+         *
+         *     `payload_mode` is the RQ1 study lever — same LLM, same prompt, but a
+         *     sliced view of the per-round fused export. Lets us measure marginal
+         *     advice quality contributed by each modality.
+         */
+        post: operations["get_session_advice_sessions__session_id__advice_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/sessions/{session_id}/rounds_export": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Rounds Export */
+        get: operations["rounds_export_sessions__session_id__rounds_export_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/sessions/{session_id}/labels": {
         parameters: {
             query?: never;
@@ -1559,6 +1600,47 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/v1/sessions/{session_id}/advice": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Get Session Advice
+         * @description Generate corner advice from a chosen payload subset.
+         *
+         *     `payload_mode` is the RQ1 study lever — same LLM, same prompt, but a
+         *     sliced view of the per-round fused export. Lets us measure marginal
+         *     advice quality contributed by each modality.
+         */
+        post: operations["get_session_advice_v1_sessions__session_id__advice_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/sessions/{session_id}/rounds_export": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Rounds Export */
+        get: operations["rounds_export_v1_sessions__session_id__rounds_export_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/v1/sessions/{session_id}/labels": {
         parameters: {
             query?: never;
@@ -1654,6 +1736,30 @@ export interface paths {
          *     Session.hrv_csv_path column we'll move it there cleanly.
          */
         post: operations["upload_hrv_csv_v2_sessions__session_id__hrv_upload_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v2/sessions/{session_id}/hrv/load": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Load Hrv Csv Sync
+         * @description Synchronously bulk-load the uploaded RR CSV into `hr_sample`.
+         *
+         *     Skips the realtime replay loop — just parses the file and inserts
+         *     rows. Intended for RQ1 study setup and offline analysis where the
+         *     SSE stream isn't needed.
+         */
+        post: operations["load_hrv_csv_sync_v2_sessions__session_id__hrv_load_post"];
         delete?: never;
         options?: never;
         head?: never;
@@ -1763,6 +1869,122 @@ export interface paths {
          *     the runner is no longer running and we've sent a final frame.
          */
         get: operations["hrv_live_stream_v2_sessions__session_id__hrv_live_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v2/sessions/{session_id}/imu/upload": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Upload Imu Csv */
+        post: operations["upload_imu_csv_v2_sessions__session_id__imu_upload_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v2/sessions/{session_id}/imu/synth": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Synthesize Imu
+         * @description Synthesize an IMU stream from this session's CV punches.
+         *
+         *     Each punch event produces a triangular g-spike around its `t_ms`.
+         *     Useful for dry-running RQ1 (fused-vs-single-modality advice) on
+         *     existing sessions before real wrist sensors are attached.
+         */
+        post: operations["synthesize_imu_v2_sessions__session_id__imu_synth_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v2/sessions/{session_id}/imu/samples": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** List Imu Samples */
+        get: operations["list_imu_samples_v2_sessions__session_id__imu_samples_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/sessions/{session_id}/imu/upload": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Upload Imu Csv */
+        post: operations["upload_imu_csv_sessions__session_id__imu_upload_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/sessions/{session_id}/imu/synth": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Synthesize Imu
+         * @description Synthesize an IMU stream from this session's CV punches.
+         *
+         *     Each punch event produces a triangular g-spike around its `t_ms`.
+         *     Useful for dry-running RQ1 (fused-vs-single-modality advice) on
+         *     existing sessions before real wrist sensors are attached.
+         */
+        post: operations["synthesize_imu_sessions__session_id__imu_synth_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/sessions/{session_id}/imu/samples": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** List Imu Samples */
+        get: operations["list_imu_samples_sessions__session_id__imu_samples_get"];
         put?: never;
         post?: never;
         delete?: never;
@@ -1962,6 +2184,16 @@ export interface components {
             /** File */
             file: string;
         };
+        /** Body_upload_imu_csv_sessions__session_id__imu_upload_post */
+        Body_upload_imu_csv_sessions__session_id__imu_upload_post: {
+            /** File */
+            file: string;
+        };
+        /** Body_upload_imu_csv_v2_sessions__session_id__imu_upload_post */
+        Body_upload_imu_csv_v2_sessions__session_id__imu_upload_post: {
+            /** File */
+            file: string;
+        };
         /** Body_upload_referee_photo_referees__referee_id__photo_post */
         Body_upload_referee_photo_referees__referee_id__photo_post: {
             /** File */
@@ -2037,6 +2269,13 @@ export interface components {
             duration_ms: number;
             /** Punch Count */
             punch_count: number;
+        };
+        /** CoachAdviceResponse */
+        CoachAdviceResponse: {
+            /** Summary */
+            summary: string;
+            /** Action Items */
+            action_items: string[];
         };
         /** CoachAssignmentCreate */
         CoachAssignmentCreate: {
@@ -2203,7 +2442,7 @@ export interface components {
          * DetectionSourceEnum
          * @enum {string}
          */
-        DetectionSourceEnum: "heuristic" | "lstm_v1";
+        DetectionSourceEnum: "heuristic" | "lstm_v1" | "custom_ml";
         /** EvalResponse */
         EvalResponse: {
             /**
@@ -2580,6 +2819,38 @@ export interface components {
             sample_count: number;
             metrics?: components["schemas"]["HRMetricsWindow"] | null;
         };
+        /** IMUSampleRead */
+        IMUSampleRead: {
+            /**
+             * Session Id
+             * Format: uuid
+             */
+            session_id: string;
+            /** T Ms */
+            t_ms: number;
+            /** Ax G */
+            ax_g: number;
+            /** Ay G */
+            ay_g: number;
+            /** Az G */
+            az_g: number;
+            /**
+             * Gx Dps
+             * @default 0
+             */
+            gx_dps: number;
+            /**
+             * Gy Dps
+             * @default 0
+             */
+            gy_dps: number;
+            /**
+             * Gz Dps
+             * @default 0
+             */
+            gz_dps: number;
+            hand?: components["schemas"]["HandEnum"] | null;
+        };
         /** LabelsPayload */
         LabelsPayload: {
             /** Labels */
@@ -2802,6 +3073,10 @@ export interface components {
             baseline_sdnn_ms?: number | null;
             /** Baseline Mean Hr Bpm */
             baseline_mean_hr_bpm?: number | null;
+            /** Trimp Score */
+            trimp_score?: number | null;
+            /** Trimp Duration Min */
+            trimp_duration_min?: number | null;
         };
         /** PunchEventRead */
         PunchEventRead: {
@@ -2948,6 +3223,102 @@ export interface components {
             bio?: string | null;
             /** Notes */
             notes?: string | null;
+        };
+        /** RoundCvBlock */
+        RoundCvBlock: {
+            /** Punch Count */
+            punch_count: number;
+            /** Peak Velocity Ms */
+            peak_velocity_ms: number | null;
+            /** Ppm */
+            ppm: number | null;
+            /** Events */
+            events: components["schemas"]["RoundEventOut"][];
+        };
+        /** RoundEventOut */
+        RoundEventOut: {
+            /** T Ms */
+            t_ms: number;
+            /** Hand */
+            hand: string;
+            /** Velocity Ms */
+            velocity_ms: number;
+            /** Confidence */
+            confidence?: number | null;
+        };
+        /** RoundExportItem */
+        RoundExportItem: {
+            /** Round Number */
+            round_number: number;
+            /** Start Ms */
+            start_ms: number;
+            /** End Ms */
+            end_ms: number;
+            /** Duration Ms */
+            duration_ms: number;
+            /** Rest After Ms */
+            rest_after_ms: number;
+            /** Punch Count */
+            punch_count: number;
+            /** Peak Velocity Ms */
+            peak_velocity_ms: number | null;
+            /** Ppm */
+            ppm: number | null;
+            /** Events */
+            events: components["schemas"]["RoundEventOut"][];
+            cv: components["schemas"]["RoundCvBlock"];
+            hrv: components["schemas"]["RoundHrvBlock"];
+            imu: components["schemas"]["RoundImuBlock"];
+        };
+        /** RoundHrvBlock */
+        RoundHrvBlock: {
+            /** Sample Count */
+            sample_count: number;
+            /** Mean Hr Bpm */
+            mean_hr_bpm: number | null;
+            /** Peak Hr Bpm */
+            peak_hr_bpm: number | null;
+            /** Rmssd Ms */
+            rmssd_ms: number | null;
+            /** Rmssd Delta Vs Baseline Ms */
+            rmssd_delta_vs_baseline_ms: number | null;
+        };
+        /** RoundImuBlock */
+        RoundImuBlock: {
+            /** Sample Count */
+            sample_count: number;
+            /** Peak G */
+            peak_g: number | null;
+            /** N Impacts */
+            n_impacts: number;
+            /** Cv Imu Match Rate */
+            cv_imu_match_rate: number | null;
+        };
+        /** RoundsExportResponse */
+        RoundsExportResponse: {
+            /**
+             * Session Id
+             * Format: uuid
+             */
+            session_id: string;
+            /**
+             * Fighter Id
+             * Format: uuid
+             */
+            fighter_id: string;
+            /**
+             * Started At
+             * Format: date-time
+             */
+            started_at: string;
+            /** Round Count */
+            round_count: number;
+            /** Round Duration S */
+            round_duration_s: number;
+            /** Rest Duration S */
+            rest_duration_s: number;
+            /** Rounds */
+            rounds: components["schemas"]["RoundExportItem"][];
         };
         /**
          * SessionAnnotation
@@ -5886,6 +6257,70 @@ export interface operations {
             };
         };
     };
+    get_session_advice_sessions__session_id__advice_post: {
+        parameters: {
+            query?: {
+                payload_mode?: "cv" | "hrv" | "imu" | "fused";
+            };
+            header?: never;
+            path: {
+                session_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["CoachAdviceResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    rounds_export_sessions__session_id__rounds_export_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                session_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["RoundsExportResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
     get_labels_sessions__session_id__labels_get: {
         parameters: {
             query?: never;
@@ -6657,6 +7092,70 @@ export interface operations {
             };
         };
     };
+    get_session_advice_v1_sessions__session_id__advice_post: {
+        parameters: {
+            query?: {
+                payload_mode?: "cv" | "hrv" | "imu" | "fused";
+            };
+            header?: never;
+            path: {
+                session_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["CoachAdviceResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    rounds_export_v1_sessions__session_id__rounds_export_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                session_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["RoundsExportResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
     get_labels_v1_sessions__session_id__labels_get: {
         parameters: {
             query?: never;
@@ -6916,6 +7415,37 @@ export interface operations {
             };
         };
     };
+    load_hrv_csv_sync_v2_sessions__session_id__hrv_load_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                session_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": number;
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
     start_hrv_replay_v2_sessions__session_id__hrv_start_post: {
         parameters: {
             query?: never;
@@ -7095,6 +7625,206 @@ export interface operations {
                 };
                 content: {
                     "application/json": unknown;
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    upload_imu_csv_v2_sessions__session_id__imu_upload_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                session_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "multipart/form-data": components["schemas"]["Body_upload_imu_csv_v2_sessions__session_id__imu_upload_post"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": number;
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    synthesize_imu_v2_sessions__session_id__imu_synth_post: {
+        parameters: {
+            query?: {
+                sample_rate_hz?: number;
+                seed?: number;
+            };
+            header?: never;
+            path: {
+                session_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": number;
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    list_imu_samples_v2_sessions__session_id__imu_samples_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                session_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["IMUSampleRead"][];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    upload_imu_csv_sessions__session_id__imu_upload_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                session_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "multipart/form-data": components["schemas"]["Body_upload_imu_csv_sessions__session_id__imu_upload_post"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": number;
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    synthesize_imu_sessions__session_id__imu_synth_post: {
+        parameters: {
+            query?: {
+                sample_rate_hz?: number;
+                seed?: number;
+            };
+            header?: never;
+            path: {
+                session_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": number;
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    list_imu_samples_sessions__session_id__imu_samples_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                session_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["IMUSampleRead"][];
                 };
             };
             /** @description Validation Error */

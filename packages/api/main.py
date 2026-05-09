@@ -12,7 +12,7 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
 
-from api.routes import cameras, coaches, fighters, health, hrv, referees, sessions
+from api.routes import cameras, coaches, fighters, health, hrv, imu, referees, sessions
 from api.services.photos import photos_root
 from common import get_settings, setup_logging
 from store import create_db_and_tables
@@ -51,6 +51,8 @@ for router in (health.router, cameras.router, fighters.router, sessions.router):
 # Phase 2 surface: HRV routes are NEW work, only mounted under /v2.
 # Phase 1 (/v1) sees nothing about HRV — preserves the lock from ADR 004.
 app.include_router(hrv.router, prefix="/v2")
+app.include_router(imu.router, prefix="/v2")
+app.include_router(imu.router)
 
 # Profile-type expansion (coaches + referees): unversioned only.
 # These are NEW endpoints; not part of any frozen contract yet.

@@ -6,6 +6,7 @@ import asyncio
 import csv
 import datetime
 import io
+import math
 import tempfile
 from collections.abc import AsyncIterator, Iterator
 from contextlib import contextmanager
@@ -566,16 +567,44 @@ def session_performance(
 @router.post("/{session_id}/advice", response_model=CoachAdviceResponse)
 async def get_session_advice(
     session_id: UUID,
+    payload_mode: Literal["cv", "hrv", "imu", "fused"] = "fused",
     sessions: SessionRepo = Depends(session_repo),
     events: PunchEventRepo = Depends(punch_event_repo),
     db: DBSession = Depends(db_session),
 ) -> CoachAdviceResponse:
+    """Generate corner advice from a chosen payload subset.
+
+    `payload_mode` is the RQ1 study lever — same LLM, same prompt, but a
+    sliced view of the per-round fused export. Lets us measure marginal
+    advice quality contributed by each modality.
+    """
     row = sessions.get(session_id)
     if row is None:
         raise HTTPException(status_code=404, detail="session not found")
 
-    perf = session_performance(session_id, sessions, events, db)
-    session_data = perf.model_dump_json()
+    fused = rounds_export(session_id, sessions, events, db)
+    rounds_payload: list[dict[str, object]] = []
+    for r in fused.rounds:
+        block: dict[str, object] = {
+            "round": r.round_number,
+            "duration_s": r.duration_ms / 1000.0,
+        }
+        if payload_mode in ("cv", "fused"):
+            block["cv"] = r.cv.model_dump(exclude={"events"})
+        if payload_mode in ("hrv", "fused"):
+            block["hrv"] = r.hrv.model_dump()
+        if payload_mode in ("imu", "fused"):
+            block["imu"] = r.imu.model_dump()
+        rounds_payload.append(block)
+
+    payload = {
+        "session_id": str(session_id),
+        "payload_mode": payload_mode,
+        "rounds": rounds_payload,
+    }
+    import json as _json
+
+    session_data = _json.dumps(payload)
 
     from coach import CORNER_ADVICE_SYSTEM_PROMPT, generate_corner_advice
 
@@ -598,16 +627,43 @@ class RoundEventOut(BaseModel):
     confidence: float | None = None
 
 
+class RoundCvBlock(BaseModel):
+    punch_count: int
+    peak_velocity_ms: float | None
+    ppm: float | None
+    events: list[RoundEventOut]
+
+
+class RoundHrvBlock(BaseModel):
+    sample_count: int
+    mean_hr_bpm: float | None
+    peak_hr_bpm: float | None
+    rmssd_ms: float | None
+    rmssd_delta_vs_baseline_ms: float | None
+
+
+class RoundImuBlock(BaseModel):
+    sample_count: int
+    peak_g: float | None
+    n_impacts: int
+    cv_imu_match_rate: float | None  # what fraction of CV punches had a co-located IMU spike
+
+
 class RoundExportItem(BaseModel):
     round_number: int
     start_ms: float
     end_ms: float
     duration_ms: float
     rest_after_ms: float
+    # Legacy flat fields (kept for the existing dashboard consumer).
     punch_count: int
     peak_velocity_ms: float | None
     ppm: float | None
     events: list[RoundEventOut]
+    # Fused per-round blocks — added 2026-05-09 to back RQ1 study.
+    cv: RoundCvBlock
+    hrv: RoundHrvBlock
+    imu: RoundImuBlock
 
 
 class RoundsExportResponse(BaseModel):
@@ -625,7 +681,12 @@ def rounds_export(
     session_id: UUID,
     sessions: SessionRepo = Depends(session_repo),
     events: PunchEventRepo = Depends(punch_event_repo),
+    db: DBSession = Depends(db_session),
 ) -> RoundsExportResponse:
+    from sqlmodel import select as _select
+
+    from store import HRSampleRow, IMUSampleRow
+
     row = sessions.get(session_id)
     if row is None:
         raise HTTPException(status_code=404, detail="session not found")
@@ -637,6 +698,13 @@ def rounds_export(
     round_ms = round_s * 1000.0
 
     all_events = events.list_for_session(session_id)
+    hr_samples = list(
+        db.exec(_select(HRSampleRow).where(HRSampleRow.session_id == session_id)).all()
+    )
+    imu_samples = list(
+        db.exec(_select(IMUSampleRow).where(IMUSampleRow.session_id == session_id)).all()
+    )
+
     items: list[RoundExportItem] = []
     for i in range(rounds_n):
         start = i * segment_ms
@@ -653,6 +721,68 @@ def rounds_export(
         ]
         peak = max((e.velocity_ms for e in round_events), default=None)
         ppm = (len(round_events) / (round_s / 60.0)) if round_s > 0 else None
+
+        # HRV block
+        hr_in_round = [s for s in hr_samples if start <= s.t_ms < end]
+        if hr_in_round:
+            hrs = [s.hr_bpm for s in hr_in_round]
+            rrs = [s.rr_ms for s in hr_in_round]
+            mean_hr = sum(hrs) / len(hrs)
+            peak_hr = max(hrs)
+            # RMSSD over the round window.
+            diffs = [rrs[k] - rrs[k - 1] for k in range(1, len(rrs))]
+            rmssd = math.sqrt(sum(d * d for d in diffs) / len(diffs)) if diffs else None
+            rmssd_delta = (
+                rmssd - row.baseline_rmssd_ms
+                if rmssd is not None and row.baseline_rmssd_ms is not None
+                else None
+            )
+        else:
+            mean_hr = peak_hr = rmssd = rmssd_delta = None
+        hrv_block = RoundHrvBlock(
+            sample_count=len(hr_in_round),
+            mean_hr_bpm=round(mean_hr, 1) if mean_hr is not None else None,
+            peak_hr_bpm=round(peak_hr, 1) if peak_hr is not None else None,
+            rmssd_ms=round(rmssd, 1) if rmssd is not None else None,
+            rmssd_delta_vs_baseline_ms=(round(rmssd_delta, 1) if rmssd_delta is not None else None),
+        )
+
+        # IMU block — peak |a| in round window, count of impact spikes,
+        # match rate vs CV punches (within ±60 ms).
+        imu_in_round = [s for s in imu_samples if start <= s.t_ms < end]
+        peak_g_val: float | None = None
+        n_impacts = 0
+        match_rate: float | None = None
+        if imu_in_round:
+            mags = [
+                math.sqrt(s.ax_g * s.ax_g + s.ay_g * s.ay_g + s.az_g * s.az_g) for s in imu_in_round
+            ]
+            peak_g_val = round(max(mags), 2)
+            # Impact = local peak above 3 g. Cheap threshold counter:
+            n_impacts = sum(1 for m in mags if m > 3.0)
+            if round_events:
+                matched = 0
+                for ev in round_events:
+                    if any(
+                        abs(s.t_ms - ev.t_ms) <= 60.0
+                        and math.sqrt(s.ax_g * s.ax_g + s.ay_g * s.ay_g + s.az_g * s.az_g) > 2.5
+                        for s in imu_in_round
+                    ):
+                        matched += 1
+                match_rate = round(matched / len(round_events), 2)
+        imu_block = RoundImuBlock(
+            sample_count=len(imu_in_round),
+            peak_g=peak_g_val,
+            n_impacts=n_impacts,
+            cv_imu_match_rate=match_rate,
+        )
+
+        cv_block = RoundCvBlock(
+            punch_count=len(round_events),
+            peak_velocity_ms=peak,
+            ppm=ppm,
+            events=round_events,
+        )
         items.append(
             RoundExportItem(
                 round_number=i + 1,
@@ -664,6 +794,9 @@ def rounds_export(
                 peak_velocity_ms=peak,
                 ppm=ppm,
                 events=round_events,
+                cv=cv_block,
+                hrv=hrv_block,
+                imu=imu_block,
             )
         )
 

@@ -22,6 +22,7 @@ from store.models import (
     FighterTitle,
     FighterTitleCreate,
     HRSampleRow,
+    IMUSampleRow,
     MedicalCondition,
     MedicalConditionCreate,
     MedicalRecord,
@@ -154,6 +155,9 @@ class SessionRepo:
         )
         self._session.exec(
             sqlmodel_delete(HRSampleRow).where(HRSampleRow.session_id == session_id)  # type: ignore[arg-type]
+        )
+        self._session.exec(
+            sqlmodel_delete(IMUSampleRow).where(IMUSampleRow.session_id == session_id)  # type: ignore[arg-type]
         )
         self._session.delete(row)
         self._session.commit()
@@ -560,3 +564,40 @@ class FighterTeamRepo:
         self._session.delete(row)
         self._session.commit()
         return True
+
+
+class IMUSampleRepo:
+    """Per-session IMU samples — accelerometer + gyroscope rows.
+
+    Behaves like PunchEventRepo: bulk insert + ordered list. Used by the
+    /sessions/{id}/imu/upload endpoint and by the synthetic generator.
+    """
+
+    def __init__(self, session: DBSession) -> None:
+        self._session = session
+
+    def add_many(self, samples: list[IMUSampleRow]) -> int:
+        for s in samples:
+            self._session.add(s)
+        self._session.commit()
+        return len(samples)
+
+    def replace_for_session(self, session_id: UUID, samples: list[IMUSampleRow]) -> int:
+        from sqlmodel import delete as sqlmodel_delete
+
+        self._session.exec(
+            sqlmodel_delete(IMUSampleRow).where(IMUSampleRow.session_id == session_id)  # type: ignore[arg-type]
+        )
+        return self.add_many(samples)
+
+    def list_for_session(self, session_id: UUID) -> list[IMUSampleRow]:
+        stmt = (
+            select(IMUSampleRow)
+            .where(IMUSampleRow.session_id == session_id)
+            .order_by(IMUSampleRow.t_ms)  # type: ignore[arg-type]
+        )
+        return list(self._session.exec(stmt).all())
+
+    def count_for_session(self, session_id: UUID) -> int:
+        stmt = select(IMUSampleRow).where(IMUSampleRow.session_id == session_id)
+        return len(list(self._session.exec(stmt).all()))
