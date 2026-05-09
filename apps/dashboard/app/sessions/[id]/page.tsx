@@ -4,6 +4,7 @@ import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useEffect, useRef, useState } from "react";
 import { EvaluationCard } from "@/components/EvaluationCard";
+import { FighterBackLink } from "@/components/FighterBackLink";
 import { HrvPanel } from "@/components/HrvPanel";
 import { IMUPanel } from "@/components/IMUPanel";
 import { LiveAdviceCard } from "@/components/LiveAdviceCard";
@@ -267,12 +268,16 @@ export default function SessionPage({ params }: { params: { id: string } }) {
   return (
     <main className="mx-auto max-w-6xl space-y-6 p-8">
       <div className="flex items-center justify-between">
-        <Link
-          href={session.fighter_id ? `/fighters/${session.fighter_id}` : "/"}
-          className="inline-flex items-center gap-1 text-sm text-neutral-400 hover:text-neutral-100"
-        >
-          <span aria-hidden>←</span> Back to fighter
-        </Link>
+        {session.fighter_id ? (
+          <FighterBackLink fighterId={session.fighter_id} />
+        ) : (
+          <Link
+            href="/"
+            className="inline-flex items-center gap-1 text-sm text-neutral-400 hover:text-neutral-100"
+          >
+            <span aria-hidden>←</span> Back home
+          </Link>
+        )}
         <button
           onClick={() => setConfirmDelete(true)}
           disabled={session.status === "capturing" || session.status === "processing"}

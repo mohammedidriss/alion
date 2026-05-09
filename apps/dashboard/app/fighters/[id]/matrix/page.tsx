@@ -2,6 +2,7 @@
 
 import Link from "next/link";
 import { useEffect, useState } from "react";
+import { FighterBackLink } from "@/components/FighterBackLink";
 import { api, type Fighter, type MatrixResponse } from "@/lib/api";
 
 export default function FighterMatrixPage({
@@ -39,12 +40,7 @@ export default function FighterMatrixPage({
 
   return (
     <main className="mx-auto max-w-4xl space-y-6 p-8">
-      <Link
-        href={`/fighters/${id}`}
-        className="text-sm text-neutral-400 hover:text-neutral-100"
-      >
-        ← Back to fighter
-      </Link>
+      <FighterBackLink fighterId={id} />
 
       <header>
         <h1 className="text-2xl font-semibold">Performance matrix</h1>

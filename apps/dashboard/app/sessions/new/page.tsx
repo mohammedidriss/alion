@@ -2,6 +2,7 @@
 
 import { useRouter, useSearchParams } from "next/navigation";
 import { Suspense, useEffect, useState } from "react";
+import { FighterBackLink } from "@/components/FighterBackLink";
 import { api, type Fighter, type SessionSource } from "@/lib/api";
 
 // useSearchParams() forces client-side rendering at the prerender step,
@@ -91,14 +92,7 @@ function NewSessionInner() {
 
   return (
     <main className="mx-auto max-w-5xl space-y-6 p-8">
-      {presetFighter && (
-        <a
-          href={`/fighters/${presetFighter}`}
-          className="inline-flex items-center gap-1 text-sm text-neutral-400 hover:text-neutral-200"
-        >
-          ← {fighterName || "Back to fighter"}
-        </a>
-      )}
+      {presetFighter && <FighterBackLink fighterId={presetFighter} />}
       <h1 className="text-2xl font-semibold">
         New Session{fighterName && ` — ${fighterName}`}
       </h1>
