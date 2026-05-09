@@ -129,19 +129,27 @@ def main() -> None:
     va = DataLoader(val_ds, batch_size=args.batch_size)
 
     class PunchLSTM(nn.Module):
-        def __init__(self, feat_dim: int, hidden: int, n_classes: int) -> None:
+        def __init__(
+            self, feat_dim: int, hidden: int, n_classes: int, dropout: float = 0.3
+        ) -> None:
             super().__init__()
+            self.input_drop = nn.Dropout(dropout)
             self.lstm = nn.LSTM(feat_dim, hidden, num_layers=1, batch_first=True)
+            self.post_drop = nn.Dropout(dropout)
             self.head = nn.Linear(hidden, n_classes)
 
         def forward(self, x: torch.Tensor) -> torch.Tensor:
+            x = self.input_drop(x)
             out, _ = self.lstm(x)
             # Mean-pool over time, then classify.
-            return self.head(out.mean(dim=1))
+            return self.head(self.post_drop(out.mean(dim=1)))
 
     device = "cuda" if torch.cuda.is_available() else "cpu"
     model = PunchLSTM(X.shape[-1], args.hidden, len(labels)).to(device)
-    opt = torch.optim.Adam(model.parameters(), lr=args.lr)
+    # Adam with weight decay (Adam→AdamW). Same overfit fight: dropout
+    # + L2 keep the trainer from memorising the specific positives we
+    # have at this small scale.
+    opt = torch.optim.AdamW(model.parameters(), lr=args.lr, weight_decay=1e-4)
 
     # Class-weighted loss — datasets with continuous-stream labelling
     # (Olympic Boxing) are heavily imbalanced (~6% punch). Without
