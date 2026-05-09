@@ -352,88 +352,127 @@ export default function SessionPage({ params }: { params: { id: string } }) {
         </div>
       )}
 
-      {/* Top action bar — Start, camera selection, pause/resume/stop,
-          and the upload-MP4 control. Sits above the main 3-column
-          layout so the primary capture controls are always one click
-          away regardless of state. */}
+      {/* Top action bar — controls + (when live) the camera preview.
+          Sits above the main 3-column layout so the primary capture
+          controls and the live skeleton overlay are always above the
+          fold regardless of state. */}
       {(showStart ||
         isLive ||
         (session.source === "uploaded_video" && !session.video_path)) && (
-        <section className="flex flex-wrap items-end gap-3 rounded-lg border border-neutral-800 bg-neutral-950/60 p-4">
-          {session.source === "uploaded_video" && !session.video_path && (
-            <div className="flex flex-col">
-              <label className="mb-1 text-xs text-neutral-400">Upload MP4</label>
-              <input
-                type="file"
-                accept="video/mp4,video/quicktime"
-                disabled={uploading}
-                onChange={(e) => e.target.files?.[0] && upload(e.target.files[0])}
-                className="text-xs"
-              />
-            </div>
-          )}
-          {showStart &&
-            session.source === "live_webcam" &&
-            cameras.length > 0 && (
-              <div className="flex flex-col">
-                <label className="mb-1 text-xs text-neutral-400">Camera</label>
-                <select
-                  className="rounded bg-neutral-900 px-3 py-2 text-sm"
-                  value={cameraIndex}
-                  onChange={(e) => setCameraIndex(Number(e.target.value))}
-                >
-                  {cameras.map((c) => (
-                    <option key={c.index} value={c.index}>
-                      #{c.index} — {c.width}×{c.height} @ {Math.round(c.fps)} fps
-                    </option>
-                  ))}
-                </select>
+        <section className="rounded-lg border border-neutral-800 bg-neutral-950/60 p-4">
+          <div
+            className={`grid grid-cols-1 gap-4 ${
+              isLive ? "lg:grid-cols-[1fr_minmax(0,420px)]" : ""
+            }`}
+          >
+            {/* Live preview: only visible during capture. Lives in the
+                same panel as the capture controls so "what the camera sees"
+                is co-located with start/pause/stop. */}
+            {isLive && (
+              <div className="space-y-2">
+                <div className="flex items-center justify-between">
+                  <h2 className="text-sm font-medium">Camera</h2>
+                  <span className="flex items-center gap-2 text-xs text-neutral-400">
+                    <span className="inline-block h-2 w-2 animate-pulse rounded-full bg-red-500" />
+                    live
+                  </span>
+                </div>
+                {/* eslint-disable-next-line @next/next/no-img-element */}
+                <img
+                  key={session.id}
+                  src={`${process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:8000"}/sessions/${session.id}/preview`}
+                  alt="live capture preview with pose overlay"
+                  className="w-full rounded border border-neutral-800 bg-black"
+                />
+                <p className="text-[11px] text-neutral-500">
+                  Skeleton overlay from MediaPipe; preview at ~15 fps,
+                  capture at native rate.
+                </p>
               </div>
             )}
-          {showStart && (
-            <button
-              onClick={start}
-              disabled={!cvAvailable}
-              title={
-                cvAvailable
-                  ? undefined
-                  : "Disabled — capture is not available on this server. Run on the host."
-              }
-              className="rounded bg-emerald-600 px-4 py-2 font-medium hover:bg-emerald-500 disabled:cursor-not-allowed disabled:bg-neutral-700 disabled:text-neutral-400"
-            >
-              {session.source === "live_webcam"
-                ? "Start live capture"
-                : "Process video"}
-            </button>
-          )}
-          {isLive && (
-            <>
-              {status?.is_paused ? (
+
+            {/* Controls column. */}
+            <div className="flex flex-wrap items-end gap-3">
+              {session.source === "uploaded_video" && !session.video_path && (
+                <div className="flex flex-col">
+                  <label className="mb-1 text-xs text-neutral-400">Upload MP4</label>
+                  <input
+                    type="file"
+                    accept="video/mp4,video/quicktime"
+                    disabled={uploading}
+                    onChange={(e) =>
+                      e.target.files?.[0] && upload(e.target.files[0])
+                    }
+                    className="text-xs"
+                  />
+                </div>
+              )}
+              {showStart &&
+                session.source === "live_webcam" &&
+                cameras.length > 0 && (
+                  <div className="flex flex-col">
+                    <label className="mb-1 text-xs text-neutral-400">Camera</label>
+                    <select
+                      className="rounded bg-neutral-900 px-3 py-2 text-sm"
+                      value={cameraIndex}
+                      onChange={(e) => setCameraIndex(Number(e.target.value))}
+                    >
+                      {cameras.map((c) => (
+                        <option key={c.index} value={c.index}>
+                          #{c.index} — {c.width}×{c.height} @ {Math.round(c.fps)} fps
+                        </option>
+                      ))}
+                    </select>
+                  </div>
+                )}
+              {showStart && (
                 <button
-                  onClick={resume}
-                  className="rounded bg-emerald-600 px-4 py-2 font-medium hover:bg-emerald-500"
+                  onClick={start}
+                  disabled={!cvAvailable}
+                  title={
+                    cvAvailable
+                      ? undefined
+                      : "Disabled — capture is not available on this server. Run on the host."
+                  }
+                  className="rounded bg-emerald-600 px-4 py-2 font-medium hover:bg-emerald-500 disabled:cursor-not-allowed disabled:bg-neutral-700 disabled:text-neutral-400"
                 >
-                  Resume
-                </button>
-              ) : (
-                <button
-                  onClick={pause}
-                  className="rounded bg-amber-600 px-4 py-2 font-medium hover:bg-amber-500"
-                >
-                  Pause
+                  {session.source === "live_webcam"
+                    ? "Start live capture"
+                    : "Process video"}
                 </button>
               )}
-              <button
-                onClick={stop}
-                className="rounded bg-red-600 px-4 py-2 font-medium hover:bg-red-500"
-              >
-                Stop capture
-              </button>
-              {status?.is_paused && (
-                <span className="self-center text-xs text-amber-300">paused</span>
+              {isLive && (
+                <>
+                  {status?.is_paused ? (
+                    <button
+                      onClick={resume}
+                      className="rounded bg-emerald-600 px-4 py-2 font-medium hover:bg-emerald-500"
+                    >
+                      Resume
+                    </button>
+                  ) : (
+                    <button
+                      onClick={pause}
+                      className="rounded bg-amber-600 px-4 py-2 font-medium hover:bg-amber-500"
+                    >
+                      Pause
+                    </button>
+                  )}
+                  <button
+                    onClick={stop}
+                    className="rounded bg-red-600 px-4 py-2 font-medium hover:bg-red-500"
+                  >
+                    Stop capture
+                  </button>
+                  {status?.is_paused && (
+                    <span className="self-center text-xs text-amber-300">
+                      paused
+                    </span>
+                  )}
+                </>
               )}
-            </>
-          )}
+            </div>
+          </div>
         </section>
       )}
 
@@ -608,30 +647,6 @@ export default function SessionPage({ params }: { params: { id: string } }) {
       {session.status === "completed" && events.length > 0 && (
         <EvaluationCard sessionId={id} />
       )}
-
-      {(session.status === "capturing" || session.status === "processing") && (
-        <section className="rounded-lg border border-neutral-800 p-4">
-          <div className="flex items-center justify-between">
-            <h2 className="font-medium">Camera</h2>
-            <span className="flex items-center gap-2 text-xs text-neutral-400">
-              <span className="inline-block h-2 w-2 animate-pulse rounded-full bg-red-500" />
-              live
-            </span>
-          </div>
-          {/* eslint-disable-next-line @next/next/no-img-element */}
-          <img
-            key={session.id}
-            src={`${process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:8000"}/sessions/${session.id}/preview`}
-            alt="live capture preview with pose overlay"
-            className="mt-3 w-full rounded border border-neutral-800 bg-black"
-          />
-          <p className="mt-2 text-xs text-neutral-500">
-            Skeleton overlay drawn from MediaPipe landmarks. Frames stream at
-            ~15 fps; capture itself runs at the source&apos;s native rate.
-          </p>
-        </section>
-      )}
-
 
       <HrvPanel sessionId={session.id} />
       <IMUPanel sessionId={session.id} punchEvents={events} />
