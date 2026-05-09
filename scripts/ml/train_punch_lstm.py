@@ -142,7 +142,29 @@ def main() -> None:
     device = "cuda" if torch.cuda.is_available() else "cpu"
     model = PunchLSTM(X.shape[-1], args.hidden, len(labels)).to(device)
     opt = torch.optim.Adam(model.parameters(), lr=args.lr)
-    loss_fn = nn.CrossEntropyLoss()
+
+    # Class-weighted loss — datasets with continuous-stream labelling
+    # (Olympic Boxing) are heavily imbalanced (~6% punch). Without
+    # weighting the model collapses to "always predict other".
+    counts = np.bincount(ytr, minlength=len(labels)).astype(np.float32)
+    weights = (len(ytr) / (len(labels) * np.maximum(counts, 1.0))).astype(np.float32)
+    print(f"class counts (train): {dict(zip(labels, counts.tolist(), strict=True))}")
+    print(f"class weights:        {dict(zip(labels, weights.tolist(), strict=True))}")
+    loss_fn = nn.CrossEntropyLoss(weight=torch.from_numpy(weights).to(device))
+
+    def _per_class_metrics(y_true: list[int], y_pred: list[int]) -> dict[str, float]:
+        out: dict[str, float] = {}
+        for i, name in enumerate(labels):
+            tp = sum(1 for t, p in zip(y_true, y_pred, strict=True) if t == i and p == i)
+            fp = sum(1 for t, p in zip(y_true, y_pred, strict=True) if t != i and p == i)
+            fn = sum(1 for t, p in zip(y_true, y_pred, strict=True) if t == i and p != i)
+            prec = tp / max(tp + fp, 1)
+            rec = tp / max(tp + fn, 1)
+            f1 = 2 * prec * rec / max(prec + rec, 1e-9)
+            out[f"{name}_p"] = prec
+            out[f"{name}_r"] = rec
+            out[f"{name}_f1"] = f1
+        return out
 
     best_val = 0.0
     for epoch in range(1, args.epochs + 1):
@@ -162,6 +184,8 @@ def main() -> None:
         model.eval()
         correct = 0
         total = 0
+        all_y: list[int] = []
+        all_p: list[int] = []
         with torch.no_grad():
             for xb, yb in va:
                 xb = xb.to(device)
@@ -169,11 +193,21 @@ def main() -> None:
                 pred = model(xb).argmax(1)
                 correct += (pred == yb).sum().item()
                 total += len(yb)
+                all_y.extend(yb.cpu().tolist())
+                all_p.extend(pred.cpu().tolist())
         val_acc = correct / max(total, 1)
-        print(f"ep {epoch:>3d}  loss={running:.4f}  val_acc={val_acc:.3f}")
+        cls = _per_class_metrics(all_y, all_p)
+        # Use F1 of the minority "punch" class as the model-selection
+        # metric — accuracy is meaningless on a 6% positive split.
+        punch_f1 = cls.get("punch_f1", 0.0)
+        print(
+            f"ep {epoch:>3d}  loss={running:.4f}  val_acc={val_acc:.3f}  "
+            f"punch[p={cls.get('punch_p', 0):.3f} r={cls.get('punch_r', 0):.3f} "
+            f"f1={punch_f1:.3f}]"
+        )
 
-        if val_acc > best_val:
-            best_val = val_acc
+        if punch_f1 > best_val:
+            best_val = punch_f1
             args.out.parent.mkdir(parents=True, exist_ok=True)
             with args.out.open("wb") as f:
                 pickle.dump(
@@ -186,11 +220,12 @@ def main() -> None:
                         "mean": mean,
                         "std": std,
                         "val_acc": val_acc,
+                        "val_punch_f1": punch_f1,
                     },
                     f,
                 )
 
-    print(f"\nbest val_acc {best_val:.3f}  →  {args.out}")
+    print(f"\nbest punch_f1 {best_val:.3f}  →  {args.out}")
 
 
 if __name__ == "__main__":
