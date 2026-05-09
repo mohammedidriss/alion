@@ -35,6 +35,10 @@ function NewSessionInner() {
   const [rounds, setRounds] = useState<number>(3);
   const [roundS, setRoundS] = useState<number>(180);
   const [restS, setRestS] = useState<number>(60);
+  // Optional file payloads picked at create-time so the user doesn't
+  // have to land on the session page just to upload an asset.
+  const [videoFile, setVideoFile] = useState<File | null>(null);
+  const [hrvFile, setHrvFile] = useState<File | null>(null);
 
   useEffect(() => {
     api
@@ -61,6 +65,14 @@ function NewSessionInner() {
 
   const submit = async () => {
     if (!fighterId) return;
+    if (source === "uploaded_video" && !videoFile) {
+      setErr("Pick an MP4 file to upload, or switch the source to Live webcam.");
+      return;
+    }
+    if (source === "hrv_replay" && !hrvFile) {
+      setErr("Pick an RR-interval CSV, or switch the source.");
+      return;
+    }
     setBusy(true);
     setErr(null);
     try {
@@ -72,6 +84,16 @@ function NewSessionInner() {
         round_duration_s: roundS,
         rest_duration_s: restS,
       });
+      // Side-channel uploads — only fire when the picked source needs them.
+      if (source === "uploaded_video" && videoFile) {
+        await api.uploadVideo(s.id, videoFile);
+      }
+      if (source === "hrv_replay" && hrvFile) {
+        await api.uploadHrvCsv(s.id, hrvFile);
+        // Best-effort: bulk-load the samples into the DB so the session
+        // page renders metrics immediately. Failures here aren't fatal.
+        await api.loadHrvSync(s.id).catch(() => undefined);
+      }
       router.push(`/sessions/${s.id}`);
     } catch (e) {
       setErr(String(e));
@@ -241,6 +263,46 @@ function NewSessionInner() {
               </label>
             ))}
           </div>
+
+          {/* Contextual file picker — appears for sources that need an
+              asset to be useful. The actual upload runs inside submit()
+              after the session row is created. */}
+          {source === "uploaded_video" && (
+            <div className="rounded-xl border border-white/10 bg-black/20 p-3">
+              <label className="text-xs text-neutral-400">MP4 file</label>
+              <input
+                type="file"
+                accept="video/mp4,video/quicktime"
+                onChange={(e) => setVideoFile(e.target.files?.[0] ?? null)}
+                className="mt-1 block w-full text-xs"
+              />
+              {videoFile && (
+                <p className="mt-2 truncate text-[11px] text-emerald-300">
+                  {videoFile.name} · {(videoFile.size / 1024 / 1024).toFixed(1)} MB
+                </p>
+              )}
+            </div>
+          )}
+          {source === "hrv_replay" && (
+            <div className="rounded-xl border border-white/10 bg-black/20 p-3">
+              <label className="text-xs text-neutral-400">RR-interval CSV</label>
+              <input
+                type="file"
+                accept=".csv,text/csv"
+                onChange={(e) => setHrvFile(e.target.files?.[0] ?? null)}
+                className="mt-1 block w-full text-xs"
+              />
+              <p className="mt-2 text-[11px] text-neutral-500">
+                Single column <code>rr_ms</code> or two columns{" "}
+                <code>t_ms,rr_ms</code>. Polar H10 export works as-is.
+              </p>
+              {hrvFile && (
+                <p className="mt-1 truncate text-[11px] text-emerald-300">
+                  {hrvFile.name} · {(hrvFile.size / 1024).toFixed(1)} KB
+                </p>
+              )}
+            </div>
+          )}
         </section>
 
         <section className="space-y-3 rounded-lg border border-neutral-800 p-4">
