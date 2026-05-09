@@ -91,7 +91,7 @@ function NewSessionInner() {
   const fighterName = fighter?.name ?? "";
 
   return (
-    <main className="mx-auto max-w-5xl space-y-6 p-8">
+    <main className="mx-auto max-w-7xl space-y-6 p-8">
       {presetFighter && <FighterBackLink fighterId={presetFighter} />}
       <h1 className="text-2xl font-semibold">
         New Session{fighterName && ` — ${fighterName}`}

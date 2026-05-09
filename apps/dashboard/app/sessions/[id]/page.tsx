@@ -266,7 +266,7 @@ export default function SessionPage({ params }: { params: { id: string } }) {
     : status?.duration_ms ?? 0;
 
   return (
-    <main className="mx-auto max-w-6xl space-y-6 p-8">
+    <main className="mx-auto max-w-7xl space-y-6 p-8">
       <div className="flex items-center justify-between">
         {session.fighter_id ? (
           <FighterBackLink fighterId={session.fighter_id} />
