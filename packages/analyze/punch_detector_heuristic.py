@@ -58,6 +58,14 @@ DEFAULT_MIN_ELBOW_ANGLE_DEG = 60.0  # was 80; hooks ~90°, blocks <50°
 # Start-from-guard ratio: a real punch starts compact (wrist near
 # shoulder) and ends extended. Permissive default for the same reason.
 DEFAULT_MIN_EXTENSION_RATIO = 1.05  # was 1.25
+# Chambered → extended state-machine. A jab/cross is only legitimate if
+# the elbow was bent (≤ chambered_max_deg) within the last
+# punch_window_ms, then opened past extended_min_deg at the firing
+# frame. Hooks/uppercuts keep the elbow well below extended_min_deg —
+# the gate skips them so they aren't penalised.
+DEFAULT_CHAMBERED_MAX_DEG = 110.0  # arm "bent" anchor; permissive
+DEFAULT_EXTENDED_MIN_DEG = 150.0  # arm "straight" anchor for jab/cross
+DEFAULT_PUNCH_WINDOW_MS = 600.0  # max time from chamber to full extension
 
 
 @dataclass
@@ -69,6 +77,11 @@ class _HandState:
     # Position history for the forward-extension check (last ~10 frames).
     pos_history: list[tuple[float, float, float, float]] = None  # type: ignore[assignment]
     extension_history: list[float] = None  # type: ignore[assignment]
+    # State-machine timestamps. `last_chambered_t` is the most recent
+    # frame where the elbow angle was below `chambered_max_deg`. Used
+    # by the chambered→extended gate to confirm a real jab/cross
+    # cycle rather than a fast straight-arm sweep.
+    last_chambered_t: float | None = None
 
     def __post_init__(self) -> None:
         if self.pos_history is None:
@@ -155,6 +168,9 @@ class HeuristicPunchDetector:
         min_forward_travel: float = DEFAULT_MIN_FORWARD_TRAVEL,
         min_elbow_angle_deg: float = DEFAULT_MIN_ELBOW_ANGLE_DEG,
         min_extension_ratio: float = DEFAULT_MIN_EXTENSION_RATIO,
+        chambered_max_deg: float = DEFAULT_CHAMBERED_MAX_DEG,
+        extended_min_deg: float = DEFAULT_EXTENDED_MIN_DEG,
+        punch_window_ms: float = DEFAULT_PUNCH_WINDOW_MS,
         # Legacy params kept for backwards-compat with old tests.
         threshold_norm_per_s: float | None = None,
         body_width_m: float | None = None,
@@ -168,6 +184,9 @@ class HeuristicPunchDetector:
         self.min_forward_travel = min_forward_travel
         self.min_elbow_angle_deg = min_elbow_angle_deg
         self.min_extension_ratio = min_extension_ratio
+        self.chambered_max_deg = chambered_max_deg
+        self.extended_min_deg = extended_min_deg
+        self.punch_window_ms = punch_window_ms
         self._legacy_body_width = body_width_m or 0.45
         # If caller supplied normalized-per-second, translate to legacy m/s.
         if threshold_norm_per_s is not None:
@@ -289,6 +308,18 @@ class HeuristicPunchDetector:
             elbow_open_enough = elbow_angle <= 0.0 or elbow_angle >= self.min_elbow_angle_deg
             extension_ratio_ok = self._extension_ratio_ok(st, extension)
 
+            # State-machine gate: only enforced for high-extension peaks
+            # (jab/cross territory). For low-extension peaks (hooks /
+            # uppercuts), the gate is skipped — those don't fully
+            # straighten the arm.
+            if elbow_angle >= self.extended_min_deg:
+                chambered_recently = (
+                    st.last_chambered_t is not None
+                    and (frame.t_ms - st.last_chambered_t) <= self.punch_window_ms
+                )
+            else:
+                chambered_recently = True  # gate doesn't apply to hooks/uppercuts
+
             # Near-miss instrumentation: when a peak got close to firing but
             # didn't, record why. Helps tune thresholds from data.
             if st.last_speed >= effective_threshold * 0.7 and not (
@@ -299,6 +330,7 @@ class HeuristicPunchDetector:
                 and recently_extended
                 and elbow_open_enough
                 and extension_ratio_ok
+                and chambered_recently
             ):
                 if not crossed_threshold:
                     reason = "below_threshold"
@@ -312,6 +344,8 @@ class HeuristicPunchDetector:
                     reason = "elbow_too_bent"
                 elif not extension_ratio_ok:
                     reason = "no_extension_growth"
+                elif not chambered_recently:
+                    reason = "not_chambered_first"
                 elif not decelerating:
                     reason = "still_accelerating"
                 else:
@@ -333,6 +367,7 @@ class HeuristicPunchDetector:
                 and recently_extended
                 and elbow_open_enough
                 and extension_ratio_ok
+                and chambered_recently
             ):
                 base_conf = max(
                     0.1,
@@ -363,6 +398,12 @@ class HeuristicPunchDetector:
         st.extension_history.append(extension)
         if len(st.extension_history) > 10:
             st.extension_history.pop(0)
+        # Refresh chamber timestamp whenever the elbow is bent enough.
+        # Skip when the angle is degenerate (≈0°, only happens with
+        # synthetic 2D test data) so the gate doesn't latch on bogus
+        # geometry.
+        if elbow_ok and 1.0 < elbow_angle <= self.chambered_max_deg:
+            st.last_chambered_t = frame.t_ms
         return ev
 
     def _extension_ratio_ok(self, st: _HandState, current_ext: float) -> bool:
