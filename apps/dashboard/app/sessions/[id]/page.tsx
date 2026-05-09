@@ -249,8 +249,22 @@ export default function SessionPage({ params }: { params: { id: string } }) {
     (session.source === "live_webcam" ||
       (session.source === "uploaded_video" && !!session.video_path));
 
+  const isLive =
+    session.status === "capturing" || session.status === "processing";
+  const liveDurationMs = isLive
+    ? session.status === "capturing" && session.started_at
+      ? Math.max(
+          0,
+          now -
+            parseUtc(session.started_at).getTime() -
+            manualPauseAccumMs -
+            (manualPauseStart != null ? now - manualPauseStart : 0),
+        )
+      : status?.duration_ms ?? 0
+    : status?.duration_ms ?? 0;
+
   return (
-    <main className="mx-auto max-w-3xl space-y-6 p-8">
+    <main className="mx-auto max-w-6xl space-y-6 p-8">
       <div className="flex items-center justify-between">
         <Link
           href={session.fighter_id ? `/fighters/${session.fighter_id}` : "/"}
@@ -345,28 +359,6 @@ export default function SessionPage({ params }: { params: { id: string } }) {
           })()}
         />
       </section>
-
-      {/* Round configuration — editable while pending, locked once started.
-          Always visible so the planned structure stays readable post-session. */}
-      <RoundConfigCard session={session} onChange={setSession} />
-
-      {/* Live round timer — only during active capture. Reads elapsed time
-          from the capture-status poll; pure arithmetic, no separate clock. */}
-      {(session.status === "capturing" || session.status === "processing") && (
-        <RoundTimer
-          session={session}
-          durationMs={
-            session.status === "capturing" && session.started_at
-              ? Math.max(
-                  0,
-                  now - parseUtc(session.started_at).getTime() -
-                    manualPauseAccumMs -
-                    (manualPauseStart != null ? now - manualPauseStart : 0),
-                )
-              : status?.duration_ms ?? 0
-          }
-        />
-      )}
 
       {(() => {
         // Always show Session performance — placeholders ("—") when
@@ -487,6 +479,19 @@ export default function SessionPage({ params }: { params: { id: string } }) {
           </section>
         );
       })()}
+
+      {/* Below-the-fold: timer pinned on the left, all other panels on
+          the right. Stacks on mobile. */}
+      <div className="grid grid-cols-1 gap-6 lg:grid-cols-[300px_minmax(0,1fr)]">
+        <aside className="space-y-4 lg:sticky lg:top-4 lg:self-start">
+          {isLive ? (
+            <RoundTimer session={session} durationMs={liveDurationMs} />
+          ) : (
+            <RoundConfigCard session={session} onChange={setSession} />
+          )}
+        </aside>
+        <div className="space-y-6">
+          {isLive && <RoundConfigCard session={session} onChange={setSession} />}
 
       {events.length >= 5 &&
         (() => {
@@ -809,6 +814,8 @@ export default function SessionPage({ params }: { params: { id: string } }) {
           </table>
         )}
       </section>
+        </div>
+      </div>
 
       {confirmDelete && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/70">
