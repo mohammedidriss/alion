@@ -89,8 +89,8 @@ export function EvaluationCard({ sessionId }: { sessionId: string }) {
         </span>
       </div>
       <p className="mt-1 text-xs text-neutral-400">
-        The dissertation&apos;s defensible accuracy number. Watch the video,
-        manually mark each punch&apos;s timestamp + hand + type, and upload a{" "}
+        Check accuracy — watch the video, manually mark each punch&apos;s
+        timestamp + hand + type, and upload a{" "}
         <code className="rounded bg-black/30 px-1">labels.json</code> here.
       </p>
 

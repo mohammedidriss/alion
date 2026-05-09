@@ -142,7 +142,7 @@ export function RQ1RaterCard({ sessionId }: Props) {
       <p className="mt-1 text-xs text-neutral-400">
         Generates advice from the 4 payload subsets, randomized per
         session. Rate each on 1–5 Likert across four criteria. Export
-        when done — the JSON is your dissertation data.
+        when done.
       </p>
 
       <div className="mt-3 flex flex-wrap items-center gap-2">

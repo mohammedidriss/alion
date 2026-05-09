@@ -227,7 +227,7 @@ export default function HrvTab({ params }: { params: { id: string } }) {
         </div>
       </div>
 
-      {/* CORRELATION SCATTER — the dissertation's headline result, inline */}
+      {/* CORRELATION SCATTER — readiness vs performance, inline */}
       {matrix && matrix.points.length > 0 && (
         <div className="card">
           <h2 className="text-base font-semibold">
