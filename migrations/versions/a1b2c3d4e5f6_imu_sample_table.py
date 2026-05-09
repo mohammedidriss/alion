@@ -38,9 +38,7 @@ def upgrade() -> None:
         sa.Column("hand", sa.String(length=10), nullable=True),
         sa.ForeignKeyConstraint(["session_id"], ["session.id"]),
     )
-    op.create_index(
-        "ix_imu_sample_session_id", "imu_sample", ["session_id"], unique=False
-    )
+    op.create_index("ix_imu_sample_session_id", "imu_sample", ["session_id"], unique=False)
 
 
 def downgrade() -> None:

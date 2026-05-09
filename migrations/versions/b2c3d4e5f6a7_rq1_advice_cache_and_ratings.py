@@ -79,13 +79,9 @@ def upgrade() -> None:
             sa.ForeignKeyConstraint(["session_id"], ["session.id"]),
         )
     if not has_index("rq1_rating", "ix_rq1_rating_session_id"):
-        op.create_index(
-            "ix_rq1_rating_session_id", "rq1_rating", ["session_id"], unique=False
-        )
+        op.create_index("ix_rq1_rating_session_id", "rq1_rating", ["session_id"], unique=False)
     if not has_index("rq1_rating", "ix_rq1_rating_rater_id"):
-        op.create_index(
-            "ix_rq1_rating_rater_id", "rq1_rating", ["rater_id"], unique=False
-        )
+        op.create_index("ix_rq1_rating_rater_id", "rq1_rating", ["rater_id"], unique=False)
     if not has_index("rq1_rating", "ix_rq1_rating_unique"):
         op.create_index(
             "ix_rq1_rating_unique",

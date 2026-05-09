@@ -78,9 +78,7 @@ def _build_video_index(root: Path) -> dict[str, list[tuple[int, int]]]:
     return index
 
 
-def _overlap_fraction(
-    center_frame: int, intervals: list[tuple[int, int]]
-) -> float:
+def _overlap_fraction(center_frame: int, intervals: list[tuple[int, int]]) -> float:
     """Fraction of the window's source-frame span inside any track."""
     half = SOURCE_FRAMES_PER_WINDOW // 2
     win_start = center_frame - half
