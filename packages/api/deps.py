@@ -9,6 +9,7 @@ from sqlmodel import Session
 
 from store import (
     CoachRepo,
+    ConsensusEventRepo,
     FighterRepo,
     FighterTeamRepo,
     IMUSampleRepo,
@@ -38,6 +39,12 @@ def punch_event_repo(session: Session = Depends(db_session)) -> PunchEventRepo:
 
 def imu_sample_repo(session: Session = Depends(db_session)) -> IMUSampleRepo:
     return IMUSampleRepo(session)
+
+
+def consensus_event_repo(
+    session: Session = Depends(db_session),
+) -> ConsensusEventRepo:
+    return ConsensusEventRepo(session)
 
 
 def coach_repo(session: Session = Depends(db_session)) -> CoachRepo:

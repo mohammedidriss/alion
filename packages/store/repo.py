@@ -15,6 +15,7 @@ from store.models import (
     CoachAssignment,
     CoachAssignmentCreate,
     CoachCreate,
+    ConsensusEventRow,
     Fighter,
     FighterCreate,
     FighterSponsor,
@@ -158,6 +159,11 @@ class SessionRepo:
         )
         self._session.exec(
             sqlmodel_delete(IMUSampleRow).where(IMUSampleRow.session_id == session_id)  # type: ignore[arg-type]
+        )
+        self._session.exec(
+            sqlmodel_delete(ConsensusEventRow).where(  # type: ignore[arg-type]
+                ConsensusEventRow.session_id == session_id
+            )
         )
         self._session.delete(row)
         self._session.commit()
@@ -601,3 +607,34 @@ class IMUSampleRepo:
     def count_for_session(self, session_id: UUID) -> int:
         stmt = select(IMUSampleRow).where(IMUSampleRow.session_id == session_id)
         return len(list(self._session.exec(stmt).all()))
+
+
+class ConsensusEventRepo:
+    """Per-session consensus events — one row per reconciled punch."""
+
+    def __init__(self, session: DBSession) -> None:
+        self._session = session
+
+    def replace_for_session(self, session_id: UUID, rows: list[ConsensusEventRow]) -> int:
+        from sqlmodel import delete as sqlmodel_delete
+
+        self._session.exec(
+            sqlmodel_delete(ConsensusEventRow).where(  # type: ignore[arg-type]
+                ConsensusEventRow.session_id == session_id
+            )
+        )
+        for r in rows:
+            self._session.add(r)
+        self._session.commit()
+        return len(rows)
+
+    def list_for_session(self, session_id: UUID) -> list[ConsensusEventRow]:
+        stmt = (
+            select(ConsensusEventRow)
+            .where(ConsensusEventRow.session_id == session_id)
+            .order_by(ConsensusEventRow.t_ms)  # type: ignore[arg-type]
+        )
+        return list(self._session.exec(stmt).all())
+
+    def count_for_session(self, session_id: UUID) -> int:
+        return len(self.list_for_session(session_id))

@@ -340,6 +340,51 @@ class IMUSampleRead(SQLModel):
 
 
 # ----------------------------------------------------------------------
+# Consensus events — output of live + offline detector reconciliation.
+# Live = `HeuristicPunchDetector` (punch_event rows). Offline = whatever
+# second-pass model is registered (LSTM if available, else stricter
+# heuristic). Each row records which sources voted for the event so
+# downstream consumers can filter (e.g. RQ1 advice prefers `consensus`).
+# ----------------------------------------------------------------------
+
+
+class ConsensusKindEnum(StrEnum):
+    CONSENSUS = "consensus"
+    LIVE_ONLY = "live_only"
+    OFFLINE_ONLY = "offline_only"
+
+
+class ConsensusEventRow(SQLModel, table=True):
+    __tablename__ = "consensus_event"
+    id: int | None = Field(default=None, primary_key=True)
+    session_id: UUID = Field(foreign_key="session.id", index=True)
+    t_ms: float
+    hand: HandEnum
+    velocity_ms: float
+    punch_type: PunchTypeEnum | None = None
+    confidence: float
+    kind: ConsensusKindEnum
+    # Comma-separated source labels (e.g. "live,offline" or "live" or
+    # "offline,lstm_v1"). Free-form so we can plug in new detectors
+    # without a schema change.
+    sources: str
+    second_pass_name: str  # name of the offline detector that produced this row's pass
+    created_at: datetime = Field(default_factory=lambda: datetime.now(UTC))
+
+
+class ConsensusEventRead(SQLModel):
+    session_id: UUID
+    t_ms: float
+    hand: HandEnum
+    velocity_ms: float
+    punch_type: PunchTypeEnum | None = None
+    confidence: float
+    kind: ConsensusKindEnum
+    sources: str
+    second_pass_name: str
+
+
+# ----------------------------------------------------------------------
 # RQ1 study tables — advice cache + rater scores.
 # Cache fixes the "same session generates different advice each click"
 # problem: every (session, payload_mode, prompt_version) tuple is

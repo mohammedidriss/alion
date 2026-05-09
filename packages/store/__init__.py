@@ -18,6 +18,9 @@ from store.models import (
     CoachRead,
     CoachRole,
     ConditionStatus,
+    ConsensusEventRead,
+    ConsensusEventRow,
+    ConsensusKindEnum,
     DetectionSourceEnum,
     Fighter,
     FighterCreate,
@@ -69,6 +72,7 @@ from store.models import (
 )
 from store.repo import (
     CoachRepo,
+    ConsensusEventRepo,
     FighterRepo,
     FighterTeamRepo,
     IMUSampleRepo,
@@ -97,6 +101,10 @@ __all__ = [
     "CoachRole",
     "CoachingLevel",
     "ConditionStatus",
+    "ConsensusEventRead",
+    "ConsensusEventRepo",
+    "ConsensusEventRow",
+    "ConsensusKindEnum",
     "DetectionSourceEnum",
     "Fighter",
     "FighterCreate",

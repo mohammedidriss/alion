@@ -850,6 +850,203 @@ def rounds_export(
 
 
 # ---------------------------------------------------------------------------
+# Offline reconciliation — run a second-pass detector on the saved pose
+# parquet, reconcile with the live punch_event rows, persist the
+# consensus stream. The dashboard surfaces the consensus count next to
+# the live count; downstream consumers (rounds_export, advice) can
+# prefer the consensus rows for higher precision.
+# ---------------------------------------------------------------------------
+
+
+class ReprocessResponse(BaseModel):
+    session_id: UUID
+    second_pass_name: str
+    live_count: int
+    offline_count: int
+    consensus_count: int
+    live_only: int
+    offline_only: int
+
+
+@router.post("/{session_id}/reprocess_offline", response_model=ReprocessResponse)
+def reprocess_offline(
+    session_id: UUID,
+    sessions: SessionRepo = Depends(session_repo),
+    events: PunchEventRepo = Depends(punch_event_repo),
+    db: DBSession = Depends(db_session),
+) -> ReprocessResponse:
+    from analyze import default_second_pass, reconcile_events
+    from contracts import Landmark, PoseFrame, WorldLandmark
+    from store import (
+        ConsensusEventRepo as _ConsensusEventRepo,
+    )
+    from store import (
+        ConsensusEventRow,
+        ConsensusKindEnum,
+        HandEnum,
+        PunchTypeEnum,
+    )
+
+    row = sessions.get(session_id)
+    if row is None:
+        raise HTTPException(status_code=404, detail="session not found")
+    if not row.pose_parquet_path:
+        raise HTTPException(status_code=400, detail="no pose parquet for this session")
+    parquet = Path(row.pose_parquet_path)
+    if not parquet.exists():
+        raise HTTPException(status_code=410, detail=f"parquet missing on disk: {parquet}")
+
+    try:
+        import pyarrow.parquet as pq
+    except ImportError as e:
+        raise HTTPException(status_code=503, detail=f"pyarrow not available: {e}") from e
+
+    table = pq.read_table(parquet)
+    rows_dict = table.to_pylist()
+
+    # Replay parquet rows into PoseFrame. Schema: lm00..lm32 (x,y,z,v) +
+    # wl00..wl32 (x,y,z,v).
+    def _to_pose_frame(d: dict[str, object]) -> PoseFrame:
+        lm = tuple(
+            Landmark(
+                x=float(d[f"lm{i:02d}_x"]),
+                y=float(d[f"lm{i:02d}_y"]),
+                z=float(d[f"lm{i:02d}_z"]),
+                visibility=float(d[f"lm{i:02d}_v"]),
+            )
+            for i in range(33)
+        )
+        wl: tuple[WorldLandmark, ...] | None = None
+        if f"wl{0:02d}_x" in d:
+            wl = tuple(
+                WorldLandmark(
+                    x=float(d[f"wl{i:02d}_x"]),
+                    y=float(d[f"wl{i:02d}_y"]),
+                    z=float(d[f"wl{i:02d}_z"]),
+                    visibility=float(d[f"wl{i:02d}_v"]),
+                )
+                for i in range(33)
+            )
+        return PoseFrame(
+            session_id=session_id,
+            frame_index=int(d["frame_index"]),
+            t_ms=float(d["t_ms"]),
+            landmarks=lm,
+            world_landmarks=wl,
+        )
+
+    pose_frames = [_to_pose_frame(d) for d in rows_dict]
+
+    # Lookup the fighter's stance so the second-pass labels lead/rear.
+    from store import FighterRepo as _FighterRepo
+
+    fighter = _FighterRepo(db).get(row.fighter_id)
+    stance_str = fighter.stance.value if fighter else None
+
+    second_pass = default_second_pass()
+    offline_events = second_pass.detect(pose_frames, stance=stance_str)
+
+    live_events = [
+        # Re-wrap PunchEventRow → PunchEvent contract for reconcile().
+        # Only fields the reconciler needs are populated.
+        _row_to_event(e)
+        for e in events.list_for_session(session_id)
+    ]
+
+    consensus = reconcile_events(
+        live=live_events,
+        offline=offline_events,
+        live_label="live",
+        offline_label=second_pass.name,
+    )
+
+    consensus_rows = [
+        ConsensusEventRow(
+            session_id=session_id,
+            t_ms=c.t_ms,
+            hand=HandEnum(c.hand),
+            velocity_ms=c.velocity_ms,
+            punch_type=PunchTypeEnum(c.punch_type) if c.punch_type else None,
+            confidence=c.confidence,
+            kind=ConsensusKindEnum(c.kind),
+            sources=",".join(c.sources),
+            second_pass_name=second_pass.name,
+        )
+        for c in consensus
+    ]
+    _ConsensusEventRepo(db).replace_for_session(session_id, consensus_rows)
+
+    return ReprocessResponse(
+        session_id=session_id,
+        second_pass_name=second_pass.name,
+        live_count=len(live_events),
+        offline_count=len(offline_events),
+        consensus_count=sum(1 for c in consensus if c.kind == "consensus"),
+        live_only=sum(1 for c in consensus if c.kind == "live_only"),
+        offline_only=sum(1 for c in consensus if c.kind == "offline_only"),
+    )
+
+
+def _row_to_event(e):  # type: ignore[no-untyped-def]
+    """PunchEventRow → contracts.PunchEvent for the reconciler."""
+    from contracts import PunchEvent
+
+    return PunchEvent(
+        session_id=e.session_id,
+        t_ms=e.t_ms,
+        hand=e.hand.value if hasattr(e.hand, "value") else str(e.hand),
+        lead_or_rear=(
+            e.lead_or_rear.value if e.lead_or_rear and hasattr(e.lead_or_rear, "value") else None
+        ),
+        velocity_ms=e.velocity_ms,
+        velocity_source=(
+            e.velocity_source.value
+            if hasattr(e.velocity_source, "value")
+            else str(e.velocity_source)
+        ),
+        punch_type=(
+            e.punch_type.value if e.punch_type and hasattr(e.punch_type, "value") else None
+        ),
+        detected_by=(
+            e.detected_by.value if hasattr(e.detected_by, "value") else str(e.detected_by)
+        ),
+        confidence=float(e.confidence),
+    )
+
+
+@router.get(
+    "/{session_id}/consensus_events",
+    response_model=list[dict],
+)
+def list_consensus_events(
+    session_id: UUID,
+    sessions: SessionRepo = Depends(session_repo),
+    db: DBSession = Depends(db_session),
+) -> list[dict]:
+    """Read-only view of the reconciled consensus stream."""
+    from store import ConsensusEventRepo as _ConsensusEventRepo
+
+    if sessions.get(session_id) is None:
+        raise HTTPException(status_code=404, detail="session not found")
+    rows = _ConsensusEventRepo(db).list_for_session(session_id)
+    return [
+        {
+            "t_ms": r.t_ms,
+            "hand": r.hand.value if hasattr(r.hand, "value") else str(r.hand),
+            "velocity_ms": r.velocity_ms,
+            "punch_type": (
+                r.punch_type.value if r.punch_type and hasattr(r.punch_type, "value") else None
+            ),
+            "confidence": r.confidence,
+            "kind": r.kind.value if hasattr(r.kind, "value") else str(r.kind),
+            "sources": r.sources,
+            "second_pass_name": r.second_pass_name,
+        }
+        for r in rows
+    ]
+
+
+# ---------------------------------------------------------------------------
 # Detector evaluation — manual labels vs detector output
 # ---------------------------------------------------------------------------
 

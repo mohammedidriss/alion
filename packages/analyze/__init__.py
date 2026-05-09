@@ -11,25 +11,37 @@ from analyze.readiness import (
     ReadinessMode,
     compute_readiness,
 )
+from analyze.reconcile import ConsensusEvent, ConsensusKind, reconcile_events
+from analyze.second_pass import (
+    SecondPassDetector,
+    StricterHeuristicSecondPass,
+    default_second_pass,
+)
 from analyze.velocity_refiner import refine_peak_velocity
 
 __all__ = [
     "MIN_HISTORY",
+    "ConsensusEvent",
+    "ConsensusKind",
     "HeuristicPunchDetector",
     "PerformanceScore",
     "PunchType",
     "Readiness",
     "ReadinessMode",
     "RollingHRMetrics",
+    "SecondPassDetector",
+    "StricterHeuristicSecondPass",
     "TrimpResult",
     "classify_punch_type",
     "compute_readiness",
     "compute_score",
     "compute_swc",
     "compute_trimp",
+    "default_second_pass",
     "detect_punches",
     "estimate_hr_max",
     "mean_hr_bpm",
+    "reconcile_events",
     "refine_peak_velocity",
     "rmssd_ms",
     "sdnn_ms",
