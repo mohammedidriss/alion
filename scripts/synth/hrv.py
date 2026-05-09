@@ -22,8 +22,16 @@ import random
 from pathlib import Path
 
 
-def _hr_target(elapsed_s: float, *, rounds: int, round_s: int, rest_s: int,
-               hr_rest: float, hr_peak: float, fatigue_drift: float = 5.0) -> float:
+def _hr_target(
+    elapsed_s: float,
+    *,
+    rounds: int,
+    round_s: int,
+    rest_s: int,
+    hr_rest: float,
+    hr_peak: float,
+    fatigue_drift: float = 5.0,
+) -> float:
     """Piecewise HR target: ramps up during rounds, drops during rest."""
     seg = round_s + rest_s
     cycle_idx = int(elapsed_s // seg)
@@ -37,15 +45,26 @@ def _hr_target(elapsed_s: float, *, rounds: int, round_s: int, rest_s: int,
         # Rest: exponential decay toward (hr_rest + fatigue)
         rest_in = in_seg - round_s
         tau = 25.0
-        peak_at_round_end = (hr_peak + fatigue) - (hr_peak + fatigue - hr_rest) * math.exp(-round_s / tau)
-        target = (hr_rest + fatigue) + (peak_at_round_end - (hr_rest + fatigue)) * math.exp(-rest_in / tau)
+        peak_at_round_end = (hr_peak + fatigue) - (hr_peak + fatigue - hr_rest) * math.exp(
+            -round_s / tau
+        )
+        target = (hr_rest + fatigue) + (peak_at_round_end - (hr_rest + fatigue)) * math.exp(
+            -rest_in / tau
+        )
     return target
 
 
-def generate(*, rounds: int, round_s: int, rest_s: int,
-             hr_rest: float = 70.0, hr_peak: float = 170.0,
-             rmssd_rest_ms: float = 50.0, rmssd_peak_ms: float = 6.0,
-             seed: int | None = None) -> list[tuple[float, float]]:
+def generate(
+    *,
+    rounds: int,
+    round_s: int,
+    rest_s: int,
+    hr_rest: float = 70.0,
+    hr_peak: float = 170.0,
+    rmssd_rest_ms: float = 50.0,
+    rmssd_peak_ms: float = 6.0,
+    seed: int | None = None,
+) -> list[tuple[float, float]]:
     rng = random.Random(seed)
     total_s = rounds * round_s + max(0, rounds - 1) * rest_s
     samples: list[tuple[float, float]] = []
@@ -53,8 +72,12 @@ def generate(*, rounds: int, round_s: int, rest_s: int,
     while t_ms / 1000.0 < total_s:
         elapsed_s = t_ms / 1000.0
         hr = _hr_target(
-            elapsed_s, rounds=rounds, round_s=round_s, rest_s=rest_s,
-            hr_rest=hr_rest, hr_peak=hr_peak,
+            elapsed_s,
+            rounds=rounds,
+            round_s=round_s,
+            rest_s=rest_s,
+            hr_rest=hr_rest,
+            hr_peak=hr_peak,
         )
         # RMSSD shrinks as HR rises (linear interpolation between rest/peak)
         f = max(0.0, min(1.0, (hr - hr_rest) / max(hr_peak - hr_rest, 1e-3)))
@@ -86,8 +109,12 @@ def main() -> None:
     ap.add_argument("--out", type=Path, required=True)
     args = ap.parse_args()
     samples = generate(
-        rounds=args.rounds, round_s=args.round_s, rest_s=args.rest_s,
-        hr_rest=args.hr_rest, hr_peak=args.hr_peak, seed=args.seed,
+        rounds=args.rounds,
+        round_s=args.round_s,
+        rest_s=args.rest_s,
+        hr_rest=args.hr_rest,
+        hr_peak=args.hr_peak,
+        seed=args.seed,
     )
     write_csv(samples, args.out)
     print(f"wrote {len(samples)} RR samples to {args.out}")

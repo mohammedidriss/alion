@@ -111,7 +111,7 @@ def _friedman(rows_by_session: dict[str, dict[str, list[float]]], criterion: str
     contributes one observation per mode).
     """
     matrix = []  # rows = sessions, cols = modes
-    for sid, by_mode in rows_by_session.items():
+    for _sid, by_mode in rows_by_session.items():
         if any(criterion not in mode_scores for mode_scores in by_mode.values()):
             continue  # session missing a mode score for this criterion
         if any(not by_mode.get(m) for m in MODES):
@@ -121,7 +121,7 @@ def _friedman(rows_by_session: dict[str, dict[str, list[float]]], criterion: str
     n = len(matrix)
     if n < 3:
         return {"n": n, "ok": False, "reason": "fewer than 3 complete sessions"}
-    columns = list(zip(*matrix))
+    columns = list(zip(*matrix, strict=True))
     chi2, p = stats.friedmanchisquare(*columns)
     w = _kendalls_w(matrix)
     return {
@@ -130,7 +130,7 @@ def _friedman(rows_by_session: dict[str, dict[str, list[float]]], criterion: str
         "chi2": float(chi2),
         "p": float(p),
         "kendalls_w": w,
-        "mode_means": {m: float(mean(col)) for m, col in zip(MODES, columns)},
+        "mode_means": {m: float(mean(col)) for m, col in zip(MODES, columns, strict=True)},
     }
 
 
@@ -222,23 +222,12 @@ def main() -> None:
 
     # ICC(3,k) per (mode, criterion). Build an n×k subject-by-rater matrix.
     icc_block: dict[str, dict[str, float | None]] = {}
+    raters_sorted = sorted(rater_ids)
+    sessions_list = list(rows.keys())
     for mode in MODES:
         icc_block[mode] = {}
         for crit in CRITERIA:
-            mat = []
-            raters_sorted = sorted(rater_ids)
-            for sid in rows:
-                row = []
-                ok = True
-                for rid in raters_sorted:
-                    # Find the score for this (session, mode, crit, rater).
-                    # We didn't keep rater_id in the dict above, so re-scan.
-                    ok = False
-                    break
-                if ok:
-                    mat.append(row)
-            # Re-scan from CSV for efficiency
-            mat = _build_icc_matrix(args.inp, mode, crit, raters_sorted, list(rows.keys()))
+            mat = _build_icc_matrix(args.inp, mode, crit, raters_sorted, sessions_list)
             icc_block[mode][crit] = _icc_two_way(mat)
     report["icc_3k"] = icc_block
 
