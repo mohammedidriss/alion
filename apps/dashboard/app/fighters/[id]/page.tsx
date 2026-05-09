@@ -197,12 +197,6 @@ export default function FighterPage({ params }: { params: { id: string } }) {
             >
               New session
             </Link>
-            <Link
-              href={`/fighters/${fighter.id}/matrix`}
-              className="rounded-xl border border-white/5 bg-white/[0.03] px-3 py-1.5 text-sm hover:bg-white/[0.07]"
-            >
-              Performance matrix
-            </Link>
           </div>
         </div>
         <div className="flex shrink-0 items-center gap-2">

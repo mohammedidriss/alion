@@ -218,15 +218,7 @@ export default function HrvTab({ params }: { params: { id: string } }) {
         </div>
 
         <div className="card lg:col-span-2">
-          <div className="flex items-baseline justify-between">
-            <h2 className="text-base font-semibold">RMSSD trend</h2>
-            <Link
-              href={`/fighters/${params.id}/matrix`}
-              className="text-xs text-emerald-400 hover:underline"
-            >
-              full matrix →
-            </Link>
-          </div>
+          <h2 className="text-base font-semibold">RMSSD trend</h2>
           <RmssdTrend sessions={baselined} />
           <p className="mt-2 text-[11px] text-neutral-500">
             Recovery trend across recorded baselines. Drops 7+ ms over a week
@@ -238,17 +230,9 @@ export default function HrvTab({ params }: { params: { id: string } }) {
       {/* CORRELATION SCATTER — the dissertation's headline result, inline */}
       {matrix && matrix.points.length > 0 && (
         <div className="card">
-          <div className="flex items-baseline justify-between">
-            <h2 className="text-base font-semibold">
-              Resting HRV vs performance score
-            </h2>
-            <Link
-              href={`/fighters/${params.id}/matrix`}
-              className="text-xs text-emerald-400 hover:underline"
-            >
-              full matrix →
-            </Link>
-          </div>
+          <h2 className="text-base font-semibold">
+            Resting HRV vs performance score
+          </h2>
           <p className="mt-1 text-[11px] text-neutral-500">
             Each dot is one session. Higher RMSSD (right) = better recovery;
             higher score (up) = busier + faster session. Older sessions are
