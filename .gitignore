@@ -46,3 +46,9 @@ models/**/*.task
 !data/fixtures/
 ~$*.docx
 ~$*.doc
+
+# Generated ML artifacts — built by scripts/ml/, not source.
+data/ml/datasets/
+data/ml/raw/
+data/ml/punch_lstm_v1.pkl
+Datasets/
