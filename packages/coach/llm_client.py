@@ -28,8 +28,10 @@ async def generate_corner_advice(system_prompt: str, session_data_json: str) -> 
     Tries to parse the JSON output from the LLM. If the LLM failed to produce valid JSON,
     it falls back to a raw text summary.
     """
-    try:
-        completion = await client.chat.completions.create(
+    import asyncio
+
+    async def _call() -> object:
+        return await client.chat.completions.create(
             model=MODEL,
             messages=[
                 {"role": "system", "content": system_prompt},
@@ -38,9 +40,33 @@ async def generate_corner_advice(system_prompt: str, session_data_json: str) -> 
             temperature=0.5,
             max_tokens=800,
         )
-    except Exception as e:
+
+    # Retry once on transient errors. The most common is LM Studio
+    # returning 404 'model not found' when the model is unloaded; on
+    # the retry it just-in-time loads. We sleep briefly to give it
+    # time to come up.
+    completion = None
+    last_err: Exception | None = None
+    for attempt in range(2):
+        try:
+            completion = await _call()
+            break
+        except Exception as e:
+            last_err = e
+            msg = str(e).lower()
+            transient = (
+                "404" in msg
+                or "not found" in msg
+                or "service unavailable" in msg
+                or "connection error" in msg
+            )
+            if attempt == 0 and transient:
+                await asyncio.sleep(2.0)
+                continue
+            break
+    if completion is None:
         return CoachAdvice(
-            summary=f"Failed to connect to LLM ({MODEL}): {e}",
+            summary=f"Failed to connect to LLM ({MODEL}): {last_err}",
             action_items=[],
         )
 
