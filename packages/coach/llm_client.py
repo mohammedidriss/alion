@@ -14,7 +14,12 @@ OPENAI_BASE_URL = os.getenv("OPENAI_BASE_URL", "http://localhost:1234/v1")
 OPENAI_API_KEY = os.getenv("OPENAI_API_KEY", "lm-studio")
 MODEL = os.getenv("COACH_MODEL", "google/gemma-4-e4b")
 
-client = AsyncOpenAI(base_url=OPENAI_BASE_URL, api_key=OPENAI_API_KEY)
+# NOTE: a module-level AsyncOpenAI client used to live here. We saw a
+# repro where the long-lived client kept returning "model not found"
+# 404s from LM Studio even though fresh processes hitting the same
+# endpoint succeeded — almost certainly a stale connection / cached
+# state inside httpx. Creating the client per call is cheap on
+# localhost and makes LM Studio's just-in-time loading reliable.
 
 
 class CoachAdvice(BaseModel):
@@ -31,7 +36,10 @@ async def generate_corner_advice(system_prompt: str, session_data_json: str) -> 
     import asyncio
 
     async def _call() -> object:
-        return await client.chat.completions.create(
+        # Fresh client per call — avoids the stale-connection 404s
+        # described above. AsyncOpenAI is cheap to construct.
+        c = AsyncOpenAI(base_url=OPENAI_BASE_URL, api_key=OPENAI_API_KEY)
+        return await c.chat.completions.create(
             model=MODEL,
             messages=[
                 {"role": "system", "content": system_prompt},
