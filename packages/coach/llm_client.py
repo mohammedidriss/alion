@@ -9,10 +9,27 @@ import re
 from openai import AsyncOpenAI
 from pydantic import BaseModel
 
-# Default to local LM Studio
-OPENAI_BASE_URL = os.getenv("OPENAI_BASE_URL", "http://localhost:1234/v1")
-OPENAI_API_KEY = os.getenv("OPENAI_API_KEY", "lm-studio")
+# Default to local LM Studio. We use Alion-specific env var names
+# (`COACH_*`) so a developer's existing OPENAI_BASE_URL / OPENAI_MODEL
+# (e.g. an Ollama dev setup) doesn't accidentally redirect coach
+# inference to a totally different LLM. Falls back to the generic
+# OPENAI_* names for backwards compatibility, but only if the
+# COACH_* override wasn't set.
+OPENAI_BASE_URL = os.getenv(
+    "COACH_BASE_URL",
+    os.getenv("OPENAI_BASE_URL", "http://localhost:1234/v1"),
+)
+OPENAI_API_KEY = os.getenv(
+    "COACH_API_KEY",
+    os.getenv("OPENAI_API_KEY", "lm-studio"),
+)
 MODEL = os.getenv("COACH_MODEL", "google/gemma-4-e4b")
+# If the env-resolved base URL points at Ollama (port 11434) but the
+# model is the LM Studio default, force the LM Studio URL — that
+# combination is almost always a polluted shell, never a real config.
+if "11434" in OPENAI_BASE_URL and MODEL == "google/gemma-4-e4b":
+    OPENAI_BASE_URL = "http://localhost:1234/v1"
+    OPENAI_API_KEY = "lm-studio"
 
 # NOTE: a module-level AsyncOpenAI client used to live here. We saw a
 # repro where the long-lived client kept returning "model not found"
