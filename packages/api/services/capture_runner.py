@@ -175,6 +175,12 @@ def _run_capture(
     # Rolling pose history feeds the punch-type classifier (~last 8 frames).
     pose_history: list[PoseFrame] = []
     history_len = 8
+    # T_0 alignment: when the very first PoseFrame lands, reset
+    # session.started_at to "now". Without this the dashboard timer
+    # uses the *session-creation* time as T_0 and the round counter
+    # is already several seconds in by the time the camera first
+    # produces a frame.
+    first_frame_seen = [False]
 
     # Gym Mode: optional "gloves up" gesture before detection starts.
     # Disabled by default — it silently swallowed every detection when
@@ -235,6 +241,25 @@ def _run_capture(
                     pass
             if waiting_for_gesture:
                 return
+
+        # First frame after capture actually started: reset T_0 on the
+        # session row so the dashboard timer ticks from 0 when the
+        # camera shows its first usable frame, not from session-
+        # creation time.
+        if not first_frame_seen[0]:
+            first_frame_seen[0] = True
+            from datetime import UTC, datetime
+
+            try:
+                with db_factory() as db:
+                    row = SessionRepo(db).get(session_id)
+                    if row is not None:
+                        row.started_at = datetime.now(UTC)
+                        db.add(row)
+                        db.commit()
+            except Exception:
+                # Non-fatal — the capture loop continues either way.
+                pass
 
         pose_history.append(pose)
         if len(pose_history) > history_len:
