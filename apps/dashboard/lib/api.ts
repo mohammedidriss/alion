@@ -314,6 +314,29 @@ export interface CoachAdviceResponse {
   action_items: string[];
 }
 
+export interface ReprocessResponse {
+  session_id: string;
+  second_pass_name: string;
+  live_count: number;
+  offline_count: number;
+  consensus_count: number;
+  live_only: number;
+  offline_only: number;
+}
+
+export type ConsensusKind = "consensus" | "live_only" | "offline_only";
+
+export interface ConsensusEvent {
+  t_ms: number;
+  hand: "left" | "right";
+  velocity_ms: number;
+  punch_type: string | null;
+  confidence: number;
+  kind: ConsensusKind;
+  sources: string;
+  second_pass_name: string;
+}
+
 export interface RQ1Rating {
   session_id: string;
   payload_mode: PayloadMode;
@@ -633,6 +656,14 @@ export const api = {
   roundsExport: (id: string) =>
     req<RoundsExportResponse>(`/sessions/${id}/rounds_export`),
   imuSamples: (id: string) => req<IMUSample[]>(`/sessions/${id}/imu/samples`),
+
+  // Offline reconciliation (live heuristic + LSTM second pass).
+  reprocessOffline: (id: string) =>
+    req<ReprocessResponse>(`/sessions/${id}/reprocess_offline`, {
+      method: "POST",
+    }),
+  listConsensusEvents: (id: string) =>
+    req<ConsensusEvent[]>(`/sessions/${id}/consensus_events`),
   synthesizeIMU: (id: string) =>
     req<number>(`/sessions/${id}/imu/synth`, { method: "POST" }),
   loadHrvSync: (id: string) =>

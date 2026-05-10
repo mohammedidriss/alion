@@ -7,6 +7,7 @@ import { EvaluationCard } from "@/components/EvaluationCard";
 import { FighterBackLink } from "@/components/FighterBackLink";
 import { HrvPanel } from "@/components/HrvPanel";
 import { IMUPanel } from "@/components/IMUPanel";
+import { DetectorComparisonCard } from "@/components/DetectorComparisonCard";
 import { LiveAdviceCard } from "@/components/LiveAdviceCard";
 import { RQ1RaterCard } from "@/components/RQ1RaterCard";
 import { PunchChart } from "@/components/PunchChart";
@@ -853,6 +854,10 @@ export default function SessionPage({ params }: { params: { id: string } }) {
         </div>
         <aside className="space-y-4 xl:sticky xl:top-4 xl:self-start">
           <LiveAdviceCard sessionId={session.id} status={session.status} />
+          <DetectorComparisonCard
+            sessionId={session.id}
+            status={session.status}
+          />
         </aside>
       </div>
 
