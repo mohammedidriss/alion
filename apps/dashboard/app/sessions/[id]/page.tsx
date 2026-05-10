@@ -295,6 +295,16 @@ export default function SessionPage({ params }: { params: { id: string } }) {
       : status?.duration_ms ?? 0
     : status?.duration_ms ?? 0;
 
+  // Two distinct paused states to surface differently in the UI:
+  // - manual: user explicitly hit Pause. Always shown in red.
+  //   `manualPauseStart` is only set inside the `pause()` handler.
+  // - break: auto-pause that fires when the round timer enters a rest
+  //   phase between rounds. status.is_paused is true but the user
+  //   didn't trigger it.
+  const isManualPaused =
+    !!status?.is_paused && manualPauseStart !== null;
+  const isBreak = !!status?.is_paused && manualPauseStart === null;
+
   return (
     <main className="mx-auto max-w-7xl space-y-6 p-8">
       <div className="flex items-center justify-between">
@@ -386,9 +396,11 @@ export default function SessionPage({ params }: { params: { id: string } }) {
         (session.source === "uploaded_video" && !session.video_path)) && (
         <section
           className={`relative space-y-4 rounded-lg border p-4 transition-colors ${
-            status?.is_paused
+            isManualPaused
               ? "border-red-500 bg-red-700/30"
-              : "border-neutral-800 bg-neutral-950/60"
+              : isBreak
+                ? "border-amber-500 bg-amber-600/20"
+                : "border-neutral-800 bg-neutral-950/60"
           }`}
         >
           {/* Round timer pinned at the top of the capture panel during
@@ -398,7 +410,7 @@ export default function SessionPage({ params }: { params: { id: string } }) {
             <RoundTimer
               session={session}
               durationMs={liveDurationMs}
-              isPaused={!!status?.is_paused}
+              isPaused={isManualPaused}
             />
           )}
           <div
@@ -415,15 +427,23 @@ export default function SessionPage({ params }: { params: { id: string } }) {
                   <h2 className="text-sm font-medium">Camera</h2>
                   <span
                     className={`flex items-center gap-2 text-xs ${
-                      status?.is_paused ? "text-red-200" : "text-neutral-400"
+                      isManualPaused
+                        ? "text-red-200"
+                        : isBreak
+                          ? "text-amber-200"
+                          : "text-neutral-400"
                     }`}
                   >
                     <span
                       className={`inline-block h-2 w-2 rounded-full ${
-                        status?.is_paused ? "bg-red-500" : "animate-pulse bg-red-500"
+                        isManualPaused
+                          ? "bg-red-500"
+                          : isBreak
+                            ? "bg-amber-400"
+                            : "animate-pulse bg-red-500"
                       }`}
                     />
-                    {status?.is_paused ? "paused" : "live"}
+                    {isManualPaused ? "paused" : isBreak ? "break" : "live"}
                   </span>
                 </div>
                 <div className="relative">
@@ -434,15 +454,21 @@ export default function SessionPage({ params }: { params: { id: string } }) {
                     alt="live capture preview with pose overlay"
                     className="w-full rounded border border-neutral-800 bg-black"
                   />
-                  {(status?.is_paused || resumeCountdown !== null) && (
-                    <div className="absolute inset-0 flex items-center justify-center rounded bg-red-700/60">
+                  {(isManualPaused || isBreak || resumeCountdown !== null) && (
+                    <div
+                      className={`absolute inset-0 flex items-center justify-center rounded ${
+                        isManualPaused || resumeCountdown !== null
+                          ? "bg-red-700/60"
+                          : "bg-amber-600/60"
+                      }`}
+                    >
                       {resumeCountdown !== null && resumeCountdown > 0 ? (
                         <span className="text-[12rem] font-black leading-none text-white drop-shadow-2xl">
                           {resumeCountdown}
                         </span>
                       ) : (
                         <span className="text-7xl font-black uppercase tracking-widest text-white drop-shadow-lg">
-                          Paused
+                          {isManualPaused ? "Paused" : "Break"}
                         </span>
                       )}
                     </div>
@@ -529,9 +555,13 @@ export default function SessionPage({ params }: { params: { id: string } }) {
                   >
                     Stop capture
                   </button>
-                  {status?.is_paused && (
-                    <span className="self-center text-xs text-amber-300">
-                      paused
+                  {(isManualPaused || isBreak) && (
+                    <span
+                      className={`self-center text-xs ${
+                        isManualPaused ? "text-red-300" : "text-amber-300"
+                      }`}
+                    >
+                      {isManualPaused ? "paused" : "break"}
                     </span>
                   )}
                 </>
