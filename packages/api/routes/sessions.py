@@ -601,7 +601,13 @@ async def get_session_advice(
         CoachAdviceCacheRow.prompt_version == PROMPT_VERSION,  # type: ignore[arg-type]
     )
     cached = db.exec(cache_stmt).first()
-    if cached is not None and not force_regenerate:
+    # Treat cached LLM-failure rows as cache misses so a transient
+    # outage doesn't get stuck in the cache forever. The caller still
+    # gets a fresh attempt on the next click.
+    cached_is_failure = cached is not None and cached.summary.lower().startswith(
+        "failed to connect to llm"
+    )
+    if cached is not None and not force_regenerate and not cached_is_failure:
         return CoachAdviceResponse(
             summary=cached.summary,
             action_items=_json.loads(cached.action_items_json),
@@ -631,21 +637,24 @@ async def get_session_advice(
 
     advice = await generate_corner_advice(CORNER_ADVICE_SYSTEM_PROMPT, session_data)
 
-    # Upsert cache. Replace any stale row for the same (session, mode,
-    # prompt_version) tuple so force_regenerate ends up with a clean state.
+    # Upsert cache, but ONLY for successful generations. LLM-connection
+    # errors return a `summary` like "Failed to connect to LLM (...)";
+    # caching those would persist a transient outage indefinitely.
+    is_failure = advice.summary.lower().startswith("failed to connect to llm")
     if cached is not None:
         db.delete(cached)
         db.commit()
-    db.add(
-        CoachAdviceCacheRow(
-            session_id=session_id,
-            payload_mode=mode_enum,
-            prompt_version=PROMPT_VERSION,
-            summary=advice.summary,
-            action_items_json=_json.dumps(advice.action_items),
+    if not is_failure:
+        db.add(
+            CoachAdviceCacheRow(
+                session_id=session_id,
+                payload_mode=mode_enum,
+                prompt_version=PROMPT_VERSION,
+                summary=advice.summary,
+                action_items_json=_json.dumps(advice.action_items),
+            )
         )
-    )
-    db.commit()
+        db.commit()
 
     return CoachAdviceResponse(
         summary=advice.summary,
