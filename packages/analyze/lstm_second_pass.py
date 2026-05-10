@@ -25,7 +25,13 @@ from analyze.second_pass import SecondPassDetector
 from contracts import Hand, LeadOrRear, PoseFrame, PunchEvent
 
 DEFAULT_MODEL_PATH = Path("data/ml/punch_lstm_v1.pkl")
-DEFAULT_CONFIDENCE = 0.65
+# Conservative threshold — at 0.65 the v1 LSTM fired ~39 false
+# positives on a no-movement session because the model was trained on
+# Olympic Boxing footage and doesn't generalise to other camera angles.
+# 0.85 means only the most confident windows fire; we keep recall low
+# in exchange for far higher precision until in-domain labels are
+# available for retraining.
+DEFAULT_CONFIDENCE = 0.85
 DEFAULT_REFRACTORY_MS = 200.0
 
 

@@ -45,6 +45,16 @@ LM_RIGHT_HIP = 24
 # landmarks are present. `legacy_threshold_ms` is the 2D-fallback bar.
 DEFAULT_THRESHOLD_MS = 2.0  # was 3.0 — MediaPipe underestimates fast motion ~10-15%
 DEFAULT_LEGACY_THRESHOLD_MS = 0.8  # 2D-fallback mode
+# Rest-gate parameters. When the fighter is standing still, MediaPipe
+# subpixel jitter fakes wrist "movements" that pass the velocity bar
+# and produce false positives (we saw 8 fake punches on a no-movement
+# session). Track recent body speed; if it stays below
+# `rest_body_speed_ms` for `rest_window_s` of history, raise the
+# wrist threshold by `rest_threshold_factor` so only a real, large
+# movement clears the bar.
+DEFAULT_REST_WINDOW_S = 1.0
+DEFAULT_REST_BODY_SPEED_MS = 0.10  # body essentially still
+DEFAULT_REST_THRESHOLD_FACTOR = 2.5
 DEFAULT_REFRACTORY_MS = 180.0  # was 300 — fast combos hit ~5/s = 200ms apart
 DEFAULT_MIN_VISIBILITY = 0.5  # was 0.6 — extended arms have lower visibility
 DEFAULT_BODY_MOTION_THRESHOLD_MS = 2.0  # was 1.2 — stepping into a cross is normal
@@ -95,6 +105,15 @@ class _BodyState:
     last_hip_pos: tuple[float, float, float] | None = None
     last_t: float | None = None
     speed_ms: float = 0.0
+    # Rolling history of hip-centre speeds (~last 1 s). Used by the
+    # rest gate: if the body has been still for the whole window, the
+    # detector raises the wrist-velocity bar to ignore MediaPipe
+    # subpixel jitter that fakes a "fast" wrist movement.
+    speed_history: list[float] = None  # type: ignore[assignment]
+
+    def __post_init__(self) -> None:
+        if self.speed_history is None:
+            self.speed_history = []
 
 
 def _dist(a: tuple[float, float, float], b: tuple[float, float, float]) -> float:
@@ -171,6 +190,9 @@ class HeuristicPunchDetector:
         chambered_max_deg: float = DEFAULT_CHAMBERED_MAX_DEG,
         extended_min_deg: float = DEFAULT_EXTENDED_MIN_DEG,
         punch_window_ms: float = DEFAULT_PUNCH_WINDOW_MS,
+        rest_window_s: float = DEFAULT_REST_WINDOW_S,
+        rest_body_speed_ms: float = DEFAULT_REST_BODY_SPEED_MS,
+        rest_threshold_factor: float = DEFAULT_REST_THRESHOLD_FACTOR,
         # Legacy params kept for backwards-compat with old tests.
         threshold_norm_per_s: float | None = None,
         body_width_m: float | None = None,
@@ -187,6 +209,9 @@ class HeuristicPunchDetector:
         self.chambered_max_deg = chambered_max_deg
         self.extended_min_deg = extended_min_deg
         self.punch_window_ms = punch_window_ms
+        self.rest_window_s = rest_window_s
+        self.rest_body_speed_ms = rest_body_speed_ms
+        self.rest_threshold_factor = rest_threshold_factor
         self._legacy_body_width = body_width_m or 0.45
         # If caller supplied normalized-per-second, translate to legacy m/s.
         if threshold_norm_per_s is not None:
@@ -235,8 +260,31 @@ class HeuristicPunchDetector:
                 # Convert normalized distance to rough meters via assumed shoulder span.
                 d *= self._legacy_body_width
             self._body.speed_ms = d / dt_s
+            # Append to the rolling window used by the rest gate. We
+            # don't know fps here, so size the buffer by elapsed time:
+            # drop entries older than rest_window_s.
+            self._body.speed_history.append(self._body.speed_ms)
+            # Cap the buffer at ~120 entries (~4s at 30fps) so it
+            # doesn't grow unbounded if frames keep coming.
+            if len(self._body.speed_history) > 120:
+                self._body.speed_history.pop(0)
         self._body.last_hip_pos = hip
         self._body.last_t = frame.t_ms
+
+    def _is_at_rest(self) -> bool:
+        """True iff the body has been essentially still for the whole
+        rolling window. Used to multiply the wrist-velocity threshold
+        and reject MediaPipe-jitter false positives on still video."""
+        hist = self._body.speed_history
+        # Need a populated window; otherwise treat as 'not resting'
+        # (default behaviour).
+        if len(hist) < 15:
+            return False
+        # Use the recent tail (~1s of frames assuming 30fps; hand-tuned
+        # to be robust without an explicit fps).
+        recent = hist[-30:] if len(hist) >= 30 else hist
+        max_speed = max(recent)
+        return max_speed < self.rest_body_speed_ms
 
     def _step(
         self,
@@ -296,7 +344,16 @@ class HeuristicPunchDetector:
                 d *= self._legacy_body_width
             speed = d / dt_s
 
-            effective_threshold = self.threshold_ms if use_world else self.legacy_threshold_ms
+            base_threshold = self.threshold_ms if use_world else self.legacy_threshold_ms
+            # Rest gate: when the body has been still for the full
+            # window, raise the wrist-velocity bar by the rest factor
+            # so MediaPipe subpixel jitter (which fakes ~1.5–3 m/s
+            # spikes on a still wrist) doesn't fire a punch.
+            effective_threshold = (
+                base_threshold * self.rest_threshold_factor
+                if self._is_at_rest()
+                else base_threshold
+            )
             crossed_threshold = st.last_speed >= effective_threshold
             decelerating = speed < st.last_speed * DEFAULT_DECEL_FACTOR
             spaced = st.last_event_t is None or (frame.t_ms - st.last_event_t) >= self.refractory_ms
