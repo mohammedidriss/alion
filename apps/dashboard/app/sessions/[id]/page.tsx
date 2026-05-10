@@ -9,6 +9,7 @@ import { HrvPanel } from "@/components/HrvPanel";
 import { IMUPanel } from "@/components/IMUPanel";
 import { DetectorComparisonCard } from "@/components/DetectorComparisonCard";
 import { LiveAdviceCard } from "@/components/LiveAdviceCard";
+import { RoundBreakdownCard } from "@/components/RoundBreakdownCard";
 import { RQ1RaterCard } from "@/components/RQ1RaterCard";
 import { PunchChart } from "@/components/PunchChart";
 import { PunchTimeline } from "@/components/PunchTimeline";
@@ -840,6 +841,7 @@ export default function SessionPage({ params }: { params: { id: string } }) {
         <EvaluationCard sessionId={id} />
       )}
 
+      <RoundBreakdownCard sessionId={session.id} status={session.status} />
       <HrvPanel sessionId={session.id} />
       <IMUPanel sessionId={session.id} punchEvents={events} />
       <RQ1RaterCard sessionId={session.id} />
