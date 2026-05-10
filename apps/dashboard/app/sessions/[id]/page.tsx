@@ -48,10 +48,17 @@ export default function SessionPage({ params }: { params: { id: string } }) {
   // keep counting through rest so it can flip back to round).
   const [manualPauseStart, setManualPauseStart] = useState<number | null>(null);
   const [manualPauseAccumMs, setManualPauseAccumMs] = useState(0);
-  // Resume countdown — when the user clicks Resume, we tick 3 → 1 on
-  // the camera panel before actually telling the API to resume, so
-  // the fighter has time to get back on guard.
-  const [resumeCountdown, setResumeCountdown] = useState<number | null>(null);
+  // Pre-action countdown. Three flavours:
+  //  - "start"        → fires startCapture(...) when it hits 0
+  //  - "resume"       → manual pause → resume; fires resumeCapture
+  //  - "break_resume" → auto-rest break ended; fires resumeCapture
+  // The fighter sees a 3 → 2 → 1 overlay with a beep each second so
+  // they can get back on guard before frames start being captured.
+  type CountdownKind = "start" | "resume" | "break_resume";
+  const [countdown, setCountdown] = useState<{
+    kind: CountdownKind;
+    n: number;
+  } | null>(null);
 
   useEffect(() => {
     if (session?.status !== "capturing") return;
@@ -97,7 +104,13 @@ export default function SessionPage({ params }: { params: { id: string } }) {
       if (prev === "round" && phase === "rest" && !status?.is_paused) {
         api.pauseCapture(id).catch(() => undefined);
       } else if (prev === "rest" && phase === "round" && status?.is_paused) {
-        api.resumeCapture(id).catch(() => undefined);
+        // Don't resume immediately — kick a 3-2-1 countdown with a
+        // beep so the fighter knows the next round is starting.
+        // Skip if a countdown is already running (e.g. user clicked
+        // Resume manually right at the boundary).
+        setCountdown((c) =>
+          c === null ? { kind: "break_resume", n: 3 } : c,
+        );
       }
     }
     // Auto-stop the session once the planned rounds are done. Only fire
@@ -160,13 +173,9 @@ export default function SessionPage({ params }: { params: { id: string } }) {
     }
   };
 
-  const start = async () => {
-    try {
-      await api.startCapture(id, { camera_index: cameraIndex });
-      await refresh();
-    } catch (e) {
-      setErr(String(e));
-    }
+  const start = () => {
+    if (countdown !== null) return;
+    setCountdown({ kind: "start", n: 3 });
   };
 
   const stop = async () => {
@@ -188,38 +197,77 @@ export default function SessionPage({ params }: { params: { id: string } }) {
     }
   };
 
-  const resume = async () => {
-    // Kick off a visible 3 → 1 countdown on the camera panel; the
-    // actual /capture/resume call fires when the count reaches 0.
-    if (resumeCountdown !== null) return; // already counting
-    setResumeCountdown(3);
+  const resume = () => {
+    if (countdown !== null) return;
+    setCountdown({ kind: "resume", n: 3 });
   };
 
-  // Tick the resume countdown each second; on hitting 0 the API call
-  // fires and the manual-pause window is closed.
+  // Beep using the Web Audio API. A short oscillator pulse — pitched
+  // higher on the final "GO" tick (n=0) so the fighter can hear when
+  // capture actually starts.
+  const playTick = (kind: "tick" | "go") => {
+    try {
+      const Ctx =
+        (window as unknown as { AudioContext?: typeof AudioContext })
+          .AudioContext ??
+        (window as unknown as { webkitAudioContext?: typeof AudioContext })
+          .webkitAudioContext;
+      if (!Ctx) return;
+      const ctx = new Ctx();
+      const osc = ctx.createOscillator();
+      const gain = ctx.createGain();
+      osc.frequency.value = kind === "go" ? 1100 : 800;
+      gain.gain.value = 0.0001;
+      osc.connect(gain);
+      gain.connect(ctx.destination);
+      const t0 = ctx.currentTime;
+      gain.gain.exponentialRampToValueAtTime(0.25, t0 + 0.01);
+      gain.gain.exponentialRampToValueAtTime(0.0001, t0 + 0.18);
+      osc.start(t0);
+      osc.stop(t0 + 0.2);
+      setTimeout(() => ctx.close(), 250);
+    } catch {
+      // Audio is best-effort; silent failure is fine.
+    }
+  };
+
+  // Tick the unified countdown each second. On hit 0, fire the
+  // appropriate API action and close out the manual-pause window
+  // when applicable.
   useEffect(() => {
-    if (resumeCountdown === null) return;
-    if (resumeCountdown <= 0) {
+    if (countdown === null) return;
+    // Beep on entry to each tick (3, 2, 1) and on go (0).
+    playTick(countdown.n === 0 ? "go" : "tick");
+    if (countdown.n <= 0) {
+      const kind = countdown.kind;
       (async () => {
         try {
-          await api.resumeCapture(id);
-          if (manualPauseStart != null) {
-            setManualPauseAccumMs((a) => a + (Date.now() - manualPauseStart));
-            setManualPauseStart(null);
+          if (kind === "start") {
+            await api.startCapture(id, { camera_index: cameraIndex });
+          } else {
+            await api.resumeCapture(id);
+            if (kind === "resume" && manualPauseStart != null) {
+              setManualPauseAccumMs((a) => a + (Date.now() - manualPauseStart));
+              setManualPauseStart(null);
+            }
           }
           await refresh();
         } catch (e) {
           setErr(String(e));
         } finally {
-          setResumeCountdown(null);
+          setCountdown(null);
         }
       })();
       return;
     }
-    const t = setTimeout(() => setResumeCountdown((c) => (c == null ? null : c - 1)), 1000);
+    const t = setTimeout(
+      () =>
+        setCountdown((c) => (c === null ? null : { ...c, n: c.n - 1 })),
+      1000,
+    );
     return () => clearTimeout(t);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [resumeCountdown]);
+  }, [countdown]);
 
   const reprocess = async () => {
     try {
@@ -422,6 +470,13 @@ export default function SessionPage({ params }: { params: { id: string } }) {
                 : "border-neutral-800 bg-neutral-950/60"
           }`}
         >
+          {countdown?.kind === "start" && (
+            <div className="absolute inset-0 z-20 flex items-center justify-center rounded-lg bg-emerald-700/80">
+              <span className="text-[14rem] font-black leading-none text-white drop-shadow-2xl">
+                {countdown.n > 0 ? countdown.n : "GO"}
+              </span>
+            </div>
+          )}
           {/* Round timer pinned at the top of the capture panel during
               live capture so the fighter can read elapsed/round-left
               while looking at the camera. */}
@@ -473,17 +528,19 @@ export default function SessionPage({ params }: { params: { id: string } }) {
                     alt="live capture preview with pose overlay"
                     className="w-full rounded border border-neutral-800 bg-black"
                   />
-                  {(isManualPaused || isBreak || resumeCountdown !== null) && (
+                  {(isManualPaused || isBreak || countdown !== null) && (
                     <div
                       className={`absolute inset-0 flex items-center justify-center rounded ${
-                        isManualPaused || resumeCountdown !== null
-                          ? "bg-red-700/60"
-                          : "bg-amber-600/60"
+                        countdown?.kind === "break_resume"
+                          ? "bg-amber-600/60"
+                          : isBreak && countdown === null
+                            ? "bg-amber-600/60"
+                            : "bg-red-700/60"
                       }`}
                     >
-                      {resumeCountdown !== null && resumeCountdown > 0 ? (
+                      {countdown !== null && countdown.n > 0 ? (
                         <span className="text-[12rem] font-black leading-none text-white drop-shadow-2xl">
-                          {resumeCountdown}
+                          {countdown.n}
                         </span>
                       ) : (
                         <span className="text-7xl font-black uppercase tracking-widest text-white drop-shadow-lg">
@@ -537,17 +594,19 @@ export default function SessionPage({ params }: { params: { id: string } }) {
               {showStart && (
                 <button
                   onClick={start}
-                  disabled={!cvAvailable}
+                  disabled={!cvAvailable || countdown !== null}
                   title={
                     cvAvailable
                       ? undefined
                       : "Disabled — capture is not available on this server. Run on the host."
                   }
-                  className="rounded bg-emerald-600 px-4 py-2 font-medium hover:bg-emerald-500 disabled:cursor-not-allowed disabled:bg-neutral-700 disabled:text-neutral-400"
+                  className="rounded bg-emerald-600 px-4 py-2 font-medium hover:bg-emerald-500 disabled:cursor-wait disabled:bg-neutral-700 disabled:text-neutral-400"
                 >
-                  {session.source === "live_webcam"
-                    ? "Start live capture"
-                    : "Process video"}
+                  {countdown?.kind === "start"
+                    ? `Starting in ${countdown.n}…`
+                    : session.source === "live_webcam"
+                      ? "Start live capture"
+                      : "Process video"}
                 </button>
               )}
               {isLive && (
@@ -555,10 +614,12 @@ export default function SessionPage({ params }: { params: { id: string } }) {
                   {status?.is_paused ? (
                     <button
                       onClick={resume}
-                      disabled={resumeCountdown !== null}
+                      disabled={countdown !== null}
                       className="rounded bg-emerald-600 px-4 py-2 font-medium hover:bg-emerald-500 disabled:cursor-wait disabled:bg-neutral-700"
                     >
-                      {resumeCountdown !== null ? `Resuming in ${resumeCountdown}…` : "Resume"}
+                      {countdown?.kind === "resume" || countdown?.kind === "break_resume"
+                        ? `Resuming in ${countdown.n}…`
+                        : "Resume"}
                     </button>
                   ) : (
                     <button
