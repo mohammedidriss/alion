@@ -48,6 +48,12 @@ export default function SessionPage({ params }: { params: { id: string } }) {
   // keep counting through rest so it can flip back to round).
   const [manualPauseStart, setManualPauseStart] = useState<number | null>(null);
   const [manualPauseAccumMs, setManualPauseAccumMs] = useState(0);
+  // Same shape but for the auto rest→round 3s countdown: while a
+  // `break_resume` countdown is ticking we want the round timer to
+  // sit frozen at the rest-end instead of rolling into the next round
+  // before the camera says GO.
+  const [breakResumeStart, setBreakResumeStart] = useState<number | null>(null);
+  const [breakResumeAccumMs, setBreakResumeAccumMs] = useState(0);
   // Pre-action countdown. Three flavours:
   //  - "start"        → fires startCapture(...) when it hits 0
   //  - "resume"       → manual pause → resume; fires resumeCapture
@@ -107,10 +113,14 @@ export default function SessionPage({ params }: { params: { id: string } }) {
         // Don't resume immediately — kick a 3-2-1 countdown with a
         // beep so the fighter knows the next round is starting.
         // Skip if a countdown is already running (e.g. user clicked
-        // Resume manually right at the boundary).
-        setCountdown((c) =>
-          c === null ? { kind: "break_resume", n: 3 } : c,
-        );
+        // Resume manually right at the boundary). Mark the start so
+        // the round timer freezes at the rest-end while the count
+        // ticks down.
+        setCountdown((c) => {
+          if (c !== null) return c;
+          setBreakResumeStart(Date.now());
+          return { kind: "break_resume", n: 3 };
+        });
       }
     }
     // Auto-stop the session once the planned rounds are done. Only fire
@@ -250,6 +260,12 @@ export default function SessionPage({ params }: { params: { id: string } }) {
               setManualPauseAccumMs((a) => a + (Date.now() - manualPauseStart));
               setManualPauseStart(null);
             }
+            if (kind === "break_resume" && breakResumeStart != null) {
+              setBreakResumeAccumMs(
+                (a) => a + (Date.now() - breakResumeStart),
+              );
+              setBreakResumeStart(null);
+            }
           }
           await refresh();
         } catch (e) {
@@ -338,7 +354,9 @@ export default function SessionPage({ params }: { params: { id: string } }) {
           now -
             parseUtc(session.started_at).getTime() -
             manualPauseAccumMs -
-            (manualPauseStart != null ? now - manualPauseStart : 0),
+            (manualPauseStart != null ? now - manualPauseStart : 0) -
+            breakResumeAccumMs -
+            (breakResumeStart != null ? now - breakResumeStart : 0),
         )
       : status?.duration_ms ?? 0
     : status?.duration_ms ?? 0;
