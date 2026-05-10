@@ -340,6 +340,41 @@ class IMUSampleRead(SQLModel):
 
 
 # ----------------------------------------------------------------------
+# Saved round-structure plans — small reusable presets the fighter can
+# apply to a session in one click ("3×3 + 1 (pro spar)" etc.). Server
+# caps the count at MAX_ROUND_PLANS to keep the UI list short.
+# ----------------------------------------------------------------------
+
+MAX_ROUND_PLANS = 3
+
+
+class RoundPlanRow(SQLModel, table=True):
+    __tablename__ = "round_plan"
+    id: int | None = Field(default=None, primary_key=True)
+    name: str = Field(min_length=1, max_length=60)
+    round_count: int = Field(ge=1, le=24)
+    round_duration_s: int = Field(ge=1, le=900)
+    rest_duration_s: int = Field(ge=0, le=600)
+    created_at: datetime = Field(default_factory=lambda: datetime.now(UTC))
+
+
+class RoundPlanCreate(SQLModel):
+    name: str = Field(min_length=1, max_length=60)
+    round_count: int = Field(ge=1, le=24)
+    round_duration_s: int = Field(ge=1, le=900)
+    rest_duration_s: int = Field(ge=0, le=600)
+
+
+class RoundPlanRead(SQLModel):
+    id: int
+    name: str
+    round_count: int
+    round_duration_s: int
+    rest_duration_s: int
+    created_at: datetime
+
+
+# ----------------------------------------------------------------------
 # Consensus events — output of live + offline detector reconciliation.
 # Live = `HeuristicPunchDetector` (punch_event rows). Offline = whatever
 # second-pass model is registered (LSTM if available, else stricter

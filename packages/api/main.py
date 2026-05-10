@@ -20,6 +20,7 @@ from api.routes import (
     hrv,
     imu,
     referees,
+    round_plans,
     rq1,
     sessions,
 )
@@ -100,6 +101,7 @@ app.include_router(hrv.router, prefix="/v2")
 app.include_router(imu.router, prefix="/v2")
 app.include_router(imu.router)
 app.include_router(rq1.router)
+app.include_router(round_plans.router)
 
 # Profile-type expansion (coaches + referees): unversioned only.
 # These are NEW endpoints; not part of any frozen contract yet.

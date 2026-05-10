@@ -314,6 +314,24 @@ export interface CoachAdviceResponse {
   action_items: string[];
 }
 
+export interface RoundPlan {
+  id: number;
+  name: string;
+  round_count: number;
+  round_duration_s: number;
+  rest_duration_s: number;
+  created_at: string;
+}
+
+export interface RoundPlanCreate {
+  name: string;
+  round_count: number;
+  round_duration_s: number;
+  rest_duration_s: number;
+}
+
+export const MAX_ROUND_PLANS = 3;
+
 export interface ReprocessResponse {
   session_id: string;
   second_pass_name: string;
@@ -656,6 +674,23 @@ export const api = {
   roundsExport: (id: string) =>
     req<RoundsExportResponse>(`/sessions/${id}/rounds_export`),
   imuSamples: (id: string) => req<IMUSample[]>(`/sessions/${id}/imu/samples`),
+
+  // Saved round-structure plans (cap of 3 enforced server-side).
+  listRoundPlans: () => req<RoundPlan[]>(`/round_plans`),
+  createRoundPlan: (data: RoundPlanCreate) =>
+    req<RoundPlan>(`/round_plans`, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify(data),
+    }),
+  updateRoundPlan: (id: number, data: Partial<RoundPlanCreate>) =>
+    req<RoundPlan>(`/round_plans/${id}`, {
+      method: "PATCH",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify(data),
+    }),
+  deleteRoundPlan: (id: number) =>
+    req<void>(`/round_plans/${id}`, { method: "DELETE" }),
 
   // Offline reconciliation (live heuristic + LSTM second pass).
   reprocessOffline: (id: string) =>

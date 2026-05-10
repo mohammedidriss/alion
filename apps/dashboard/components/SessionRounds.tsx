@@ -2,8 +2,10 @@
 
 import { useEffect, useMemo, useState } from "react";
 import {
+  MAX_ROUND_PLANS,
   api,
   type AttachmentKind,
+  type RoundPlan,
   type Session,
   type SessionAttachment,
 } from "@/lib/api";
@@ -134,14 +136,19 @@ export function RoundConfigCard({
         />
       </div>
       {editable && (
+        <SavedPlans
+          rounds={rounds}
+          roundS={roundS}
+          restS={restS}
+          onApply={(p) => {
+            setRounds(p.round_count);
+            setRoundS(p.round_duration_s);
+            setRestS(p.rest_duration_s);
+          }}
+        />
+      )}
+      {editable && (
         <div className="mt-3 flex flex-wrap items-center gap-2 text-xs">
-          <button
-            onClick={save}
-            disabled={saving}
-            className="rounded-xl bg-emerald-500 px-3 py-1.5 text-sm font-medium text-black hover:bg-emerald-400 disabled:bg-neutral-700"
-          >
-            {saving ? "Saving…" : "Save plan"}
-          </button>
           <span className="text-neutral-500">
             Planned total: <strong>{totalMin.toFixed(1)} min</strong>
           </span>
@@ -175,6 +182,152 @@ export function RoundConfigCard({
         <p className="mt-2 text-xs text-red-300">{err}</p>
       )}
     </section>
+  );
+}
+
+/**
+ * SavedPlans — list of reusable round-structure presets the fighter
+ * has saved (capped at MAX_ROUND_PLANS). Each plan can be applied,
+ * updated to the current values, or deleted. A "Save current" button
+ * appears only when the fighter has fewer than the cap.
+ */
+function SavedPlans({
+  rounds,
+  roundS,
+  restS,
+  onApply,
+}: {
+  rounds: number;
+  roundS: number;
+  restS: number;
+  onApply: (p: RoundPlan) => void;
+}) {
+  const [plans, setPlans] = useState<RoundPlan[]>([]);
+  const [busy, setBusy] = useState(false);
+  const [err, setErr] = useState<string | null>(null);
+
+  const refresh = async () => {
+    try {
+      setPlans(await api.listRoundPlans());
+    } catch (e) {
+      setErr(String(e));
+    }
+  };
+
+  useEffect(() => {
+    refresh();
+  }, []);
+
+  const saveCurrent = async () => {
+    const name = prompt(
+      "Name for this plan (e.g. 'Tuesday spar', '12×3 fight night'):",
+    );
+    if (!name) return;
+    setBusy(true);
+    setErr(null);
+    try {
+      await api.createRoundPlan({
+        name: name.trim(),
+        round_count: rounds,
+        round_duration_s: roundS,
+        rest_duration_s: restS,
+      });
+      await refresh();
+    } catch (e) {
+      setErr(String(e));
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const updatePlan = async (p: RoundPlan) => {
+    if (!confirm(`Overwrite "${p.name}" with current values?`)) return;
+    setBusy(true);
+    setErr(null);
+    try {
+      await api.updateRoundPlan(p.id, {
+        round_count: rounds,
+        round_duration_s: roundS,
+        rest_duration_s: restS,
+      });
+      await refresh();
+    } catch (e) {
+      setErr(String(e));
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const deletePlan = async (p: RoundPlan) => {
+    if (!confirm(`Delete "${p.name}"?`)) return;
+    setBusy(true);
+    setErr(null);
+    try {
+      await api.deleteRoundPlan(p.id);
+      await refresh();
+    } catch (e) {
+      setErr(String(e));
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  return (
+    <div className="mt-3 space-y-2">
+      <div className="flex items-baseline justify-between">
+        <h3 className="text-xs font-medium uppercase tracking-wider text-neutral-400">
+          My plans
+        </h3>
+        <span className="text-[10px] text-neutral-500">
+          {plans.length}/{MAX_ROUND_PLANS}
+        </span>
+      </div>
+      <div className="flex flex-wrap items-center gap-2">
+        {plans.map((p) => (
+          <div
+            key={p.id}
+            className="flex items-center gap-1 rounded-xl border border-emerald-500/30 bg-emerald-500/5 px-2 py-1 text-xs"
+          >
+            <button
+              onClick={() => onApply(p)}
+              className="font-medium text-emerald-200 hover:text-emerald-100"
+              title={`Apply ${p.round_count}×${p.round_duration_s}s + ${p.rest_duration_s}s rest`}
+            >
+              {p.name}
+            </button>
+            <span className="text-[10px] text-neutral-500">
+              {p.round_count}×{p.round_duration_s}s
+            </span>
+            <button
+              onClick={() => updatePlan(p)}
+              disabled={busy}
+              className="rounded px-1 text-[10px] text-neutral-400 hover:bg-white/5 hover:text-neutral-100"
+              title="Overwrite this plan with the current values"
+            >
+              ↻
+            </button>
+            <button
+              onClick={() => deletePlan(p)}
+              disabled={busy}
+              className="rounded px-1 text-[10px] text-neutral-400 hover:bg-red-500/20 hover:text-red-300"
+              title="Delete this plan"
+            >
+              ✕
+            </button>
+          </div>
+        ))}
+        {plans.length < MAX_ROUND_PLANS && (
+          <button
+            onClick={saveCurrent}
+            disabled={busy}
+            className="rounded-xl border border-dashed border-white/15 bg-white/[0.02] px-2.5 py-1 text-xs text-neutral-300 hover:bg-white/[0.06] disabled:opacity-50"
+          >
+            + Save current as plan
+          </button>
+        )}
+      </div>
+      {err && <p className="text-[11px] text-red-300">{err}</p>}
+    </div>
   );
 }
 

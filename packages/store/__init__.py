@@ -2,6 +2,7 @@
 
 from store.database import create_db_and_tables, get_session
 from store.models import (
+    MAX_ROUND_PLANS,
     WEIGHT_CLASSES,
     Allergy,
     AllergyCreate,
@@ -55,6 +56,9 @@ from store.models import (
     RefereeCertLevel,
     RefereeCreate,
     RefereeRead,
+    RoundPlanCreate,
+    RoundPlanRead,
+    RoundPlanRow,
     Session,
     SessionAttachment,
     SessionAttachmentRead,
@@ -84,6 +88,7 @@ from store.repo import (
 )
 
 __all__ = [
+    "MAX_ROUND_PLANS",
     "WEIGHT_CLASSES",
     "Allergy",
     "AllergyCreate",
@@ -145,6 +150,9 @@ __all__ = [
     "RefereeCreate",
     "RefereeRead",
     "RefereeRepo",
+    "RoundPlanCreate",
+    "RoundPlanRead",
+    "RoundPlanRow",
     "Session",
     "SessionAttachment",
     "SessionAttachmentRead",
