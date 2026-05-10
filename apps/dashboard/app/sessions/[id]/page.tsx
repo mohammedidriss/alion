@@ -345,19 +345,38 @@ export default function SessionPage({ params }: { params: { id: string } }) {
             🥊 Gym Mode
           </Link>
         </div>
-        <span
-          className={`rounded-full px-3 py-1 text-xs font-medium ${
-            session.status === "completed"
-              ? "bg-emerald-900 text-emerald-200"
-              : session.status === "capturing" || session.status === "processing"
-              ? "bg-amber-900 text-amber-200"
-              : session.status === "failed"
-              ? "bg-red-900 text-red-200"
-              : "bg-neutral-800 text-neutral-300"
-          }`}
-        >
-          {session.status}
-        </span>
+        {(() => {
+          // Live status badge — reflects pause/break overlays on top of
+          // the persisted session.status, so the header stays in sync
+          // with what the camera panel is actually doing.
+          let label: string = session.status;
+          let cls = "bg-neutral-800 text-neutral-300";
+          if (session.status === "completed") {
+            cls = "bg-emerald-900 text-emerald-200";
+          } else if (session.status === "failed") {
+            cls = "bg-red-900 text-red-200";
+          } else if (
+            session.status === "capturing" ||
+            session.status === "processing"
+          ) {
+            if (isManualPaused) {
+              label = "paused";
+              cls = "bg-red-700 text-red-100";
+            } else if (isBreak) {
+              label = "break";
+              cls = "bg-amber-700 text-amber-100";
+            } else {
+              cls = "bg-amber-900 text-amber-200";
+            }
+          }
+          return (
+            <span
+              className={`rounded-full px-3 py-1 text-xs font-medium ${cls}`}
+            >
+              {label}
+            </span>
+          );
+        })()}
       </header>
 
       {err && <p className="text-sm text-red-400">{err}</p>}
