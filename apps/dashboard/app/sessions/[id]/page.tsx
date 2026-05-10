@@ -48,6 +48,10 @@ export default function SessionPage({ params }: { params: { id: string } }) {
   // keep counting through rest so it can flip back to round).
   const [manualPauseStart, setManualPauseStart] = useState<number | null>(null);
   const [manualPauseAccumMs, setManualPauseAccumMs] = useState(0);
+  // Resume countdown — when the user clicks Resume, we tick 3 → 1 on
+  // the camera panel before actually telling the API to resume, so
+  // the fighter has time to get back on guard.
+  const [resumeCountdown, setResumeCountdown] = useState<number | null>(null);
 
   useEffect(() => {
     if (session?.status !== "capturing") return;
@@ -185,17 +189,37 @@ export default function SessionPage({ params }: { params: { id: string } }) {
   };
 
   const resume = async () => {
-    try {
-      await api.resumeCapture(id);
-      if (manualPauseStart != null) {
-        setManualPauseAccumMs((a) => a + (Date.now() - manualPauseStart));
-        setManualPauseStart(null);
-      }
-      await refresh();
-    } catch (e) {
-      setErr(String(e));
-    }
+    // Kick off a visible 3 → 1 countdown on the camera panel; the
+    // actual /capture/resume call fires when the count reaches 0.
+    if (resumeCountdown !== null) return; // already counting
+    setResumeCountdown(3);
   };
+
+  // Tick the resume countdown each second; on hitting 0 the API call
+  // fires and the manual-pause window is closed.
+  useEffect(() => {
+    if (resumeCountdown === null) return;
+    if (resumeCountdown <= 0) {
+      (async () => {
+        try {
+          await api.resumeCapture(id);
+          if (manualPauseStart != null) {
+            setManualPauseAccumMs((a) => a + (Date.now() - manualPauseStart));
+            setManualPauseStart(null);
+          }
+          await refresh();
+        } catch (e) {
+          setErr(String(e));
+        } finally {
+          setResumeCountdown(null);
+        }
+      })();
+      return;
+    }
+    const t = setTimeout(() => setResumeCountdown((c) => (c == null ? null : c - 1)), 1000);
+    return () => clearTimeout(t);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [resumeCountdown]);
 
   const reprocess = async () => {
     try {
@@ -360,12 +384,22 @@ export default function SessionPage({ params }: { params: { id: string } }) {
       {(showStart ||
         isLive ||
         (session.source === "uploaded_video" && !session.video_path)) && (
-        <section className="space-y-4 rounded-lg border border-neutral-800 bg-neutral-950/60 p-4">
+        <section
+          className={`relative space-y-4 rounded-lg border p-4 transition-colors ${
+            status?.is_paused
+              ? "border-red-500 bg-red-700/30"
+              : "border-neutral-800 bg-neutral-950/60"
+          }`}
+        >
           {/* Round timer pinned at the top of the capture panel during
               live capture so the fighter can read elapsed/round-left
               while looking at the camera. */}
           {isLive && (
-            <RoundTimer session={session} durationMs={liveDurationMs} />
+            <RoundTimer
+              session={session}
+              durationMs={liveDurationMs}
+              isPaused={!!status?.is_paused}
+            />
           )}
           <div
             className={`grid grid-cols-1 gap-4 ${
@@ -379,18 +413,41 @@ export default function SessionPage({ params }: { params: { id: string } }) {
               <div className="space-y-2">
                 <div className="flex items-center justify-between">
                   <h2 className="text-sm font-medium">Camera</h2>
-                  <span className="flex items-center gap-2 text-xs text-neutral-400">
-                    <span className="inline-block h-2 w-2 animate-pulse rounded-full bg-red-500" />
-                    live
+                  <span
+                    className={`flex items-center gap-2 text-xs ${
+                      status?.is_paused ? "text-red-200" : "text-neutral-400"
+                    }`}
+                  >
+                    <span
+                      className={`inline-block h-2 w-2 rounded-full ${
+                        status?.is_paused ? "bg-red-500" : "animate-pulse bg-red-500"
+                      }`}
+                    />
+                    {status?.is_paused ? "paused" : "live"}
                   </span>
                 </div>
-                {/* eslint-disable-next-line @next/next/no-img-element */}
-                <img
-                  key={session.id}
-                  src={`${process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:8000"}/sessions/${session.id}/preview`}
-                  alt="live capture preview with pose overlay"
-                  className="w-full rounded border border-neutral-800 bg-black"
-                />
+                <div className="relative">
+                  {/* eslint-disable-next-line @next/next/no-img-element */}
+                  <img
+                    key={session.id}
+                    src={`${process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:8000"}/sessions/${session.id}/preview`}
+                    alt="live capture preview with pose overlay"
+                    className="w-full rounded border border-neutral-800 bg-black"
+                  />
+                  {(status?.is_paused || resumeCountdown !== null) && (
+                    <div className="absolute inset-0 flex items-center justify-center rounded bg-red-700/60">
+                      {resumeCountdown !== null && resumeCountdown > 0 ? (
+                        <span className="text-[12rem] font-black leading-none text-white drop-shadow-2xl">
+                          {resumeCountdown}
+                        </span>
+                      ) : (
+                        <span className="text-7xl font-black uppercase tracking-widest text-white drop-shadow-lg">
+                          Paused
+                        </span>
+                      )}
+                    </div>
+                  )}
+                </div>
                 <p className="text-[11px] text-neutral-500">
                   Skeleton overlay from MediaPipe; preview at ~15 fps,
                   capture at native rate.
@@ -453,9 +510,10 @@ export default function SessionPage({ params }: { params: { id: string } }) {
                   {status?.is_paused ? (
                     <button
                       onClick={resume}
-                      className="rounded bg-emerald-600 px-4 py-2 font-medium hover:bg-emerald-500"
+                      disabled={resumeCountdown !== null}
+                      className="rounded bg-emerald-600 px-4 py-2 font-medium hover:bg-emerald-500 disabled:cursor-wait disabled:bg-neutral-700"
                     >
-                      Resume
+                      {resumeCountdown !== null ? `Resuming in ${resumeCountdown}…` : "Resume"}
                     </button>
                   ) : (
                     <button

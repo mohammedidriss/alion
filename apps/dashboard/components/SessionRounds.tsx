@@ -244,9 +244,11 @@ function NumberField({
 export function RoundTimer({
   session,
   durationMs,
+  isPaused = false,
 }: {
   session: Session;
   durationMs: number;
+  isPaused?: boolean;
 }) {
   const rounds = session.round_count ?? 3;
   const roundS = session.round_duration_s ?? 3;
@@ -287,19 +289,30 @@ export function RoundTimer({
     }
   }
 
-  const phaseColor = {
-    round: "text-emerald-300",
-    rest: "text-amber-300",
-    done: "text-violet-300",
-  }[phase];
-  const phaseBg = {
-    round: "bg-emerald-500/5 border-emerald-500/30",
-    rest: "bg-amber-500/5 border-amber-500/30",
-    done: "bg-violet-500/5 border-violet-500/30",
-  }[phase];
+  const phaseColor = isPaused
+    ? "text-red-200"
+    : {
+        round: "text-emerald-300",
+        rest: "text-amber-300",
+        done: "text-violet-300",
+      }[phase];
+  const phaseBg = isPaused
+    ? "bg-red-600/40 border-red-500"
+    : {
+        round: "bg-emerald-500/5 border-emerald-500/30",
+        rest: "bg-amber-500/5 border-amber-500/30",
+        done: "bg-violet-500/5 border-violet-500/30",
+      }[phase];
 
   return (
-    <section className={`rounded-lg border p-4 ${phaseBg}`}>
+    <section className={`relative rounded-lg border p-4 ${phaseBg}`}>
+      {isPaused && (
+        <div className="pointer-events-none absolute inset-0 z-10 flex items-center justify-center">
+          <span className="rounded-xl bg-red-700/80 px-6 py-2 text-3xl font-black uppercase tracking-widest text-white shadow-lg">
+            Paused
+          </span>
+        </div>
+      )}
       <div className="flex items-baseline justify-between">
         <h2 className={`text-base font-semibold ${phaseColor}`}>
           {phase === "done"
