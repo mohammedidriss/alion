@@ -34,10 +34,43 @@ export function RoundConfigCard({
     setRestS(session.rest_duration_s ?? 3);
   }, [session.round_count, session.round_duration_s, session.rest_duration_s]);
 
+  // Auto-save the round plan ~600ms after the user stops adjusting,
+  // so hitting Start Live Capture immediately picks up the latest
+  // values without forcing a manual "Save plan" click. Only fires
+  // while the session is still pending.
+  const editable = session.status === "pending";
+  const persisted = {
+    rounds: session.round_count ?? 3,
+    roundS: session.round_duration_s ?? 3,
+    restS: session.rest_duration_s ?? 3,
+  };
+  useEffect(() => {
+    if (!editable) return;
+    if (
+      rounds === persisted.rounds &&
+      roundS === persisted.roundS &&
+      restS === persisted.restS
+    ) {
+      return;
+    }
+    const t = setTimeout(() => {
+      void save();
+    }, 600);
+    return () => clearTimeout(t);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [
+    rounds,
+    roundS,
+    restS,
+    editable,
+    persisted.rounds,
+    persisted.roundS,
+    persisted.restS,
+  ]);
+
   const totalS =
     rounds * roundS + Math.max(0, rounds - 1) * restS; // no rest after last round
   const totalMin = totalS / 60;
-  const editable = session.status === "pending";
 
   const save = async () => {
     setSaving(true);
