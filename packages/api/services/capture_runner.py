@@ -198,7 +198,7 @@ def _run_capture(
     try:
         from pathlib import Path
 
-        import joblib
+        import joblib  # type: ignore[import-not-found]
 
         model_path = Path("data/ml/punch_classifier_v1.pkl")
         if model_path.exists():
@@ -270,7 +270,7 @@ def _run_capture(
 
             if ml_model is not None and pose.world_landmarks:
                 try:
-                    import pandas as pd
+                    import pandas as pd  # type: ignore[import-untyped]
 
                     ls = pose.world_landmarks[11]
                     rs = pose.world_landmarks[12]

@@ -161,9 +161,7 @@ class SessionRepo:
             sqlmodel_delete(IMUSampleRow).where(IMUSampleRow.session_id == session_id)  # type: ignore[arg-type]
         )
         self._session.exec(
-            sqlmodel_delete(ConsensusEventRow).where(  # type: ignore[arg-type]
-                ConsensusEventRow.session_id == session_id
-            )
+            sqlmodel_delete(ConsensusEventRow).where(ConsensusEventRow.session_id == session_id)  # type: ignore[arg-type]
         )
         self._session.delete(row)
         self._session.commit()
@@ -619,9 +617,7 @@ class ConsensusEventRepo:
         from sqlmodel import delete as sqlmodel_delete
 
         self._session.exec(
-            sqlmodel_delete(ConsensusEventRow).where(  # type: ignore[arg-type]
-                ConsensusEventRow.session_id == session_id
-            )
+            sqlmodel_delete(ConsensusEventRow).where(ConsensusEventRow.session_id == session_id)  # type: ignore[arg-type]
         )
         for r in rows:
             self._session.add(r)

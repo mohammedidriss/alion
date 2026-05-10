@@ -11,7 +11,7 @@ import tempfile
 from collections.abc import AsyncIterator, Iterator
 from contextlib import contextmanager
 from pathlib import Path
-from typing import Literal
+from typing import Any, Literal
 from uuid import UUID
 
 from fastapi import APIRouter, Depends, File, HTTPException, UploadFile, status
@@ -596,9 +596,9 @@ async def get_session_advice(
 
     mode_enum = PayloadModeEnum(payload_mode)
     cache_stmt = _select(CoachAdviceCacheRow).where(
-        CoachAdviceCacheRow.session_id == session_id,  # type: ignore[arg-type]
-        CoachAdviceCacheRow.payload_mode == mode_enum,  # type: ignore[arg-type]
-        CoachAdviceCacheRow.prompt_version == PROMPT_VERSION,  # type: ignore[arg-type]
+        CoachAdviceCacheRow.session_id == session_id,
+        CoachAdviceCacheRow.payload_mode == mode_enum,
+        CoachAdviceCacheRow.prompt_version == PROMPT_VERSION,
     )
     cached = db.exec(cache_stmt).first()
     # Treat cached LLM-failure rows as cache misses so a transient
@@ -771,6 +771,10 @@ def rounds_export(
 
         # HRV block
         hr_in_round = [s for s in hr_samples if start <= s.t_ms < end]
+        mean_hr: float | None = None
+        peak_hr: float | None = None
+        rmssd: float | None = None
+        rmssd_delta: float | None = None
         if hr_in_round:
             hrs = [s.hr_bpm for s in hr_in_round]
             rrs = [s.rr_ms for s in hr_in_round]
@@ -784,8 +788,6 @@ def rounds_export(
                 if rmssd is not None and row.baseline_rmssd_ms is not None
                 else None
             )
-        else:
-            mean_hr = peak_hr = rmssd = rmssd_delta = None
         hrv_block = RoundHrvBlock(
             sample_count=len(hr_in_round),
             mean_hr_bpm=round(mean_hr, 1) if mean_hr is not None else None,
@@ -910,18 +912,24 @@ def reprocess_offline(
     except ImportError as e:
         raise HTTPException(status_code=503, detail=f"pyarrow not available: {e}") from e
 
-    table = pq.read_table(parquet)
+    table = pq.read_table(parquet)  # type: ignore[no-untyped-call]
     rows_dict = table.to_pylist()
+
+    def _f(d: dict[str, Any], key: str) -> float:
+        return float(d[key])  # cast Any → float for mypy
+
+    def _i(d: dict[str, Any], key: str) -> int:
+        return int(d[key])
 
     # Replay parquet rows into PoseFrame. Schema: lm00..lm32 (x,y,z,v) +
     # wl00..wl32 (x,y,z,v).
-    def _to_pose_frame(d: dict[str, object]) -> PoseFrame:
+    def _to_pose_frame(d: dict[str, Any]) -> PoseFrame:
         lm = tuple(
             Landmark(
-                x=float(d[f"lm{i:02d}_x"]),
-                y=float(d[f"lm{i:02d}_y"]),
-                z=float(d[f"lm{i:02d}_z"]),
-                visibility=float(d[f"lm{i:02d}_v"]),
+                x=_f(d, f"lm{i:02d}_x"),
+                y=_f(d, f"lm{i:02d}_y"),
+                z=_f(d, f"lm{i:02d}_z"),
+                visibility=_f(d, f"lm{i:02d}_v"),
             )
             for i in range(33)
         )
@@ -929,17 +937,17 @@ def reprocess_offline(
         if f"wl{0:02d}_x" in d:
             wl = tuple(
                 WorldLandmark(
-                    x=float(d[f"wl{i:02d}_x"]),
-                    y=float(d[f"wl{i:02d}_y"]),
-                    z=float(d[f"wl{i:02d}_z"]),
-                    visibility=float(d[f"wl{i:02d}_v"]),
+                    x=_f(d, f"wl{i:02d}_x"),
+                    y=_f(d, f"wl{i:02d}_y"),
+                    z=_f(d, f"wl{i:02d}_z"),
+                    visibility=_f(d, f"wl{i:02d}_v"),
                 )
                 for i in range(33)
             )
         return PoseFrame(
             session_id=session_id,
-            frame_index=int(d["frame_index"]),
-            t_ms=float(d["t_ms"]),
+            frame_index=_i(d, "frame_index"),
+            t_ms=_f(d, "t_ms"),
             landmarks=lm,
             world_landmarks=wl,
         )
@@ -996,42 +1004,49 @@ def reprocess_offline(
     )
 
 
-def _row_to_event(e):  # type: ignore[no-untyped-def]
-    """PunchEventRow → contracts.PunchEvent for the reconciler."""
+def _row_to_event(e: Any) -> Any:
+    """PunchEventRow → contracts.PunchEvent for the reconciler.
+
+    Returns Any deliberately — the row's enum-shaped fields don't
+    statically prove they're the exact `Literal[...]` types PunchEvent
+    requires, so we strip the type at the boundary and rely on the
+    DB-level enum constraints to enforce values.
+    """
+    from typing import cast as _cast
+
     from contracts import PunchEvent
 
+    hand_str = e.hand.value if hasattr(e.hand, "value") else str(e.hand)
+    lead_or_rear_str = (
+        e.lead_or_rear.value if e.lead_or_rear and hasattr(e.lead_or_rear, "value") else None
+    )
+    velocity_source_str = (
+        e.velocity_source.value if hasattr(e.velocity_source, "value") else str(e.velocity_source)
+    )
+    punch_type_str = e.punch_type.value if e.punch_type and hasattr(e.punch_type, "value") else None
+    detected_by_str = e.detected_by.value if hasattr(e.detected_by, "value") else str(e.detected_by)
     return PunchEvent(
         session_id=e.session_id,
         t_ms=e.t_ms,
-        hand=e.hand.value if hasattr(e.hand, "value") else str(e.hand),
-        lead_or_rear=(
-            e.lead_or_rear.value if e.lead_or_rear and hasattr(e.lead_or_rear, "value") else None
-        ),
+        hand=_cast(Any, hand_str),
+        lead_or_rear=_cast(Any, lead_or_rear_str),
         velocity_ms=e.velocity_ms,
-        velocity_source=(
-            e.velocity_source.value
-            if hasattr(e.velocity_source, "value")
-            else str(e.velocity_source)
-        ),
-        punch_type=(
-            e.punch_type.value if e.punch_type and hasattr(e.punch_type, "value") else None
-        ),
-        detected_by=(
-            e.detected_by.value if hasattr(e.detected_by, "value") else str(e.detected_by)
-        ),
+        velocity_source=_cast(Any, velocity_source_str),
+        punch_type=_cast(Any, punch_type_str),
+        detected_by=_cast(Any, detected_by_str),
         confidence=float(e.confidence),
     )
 
 
 @router.get(
     "/{session_id}/consensus_events",
-    response_model=list[dict],
+    response_model=list[dict[str, Any]],
 )
 def list_consensus_events(
     session_id: UUID,
     sessions: SessionRepo = Depends(session_repo),
     db: DBSession = Depends(db_session),
-) -> list[dict]:
+) -> list[dict[str, Any]]:
     """Read-only view of the reconciled consensus stream."""
     from store import ConsensusEventRepo as _ConsensusEventRepo
 

@@ -51,8 +51,9 @@ async def generate_corner_advice(system_prompt: str, session_data_json: str) -> 
     it falls back to a raw text summary.
     """
     import asyncio
+    from typing import Any
 
-    async def _call() -> object:
+    async def _call() -> Any:
         # Fresh client per call — avoids the stale-connection 404s
         # described above. AsyncOpenAI is cheap to construct.
         c = AsyncOpenAI(base_url=OPENAI_BASE_URL, api_key=OPENAI_API_KEY)

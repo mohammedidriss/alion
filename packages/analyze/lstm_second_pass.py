@@ -19,9 +19,10 @@ import math
 import pickle
 from collections.abc import Iterable
 from pathlib import Path
+from typing import Any, cast
 
 from analyze.second_pass import SecondPassDetector
-from contracts import PoseFrame, PunchEvent
+from contracts import Hand, LeadOrRear, PoseFrame, PunchEvent
 
 DEFAULT_MODEL_PATH = Path("data/ml/punch_lstm_v1.pkl")
 DEFAULT_CONFIDENCE = 0.65
@@ -34,7 +35,7 @@ class LSTMSecondPass(SecondPassDetector):
     def __init__(
         self,
         *,
-        weights: dict,
+        weights: dict[str, Any],
         model_path: Path,
         confidence_threshold: float = DEFAULT_CONFIDENCE,
         refractory_ms: float = DEFAULT_REFRACTORY_MS,
@@ -86,7 +87,7 @@ class LSTMSecondPass(SecondPassDetector):
 
             def forward(self, x: torch.Tensor) -> torch.Tensor:
                 out, _ = self.lstm(x)
-                return self.head(out.mean(dim=1))
+                return cast(torch.Tensor, self.head(out.mean(dim=1)))
 
         model = PunchLSTM()
         # Load numpy state_dict back into torch tensors.
@@ -137,8 +138,8 @@ class LSTMSecondPass(SecondPassDetector):
                     PunchEvent(
                         session_id=center_frame.session_id,
                         t_ms=t_ms,
-                        hand=hand,
-                        lead_or_rear=_lead_or_rear(hand, stance),
+                        hand=cast(Hand, hand),
+                        lead_or_rear=cast("LeadOrRear | None", _lead_or_rear(hand, stance)),
                         velocity_ms=_window_peak_speed(frames_list[start : start + T], hand),
                         velocity_source="world"
                         if center_frame.world_landmarks is not None
@@ -150,6 +151,15 @@ class LSTMSecondPass(SecondPassDetector):
         return events
 
 
+def _xyz(frame: PoseFrame, idx: int, *, use_world: bool) -> tuple[float, float, float]:
+    """Return (x, y, z) for a landmark, preferring world coords when present."""
+    if use_world and frame.world_landmarks is not None:
+        wl = frame.world_landmarks[idx]
+        return (wl.x, wl.y, wl.z)
+    lm = frame.landmarks[idx]
+    return (lm.x, lm.y, lm.z)
+
+
 def _infer_hand(window: list[PoseFrame]) -> str:
     """Hand inference: whichever wrist travelled further during the window."""
     if len(window) < 2:
@@ -157,15 +167,12 @@ def _infer_hand(window: list[PoseFrame]) -> str:
     use_world = window[0].world_landmarks is not None
     l_total = r_total = 0.0
     for i in range(1, len(window)):
-        a, b = window[i - 1], window[i]
-        if use_world and a.world_landmarks and b.world_landmarks:
-            la, lb = a.world_landmarks[15], b.world_landmarks[15]
-            ra, rb = a.world_landmarks[16], b.world_landmarks[16]
-        else:
-            la, lb = a.landmarks[15], b.landmarks[15]
-            ra, rb = a.landmarks[16], b.landmarks[16]
-        l_total += math.hypot(lb.x - la.x, lb.y - la.y, lb.z - la.z)
-        r_total += math.hypot(rb.x - ra.x, rb.y - ra.y, rb.z - ra.z)
+        la = _xyz(window[i - 1], 15, use_world=use_world)
+        lb = _xyz(window[i], 15, use_world=use_world)
+        ra = _xyz(window[i - 1], 16, use_world=use_world)
+        rb = _xyz(window[i], 16, use_world=use_world)
+        l_total += math.hypot(lb[0] - la[0], lb[1] - la[1], lb[2] - la[2])
+        r_total += math.hypot(rb[0] - ra[0], rb[1] - ra[1], rb[2] - ra[2])
     return "right" if r_total >= l_total else "left"
 
 
@@ -178,11 +185,9 @@ def _window_peak_speed(window: list[PoseFrame], hand: str) -> float:
     for i in range(1, len(window)):
         a, b = window[i - 1], window[i]
         dt = max(1e-3, (b.t_ms - a.t_ms) / 1000.0)
-        if use_world and a.world_landmarks and b.world_landmarks:
-            la, lb = a.world_landmarks[idx], b.world_landmarks[idx]
-        else:
-            la, lb = a.landmarks[idx], b.landmarks[idx]
-        d = math.hypot(lb.x - la.x, lb.y - la.y, lb.z - la.z)
+        la = _xyz(a, idx, use_world=use_world)
+        lb = _xyz(b, idx, use_world=use_world)
+        d = math.hypot(lb[0] - la[0], lb[1] - la[1], lb[2] - la[2])
         peak = max(peak, d / dt)
     return round(peak, 2)
 

@@ -47,10 +47,10 @@ def upsert_rating(
         raise HTTPException(status_code=404, detail="session not found")
 
     stmt = _select(RaterScoreRow).where(
-        RaterScoreRow.session_id == session_id,  # type: ignore[arg-type]
-        RaterScoreRow.payload_mode == body.payload_mode,  # type: ignore[arg-type]
-        RaterScoreRow.rater_id == body.rater_id,  # type: ignore[arg-type]
-        RaterScoreRow.criterion == body.criterion,  # type: ignore[arg-type]
+        RaterScoreRow.session_id == session_id,
+        RaterScoreRow.payload_mode == body.payload_mode,
+        RaterScoreRow.rater_id == body.rater_id,
+        RaterScoreRow.criterion == body.criterion,
     )
     existing = db.exec(stmt).first()
     if existing is not None:
@@ -87,11 +87,9 @@ def list_ratings_for_session(
 ) -> list[RaterScoreRead]:
     if sessions.get(session_id) is None:
         raise HTTPException(status_code=404, detail="session not found")
-    stmt = _select(RaterScoreRow).where(
-        RaterScoreRow.session_id == session_id  # type: ignore[arg-type]
-    )
+    stmt = _select(RaterScoreRow).where(RaterScoreRow.session_id == session_id)
     if rater_id:
-        stmt = stmt.where(RaterScoreRow.rater_id == rater_id)  # type: ignore[arg-type]
+        stmt = stmt.where(RaterScoreRow.rater_id == rater_id)
     rows = list(db.exec(stmt).all())
     return [RaterScoreRead.model_validate(r, from_attributes=True) for r in rows]
 
@@ -104,6 +102,6 @@ def list_all_ratings(
     """Bulk read for the aggregation script."""
     stmt = _select(RaterScoreRow)
     if rater_id:
-        stmt = stmt.where(RaterScoreRow.rater_id == rater_id)  # type: ignore[arg-type]
+        stmt = stmt.where(RaterScoreRow.rater_id == rater_id)
     rows = list(db.exec(stmt).all())
     return [RaterScoreRead.model_validate(r, from_attributes=True) for r in rows]
