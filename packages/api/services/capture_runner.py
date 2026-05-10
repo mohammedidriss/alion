@@ -409,9 +409,22 @@ def _run_capture(
             )
     except Exception as e:
         log.exception("capture.failed: %s", e, extra={"_ctx_session_id": str(session_id)})
+        # Translate the most common macOS-permission failure into
+        # actionable instructions instead of the cryptic OpenCV error.
+        msg = str(e)
+        import sys as _sys
+
+        if "cannot open webcam" in msg.lower() and _sys.platform == "darwin":
+            msg = (
+                "Camera permission denied. macOS hasn't granted camera "
+                "access to the terminal that launched the API. Open "
+                "System Settings → Privacy & Security → Camera and "
+                "enable access for Terminal (or iTerm/Warp/whatever you "
+                "use), then restart the API. Original error: " + msg
+            )
         with db_factory() as db:
             SessionRepo(db).update_status(
-                session_id, SessionStatus.FAILED, end=True, failure_reason=str(e)
+                session_id, SessionStatus.FAILED, end=True, failure_reason=msg
             )
     finally:
         with _active_lock:
