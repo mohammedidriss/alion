@@ -743,7 +743,9 @@ def rounds_export(
     rounds_n = row.round_count or 3
     round_s = row.round_duration_s or 3
     rest_s = row.rest_duration_s if row.rest_duration_s is not None else 3
-    segment_ms = (round_s + rest_s) * 1000.0
+    # The frontend pauses capture during rest periods, so recorded t_ms
+    # values are contiguous — no rest gaps in the timeline. Each round
+    # occupies exactly round_s of captured time back-to-back.
     round_ms = round_s * 1000.0
 
     all_events = events.list_for_session(session_id)
@@ -756,7 +758,7 @@ def rounds_export(
 
     items: list[RoundExportItem] = []
     for i in range(rounds_n):
-        start = i * segment_ms
+        start = i * round_ms
         end = start + round_ms
         round_events = [
             RoundEventOut(

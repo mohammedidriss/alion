@@ -11,6 +11,7 @@ from datetime import UTC, date, datetime
 from enum import StrEnum
 from uuid import UUID, uuid4
 
+import sqlalchemy as sa
 from sqlmodel import Field, SQLModel
 
 
@@ -218,7 +219,10 @@ class Session(SQLModel, table=True):
     round_duration_s: int | None = Field(default=None, ge=1, le=900)
     rest_duration_s: int | None = Field(default=None, ge=0, le=600)
     # Pose estimation backend used for this session (mediapipe or yolov8).
-    pose_backend: PoseBackendEnum = PoseBackendEnum.MEDIAPIPE
+    pose_backend: PoseBackendEnum = Field(
+        default=PoseBackendEnum.MEDIAPIPE,
+        sa_column=sa.Column(sa.String, nullable=False, server_default="mediapipe"),
+    )
 
 
 class SessionCreate(SQLModel):

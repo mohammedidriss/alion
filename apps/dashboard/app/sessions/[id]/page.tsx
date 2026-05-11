@@ -55,6 +55,10 @@ export default function SessionPage({ params }: { params: { id: string } }) {
   // before the camera says GO.
   const [breakResumeStart, setBreakResumeStart] = useState<number | null>(null);
   const [breakResumeAccumMs, setBreakResumeAccumMs] = useState(0);
+  // Wall-clock timestamp when capture actually started (after the initial
+  // 3-2-1 countdown). The auto-phase timer uses this as its epoch so it
+  // doesn't run ahead by the countdown duration.
+  const [captureEpoch, setCaptureEpoch] = useState<number | null>(null);
   // Pre-action countdown. Three flavours:
   //  - "start"        → fires startCapture(...) when it hits 0
   //  - "resume"       → manual pause → resume; fires resumeCapture
@@ -78,12 +82,15 @@ export default function SessionPage({ params }: { params: { id: string } }) {
   // from elapsed wall-clock since started_at.
   const lastPhaseRef = useRef<"round" | "rest" | "done" | null>(null);
   useEffect(() => {
-    if (session?.status !== "capturing" || !session.started_at) return;
+    if (session?.status !== "capturing" || !captureEpoch) return;
     const livePauseMs =
       manualPauseStart != null ? now - manualPauseStart : 0;
+    const liveBreakMs =
+      breakResumeStart != null ? now - breakResumeStart : 0;
     const elapsedS =
-      (now - parseUtc(session.started_at).getTime() -
-        manualPauseAccumMs - livePauseMs) /
+      (now - captureEpoch -
+        manualPauseAccumMs - livePauseMs -
+        breakResumeAccumMs - liveBreakMs) /
       1000;
     const rounds = session.round_count ?? 3;
     const roundS = session.round_duration_s ?? 3;
@@ -132,12 +139,16 @@ export default function SessionPage({ params }: { params: { id: string } }) {
   }, [
     now,
     session?.status,
-    session?.started_at,
+    captureEpoch,
     session?.round_count,
     session?.round_duration_s,
     session?.rest_duration_s,
     status?.is_paused,
     id,
+    manualPauseAccumMs,
+    manualPauseStart,
+    breakResumeAccumMs,
+    breakResumeStart,
   ]);
 
   const refresh = async () => {
@@ -255,6 +266,7 @@ export default function SessionPage({ params }: { params: { id: string } }) {
         try {
           if (kind === "start") {
             await api.startCapture(id, { camera_index: cameraIndex, pose_backend: session?.pose_backend });
+            setCaptureEpoch(Date.now());
           } else {
             await api.resumeCapture(id);
             if (kind === "resume" && manualPauseStart != null) {
@@ -349,11 +361,11 @@ export default function SessionPage({ params }: { params: { id: string } }) {
   const isLive =
     session.status === "capturing" || session.status === "processing";
   const liveDurationMs = isLive
-    ? session.status === "capturing" && session.started_at
+    ? session.status === "capturing" && captureEpoch
       ? Math.max(
           0,
           now -
-            parseUtc(session.started_at).getTime() -
+            captureEpoch -
             manualPauseAccumMs -
             (manualPauseStart != null ? now - manualPauseStart : 0) -
             breakResumeAccumMs -

@@ -406,13 +406,14 @@ export function RoundTimer({
   const rounds = session.round_count ?? 3;
   const roundS = session.round_duration_s ?? 3;
   const restS = session.rest_duration_s ?? 3;
-  const segmentS = roundS + restS;
   const elapsedS = durationMs / 1000;
-  // Total session time (no rest after the last round)
-  const totalS = rounds * roundS + Math.max(0, rounds - 1) * restS;
+  // durationMs is contiguous active-capture time (pauses/rest/countdowns
+  // already subtracted), so total = rounds × roundS with no rest gaps.
+  const totalS = rounds * roundS;
   const remainingS = Math.max(0, totalS - elapsedS);
 
-  // Which segment are we in?
+  // Phase from contiguous capture time. Rest is indicated by isPaused
+  // prop — the auto-pause effect handles round↔rest transitions.
   let phase: "rest" | "round" | "done" = "round";
   let currentRound = 1;
   let timeInPhaseS = elapsedS;
@@ -420,26 +421,16 @@ export function RoundTimer({
     phase = "done";
     currentRound = rounds;
     timeInPhaseS = 0;
+  } else if (isPaused) {
+    // When paused (auto-rest or manual), show rest phase.
+    phase = "rest";
+    currentRound = Math.min(rounds, Math.floor(elapsedS / roundS) + 1);
+    timeInPhaseS = 0; // rest countdown handled separately
   } else {
-    let acc = 0;
-    for (let i = 1; i <= rounds; i++) {
-      // round
-      if (elapsedS < acc + roundS) {
-        phase = "round";
-        currentRound = i;
-        timeInPhaseS = roundS - (elapsedS - acc);
-        break;
-      }
-      acc += roundS;
-      // rest after this round (no rest after the last)
-      if (i < rounds && elapsedS < acc + restS) {
-        phase = "rest";
-        currentRound = i; // we just finished round i; resting before i+1
-        timeInPhaseS = restS - (elapsedS - acc);
-        break;
-      }
-      acc += restS;
-    }
+    // Active capture — figure out which round we're in.
+    currentRound = Math.min(rounds, Math.floor(elapsedS / roundS) + 1);
+    phase = "round";
+    timeInPhaseS = roundS - (elapsedS - (currentRound - 1) * roundS);
   }
 
   const phaseColor = isPaused

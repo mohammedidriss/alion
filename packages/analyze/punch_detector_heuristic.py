@@ -346,64 +346,38 @@ class HeuristicPunchDetector:
             speed = d / dt_s
 
             base_threshold = self.threshold_ms if use_world else self.legacy_threshold_ms
-            # Rest gate: when the body has been still for the full
-            # window, raise the wrist-velocity bar by the rest factor
-            # so MediaPipe subpixel jitter (which fakes ~1.5–3 m/s
-            # spikes on a still wrist) doesn't fire a punch.
-            effective_threshold = (
-                base_threshold * self.rest_threshold_factor
-                if self._is_at_rest()
-                else base_threshold
-            )
-            crossed_threshold = st.last_speed >= effective_threshold
+            # Rest gate is now a SOFT penalty (confidence reduction) rather
+            # than a hard threshold multiplier. This prevents the rest gate
+            # from killing all detection in later rounds of a multi-round
+            # session where rest periods cause the gate to latch.
+            at_rest = self._is_at_rest()
+
+            # --- 3 HARD gates (must ALL pass to fire) ---
+            crossed_threshold = st.last_speed >= base_threshold
             decelerating = speed < st.last_speed * DEFAULT_DECEL_FACTOR
             spaced = st.last_event_t is None or (frame.t_ms - st.last_event_t) >= self.refractory_ms
+
+            # --- 5 SOFT gates (reduce confidence but don't block) ---
             body_quiet = self._body.speed_ms < self.body_motion_threshold_ms
             recently_extended = self._has_forward_extended(st, extension)
-            # If elbow geometry is degenerate (shoulder and elbow at the
-            # same point — happens in 2D-only synthetic data, never in
-            # real MediaPipe output), skip this gate.
             elbow_open_enough = elbow_angle <= 0.0 or elbow_angle >= self.min_elbow_angle_deg
             extension_ratio_ok = self._extension_ratio_ok(st, extension)
-
-            # State-machine gate: only enforced for high-extension peaks
-            # (jab/cross territory). For low-extension peaks (hooks /
-            # uppercuts), the gate is skipped — those don't fully
-            # straighten the arm.
             if elbow_angle >= self.extended_min_deg:
                 chambered_recently = (
                     st.last_chambered_t is not None
                     and (frame.t_ms - st.last_chambered_t) <= self.punch_window_ms
                 )
             else:
-                chambered_recently = True  # gate doesn't apply to hooks/uppercuts
+                chambered_recently = True
 
-            # Near-miss instrumentation: when a peak got close to firing but
-            # didn't, record why. Helps tune thresholds from data.
-            if st.last_speed >= effective_threshold * 0.7 and not (
-                crossed_threshold
-                and decelerating
-                and spaced
-                and body_quiet
-                and recently_extended
-                and elbow_open_enough
-                and extension_ratio_ok
-                and chambered_recently
+            # Near-miss instrumentation (only for hard gate failures).
+            if st.last_speed >= base_threshold * 0.7 and not (
+                crossed_threshold and decelerating and spaced
             ):
                 if not crossed_threshold:
                     reason = "below_threshold"
                 elif not spaced:
                     reason = "refractory"
-                elif not body_quiet:
-                    reason = "body_motion"
-                elif not recently_extended:
-                    reason = "no_forward_extension"
-                elif not elbow_open_enough:
-                    reason = "elbow_too_bent"
-                elif not extension_ratio_ok:
-                    reason = "no_extension_growth"
-                elif not chambered_recently:
-                    reason = "not_chambered_first"
                 elif not decelerating:
                     reason = "still_accelerating"
                 else:
@@ -417,26 +391,34 @@ class HeuristicPunchDetector:
                     }
                 )
 
-            if (
-                crossed_threshold
-                and decelerating
-                and spaced
-                and body_quiet
-                and recently_extended
-                and elbow_open_enough
-                and extension_ratio_ok
-                and chambered_recently
-            ):
+            if crossed_threshold and decelerating and spaced:
+                # Start with velocity-based confidence.
                 base_conf = max(
                     0.1,
                     min(
-                        1.0, (st.last_speed - effective_threshold) / max(effective_threshold, 1e-3)
+                        1.0, (st.last_speed - base_threshold) / max(base_threshold, 1e-3)
                     ),
                 )
 
-                # Dynamic CV confidence scoring: penalize for occlusion / low visibility
+                # Apply soft gate penalties — each failed soft gate reduces
+                # confidence by a fraction, but never blocks the detection.
+                soft_penalty = 1.0
+                if at_rest:
+                    soft_penalty *= 0.5  # might be jitter, halve confidence
+                if not body_quiet:
+                    soft_penalty *= 0.7  # whole body moving, could be footwork
+                if not recently_extended:
+                    soft_penalty *= 0.8  # no clear forward extension
+                if not elbow_open_enough:
+                    soft_penalty *= 0.8  # elbow too bent for a clean punch
+                if not extension_ratio_ok:
+                    soft_penalty *= 0.8  # arm didn't clearly extend
+                if not chambered_recently:
+                    soft_penalty *= 0.8  # no chamber-to-extend cycle
+
+                # Visibility penalty.
                 visibility_factor = min(sh_vis, wrist_vis)
-                conf = base_conf * visibility_factor
+                conf = base_conf * soft_penalty * visibility_factor
 
                 ev = PunchEvent(
                     session_id=frame.session_id,
@@ -446,7 +428,7 @@ class HeuristicPunchDetector:
                     velocity_ms=round(st.last_speed, 2),
                     velocity_source="world" if use_world else "image_heuristic",
                     detected_by="heuristic",
-                    confidence=round(conf, 2),
+                    confidence=round(max(0.05, conf), 2),
                 )
                 st.last_event_t = frame.t_ms
             st.last_speed = speed
