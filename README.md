@@ -16,14 +16,35 @@ Prerequisites: macOS, `uv`, Node 20, `pnpm` (`brew install pnpm`).
 # Python deps (includes MediaPipe + OpenCV)
 uv sync --extra dev --extra capture
 
-# Run the API
+# Dashboard deps
+cd apps/dashboard && npm install && cd ../..
+
+# Start both backend + frontend (runs in background)
+./start.sh
+
+# Stop both
+./stop.sh
+```
+
+Logs are written to `.backend.log` and `.frontend.log`. To tail them:
+
+```bash
+tail -f .backend.log .frontend.log
+```
+
+### Manual start (two terminals)
+
+```bash
+# Terminal 1: API
 uv run uvicorn api.main:app --reload   # http://localhost:8000
 
-# In another terminal: dashboard
-cd apps/dashboard
-pnpm install
-pnpm dev                                # http://localhost:3000
+# Terminal 2: dashboard
+cd apps/dashboard && npm run dev       # http://localhost:3000
+```
 
+### Other commands
+
+```bash
 # Live webcam capture (with cv2 preview window)
 uv run python scripts/record_live.py --fighter <FIGHTER_UUID> --show
 
