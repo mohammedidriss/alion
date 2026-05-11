@@ -42,6 +42,14 @@ ml = [
     "joblib>=1.3",
     "pandas>=2.0",
 ]
+# YOLOv8 + DeepSORT — install with `uv sync --extra dev --extra yolo`.
+yolo = [
+    "ultralytics>=8.2",
+    "deep-sort-realtime>=1.3",
+    "opencv-python>=4.10",
+    "numpy>=1.26",
+    "pyarrow>=17.0",
+]
 
 [build-system]
 requires = ["hatchling"]
@@ -80,6 +88,7 @@ ignore = ["E501", "B008", "RUF001", "RUF002", "RUF003"]
 # ML / scientific code uses capitalised math names (X, y, T, F, ...).
 "scripts/ml/**/*.py" = ["N806", "N803"]
 "packages/analyze/lstm_second_pass.py" = ["N806", "N803"]
+"packages/analyze/action_classifier.py" = ["N806", "N803"]
 
 [tool.ruff.format]
 quote-style = "double"
@@ -96,7 +105,7 @@ module = ["tests.*"]
 disallow_untyped_decorators = false
 
 [[tool.mypy.overrides]]
-module = ["mediapipe.*", "cv2.*", "pyarrow.*", "torch.*"]
+module = ["mediapipe.*", "cv2.*", "pyarrow.*", "torch.*", "ultralytics.*", "deep_sort_realtime.*"]
 ignore_missing_imports = true
 
 [tool.pytest.ini_options]

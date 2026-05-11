@@ -18,6 +18,7 @@ export type LeadOrRear = "lead" | "rear";
 export type PunchType = "jab" | "cross" | "hook" | "uppercut";
 export type DetectionSource = "heuristic" | "lstm_v1" | "custom_ml";
 export type VelocitySource = "world" | "image_heuristic";
+export type PoseBackend = "mediapipe" | "yolov8";
 export type SkillLevel =
   | "recreational"
   | "amateur_novice"
@@ -280,6 +281,7 @@ export interface Session {
   round_count: number | null;
   round_duration_s: number | null;
   rest_duration_s: number | null;
+  pose_backend: PoseBackend;
 }
 
 export type AttachmentKind = "video" | "image" | "audio" | "document" | "other";
@@ -576,11 +578,11 @@ export const api = {
       fighter_id ? `/sessions?fighter_id=${fighter_id}` : "/sessions",
     ),
   getSession: (id: string) => req<Session>(`/sessions/${id}`),
-  createSession: (fighter_id: string, source: SessionSource) =>
+  createSession: (fighter_id: string, source: SessionSource, pose_backend: PoseBackend = "mediapipe") =>
     req<Session>("/sessions", {
       method: "POST",
       headers: { "content-type": "application/json" },
-      body: JSON.stringify({ fighter_id, source }),
+      body: JSON.stringify({ fighter_id, source, pose_backend }),
     }),
   deleteSession: (id: string) =>
     req<void>(`/sessions/${id}`, { method: "DELETE" }),
@@ -596,7 +598,7 @@ export const api = {
   },
   startCapture: (
     id: string,
-    opts?: { max_frames?: number; camera_index?: number },
+    opts?: { max_frames?: number; camera_index?: number; pose_backend?: PoseBackend },
   ) =>
     req<CaptureStatus>(`/sessions/${id}/capture/start`, {
       method: "POST",
@@ -604,6 +606,7 @@ export const api = {
       body: JSON.stringify({
         max_frames: opts?.max_frames,
         camera_index: opts?.camera_index ?? 0,
+        pose_backend: opts?.pose_backend ?? "mediapipe",
       }),
     }),
   listCameras: () => req<CamerasResponse>("/cameras"),

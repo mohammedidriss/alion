@@ -161,6 +161,7 @@ def _run_capture(
     pause_event: threading.Event,
     stance: str | None = None,
     camera_index: int = 0,
+    pose_backend: str = "mediapipe",
 ) -> None:
     log.info(
         "capture.start",
@@ -387,6 +388,7 @@ def _run_capture(
             on_raw_frame=on_raw_frame,
             max_frames=max_frames,
             should_stop=should_stop_or_pause,
+            pose_backend=pose_backend,  # type: ignore[arg-type]
         )
         result = pipeline.run()
 
@@ -469,6 +471,7 @@ def start_capture(
     max_frames: int | None = None,
     stance: str | None = None,
     camera_index: int = 0,
+    pose_backend: str = "mediapipe",
 ) -> bool:
     """Spawn the capture in a background thread. Returns False if already running."""
     with _active_lock:
@@ -490,6 +493,7 @@ def start_capture(
                 "pause_event": pause_event,
                 "stance": stance,
                 "camera_index": camera_index,
+                "pose_backend": pose_backend,
             },
             daemon=True,
             name=f"capture-{session_id}",

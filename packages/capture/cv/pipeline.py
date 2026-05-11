@@ -1,11 +1,18 @@
-"""End-to-end capture pipeline: frame source → pose → parquet (+ optional preview window)."""
+"""End-to-end capture pipeline: frame source → pose → parquet (+ optional preview window).
+
+Supports two pose backends:
+- mediapipe (default): MediaPipe Pose Landmarker (33 landmarks, single person)
+- yolov8: YOLOv8-Pose (17 COCO keypoints mapped to 33 MediaPipe slots)
+
+Both produce the same PoseFrame contract so all downstream code works unchanged.
+"""
 
 from __future__ import annotations
 
 from collections.abc import Callable, Iterator
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any
+from typing import Any, Literal
 from uuid import UUID
 
 from capture.cv.pose import PoseEstimator
@@ -13,12 +20,27 @@ from capture.cv.sources import FrameSource
 from capture.cv.writer import PoseParquetWriter
 from contracts import PoseFrame
 
+PoseBackend = Literal["mediapipe", "yolov8"]
+
 
 @dataclass(frozen=True)
 class CapturePipelineResult:
     parquet_path: Path
     frame_count: int
     duration_ms: float
+
+
+def _make_estimator(
+    session_id: UUID,
+    fps: float,
+    backend: PoseBackend,
+) -> Any:
+    """Create the appropriate pose estimator based on backend choice."""
+    if backend == "yolov8":
+        from capture.cv.pose_yolo import YOLOPoseEstimator
+
+        return YOLOPoseEstimator(session_id, fps)
+    return PoseEstimator(session_id, fps)
 
 
 class CapturePipeline:
@@ -38,6 +60,7 @@ class CapturePipeline:
         on_raw_frame: Callable[[Any, PoseFrame | None], None] | None = None,
         max_frames: int | None = None,
         should_stop: Callable[[], bool] | None = None,
+        pose_backend: PoseBackend = "mediapipe",
     ) -> None:
         self.session_id = session_id
         self.source = source
@@ -46,6 +69,7 @@ class CapturePipeline:
         self._on_raw_frame = on_raw_frame
         self._max_frames = max_frames
         self._should_stop = should_stop
+        self._pose_backend = pose_backend
 
     def run(self) -> CapturePipelineResult:
         writer = PoseParquetWriter(self.parquet_path)
@@ -55,7 +79,7 @@ class CapturePipeline:
         # express it; we duck-type here.
         src_ctx = self.source.open()  # type: ignore[attr-defined]
         with src_ctx as opened_source:
-            estimator = PoseEstimator(self.session_id, opened_source.fps)
+            estimator = _make_estimator(self.session_id, opened_source.fps, self._pose_backend)
             with estimator.open() as est:
                 for raw in opened_source:
                     if self._should_stop is not None and self._should_stop():
@@ -78,12 +102,16 @@ class CapturePipeline:
 
 
 def stream_pose(
-    session_id: UUID, source: FrameSource, *, max_frames: int | None = None
+    session_id: UUID,
+    source: FrameSource,
+    *,
+    max_frames: int | None = None,
+    pose_backend: PoseBackend = "mediapipe",
 ) -> Iterator[PoseFrame]:
     """In-memory pose stream — used for testing and the heuristic detector."""
     src_ctx = source.open()  # type: ignore[attr-defined]
     with src_ctx as opened_source:
-        estimator = PoseEstimator(session_id, opened_source.fps)
+        estimator = _make_estimator(session_id, opened_source.fps, pose_backend)
         with estimator.open() as est:
             i = 0
             for raw in opened_source:

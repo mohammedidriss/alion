@@ -49,6 +49,7 @@ _VIDEO_DIR = Path("data/raw/uploaded")
 class CaptureStartRequest(BaseModel):
     max_frames: int | None = None
     camera_index: int = 0
+    pose_backend: Literal["mediapipe", "yolov8"] = "mediapipe"
 
 
 class CaptureStatusResponse(BaseModel):
@@ -207,6 +208,7 @@ def start_capture_route(
         max_frames=body.max_frames if body else None,
         stance=stance_str,
         camera_index=body.camera_index if body else 0,
+        pose_backend=body.pose_backend if body else "mediapipe",
     )
     if not started:
         raise HTTPException(status_code=409, detail="capture already running")

@@ -254,7 +254,7 @@ export default function SessionPage({ params }: { params: { id: string } }) {
       (async () => {
         try {
           if (kind === "start") {
-            await api.startCapture(id, { camera_index: cameraIndex });
+            await api.startCapture(id, { camera_index: cameraIndex, pose_backend: session?.pose_backend });
           } else {
             await api.resumeCapture(id);
             if (kind === "resume" && manualPauseStart != null) {
@@ -444,6 +444,14 @@ export default function SessionPage({ params }: { params: { id: string } }) {
             </span>
           );
         })()}
+        {/* Pose backend badge */}
+        <span className={`rounded-full px-3 py-1 text-xs font-medium ${
+          session.pose_backend === "yolov8"
+            ? "bg-purple-900 text-purple-200"
+            : "bg-blue-900 text-blue-200"
+        }`}>
+          {session.pose_backend === "yolov8" ? "YOLOv8" : "MediaPipe"}
+        </span>
       </header>
 
       {err && <p className="text-sm text-red-400">{err}</p>}

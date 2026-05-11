@@ -107,6 +107,16 @@ export default function Home() {
         </div>
       </header>
 
+      {/* Quick links */}
+      <div className="flex gap-3">
+        <Link
+          href="/compare"
+          className="rounded-lg border border-white/10 bg-white/[0.03] px-4 py-2 text-sm text-neutral-300 hover:bg-white/[0.07]"
+        >
+          Compare backends (MediaPipe vs YOLOv8)
+        </Link>
+      </div>
+
       {err && (
         <p className="rounded-2xl border border-red-500/30 bg-red-950/30 p-3 text-sm text-red-200">
           {err}

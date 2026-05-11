@@ -28,6 +28,11 @@ class SessionSourceEnum(StrEnum):
     HRV_REPLAY = "hrv_replay"
 
 
+class PoseBackendEnum(StrEnum):
+    MEDIAPIPE = "mediapipe"
+    YOLOV8 = "yolov8"
+
+
 class SessionStatus(StrEnum):
     PENDING = "pending"
     CAPTURING = "capturing"
@@ -212,12 +217,15 @@ class Session(SQLModel, table=True):
     round_count: int | None = Field(default=None, ge=1, le=24)
     round_duration_s: int | None = Field(default=None, ge=1, le=900)
     rest_duration_s: int | None = Field(default=None, ge=0, le=600)
+    # Pose estimation backend used for this session (mediapipe or yolov8).
+    pose_backend: PoseBackendEnum = PoseBackendEnum.MEDIAPIPE
 
 
 class SessionCreate(SQLModel):
     fighter_id: UUID
     source: SessionSourceEnum
     notes: str | None = None
+    pose_backend: PoseBackendEnum = PoseBackendEnum.MEDIAPIPE
 
 
 class SessionRead(SQLModel):
@@ -240,6 +248,7 @@ class SessionRead(SQLModel):
     round_count: int | None = None
     round_duration_s: int | None = None
     rest_duration_s: int | None = None
+    pose_backend: PoseBackendEnum = PoseBackendEnum.MEDIAPIPE
 
 
 class LeadOrRearEnum(StrEnum):

@@ -3,7 +3,7 @@
 import { useRouter, useSearchParams } from "next/navigation";
 import { Suspense, useEffect, useState } from "react";
 import { FighterBackLink } from "@/components/FighterBackLink";
-import { api, type Fighter, type SessionSource } from "@/lib/api";
+import { api, type Fighter, type PoseBackend, type SessionSource } from "@/lib/api";
 
 // useSearchParams() forces client-side rendering at the prerender step,
 // which Next 14 requires us to opt into via a Suspense boundary. The
@@ -39,6 +39,7 @@ function NewSessionInner() {
   // have to land on the session page just to upload an asset.
   const [videoFile, setVideoFile] = useState<File | null>(null);
   const [hrvFile, setHrvFile] = useState<File | null>(null);
+  const [poseBackend, setPoseBackend] = useState<PoseBackend>("mediapipe");
 
   useEffect(() => {
     api
@@ -76,7 +77,7 @@ function NewSessionInner() {
     setBusy(true);
     setErr(null);
     try {
-      const s = await api.createSession(fighterId, source);
+      const s = await api.createSession(fighterId, source, poseBackend);
       // Persist the round plan immediately so it's locked in before
       // the fighter hits "Start" on the detail page.
       await api.patchSessionConfig(s.id, {
@@ -234,6 +235,40 @@ function NewSessionInner() {
           </div>
         </section>
       )}
+
+      {/* Pose backend picker */}
+      <section className="rounded-lg border border-neutral-800 p-4">
+        <h2 className="mb-2 text-sm font-medium text-neutral-300">Pose estimation backend</h2>
+        <div className="flex gap-3">
+          {(
+            [
+              { value: "mediapipe" as PoseBackend, icon: "🦴", label: "MediaPipe", desc: "Google MediaPipe Pose — 33 landmarks, single person, real-time." },
+              { value: "yolov8" as PoseBackend, icon: "🎯", label: "YOLOv8-Pose", desc: "Ultralytics YOLOv8 — 17 COCO keypoints, multi-person, faster." },
+            ] as const
+          ).map(({ value, icon, label, desc }) => (
+            <label
+              key={value}
+              className={`flex flex-1 cursor-pointer items-start gap-3 rounded-xl border px-3 py-2.5 text-sm transition ${
+                poseBackend === value
+                  ? "border-emerald-500/60 bg-emerald-500/10"
+                  : "border-white/10 bg-white/[0.02] hover:bg-white/[0.05]"
+              }`}
+            >
+              <input
+                type="radio"
+                className="hidden"
+                checked={poseBackend === value}
+                onChange={() => setPoseBackend(value)}
+              />
+              <span className="text-xl leading-none">{icon}</span>
+              <span className="min-w-0 flex-1">
+                <span className="block font-medium text-neutral-100">{label}</span>
+                <span className="block text-xs text-neutral-400">{desc}</span>
+              </span>
+            </label>
+          ))}
+        </div>
+      </section>
 
       {/* Two-column body: Source (left) + Round structure (right). */}
       <div className="grid grid-cols-1 gap-6 md:grid-cols-[280px,1fr]">
