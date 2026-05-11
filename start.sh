@@ -15,7 +15,7 @@ echo "Starting Alion..."
 
 # Backend (FastAPI)
 cd "$DIR"
-uv run uvicorn api.main:app --reload --port 8000 > "$DIR/.backend.log" 2>&1 &
+uv run uvicorn api.main:app --reload --port 8000 --log-level info > "$DIR/.backend.log" 2>&1 &
 BACKEND_PID=$!
 
 # Frontend (Next.js) — logs go to file to avoid polling noise

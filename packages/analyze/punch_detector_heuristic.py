@@ -43,8 +43,8 @@ LM_RIGHT_HIP = 24
 #
 # `threshold_ms` is the real-meter threshold used when MediaPipe world
 # landmarks are present. `legacy_threshold_ms` is the 2D-fallback bar.
-DEFAULT_THRESHOLD_MS = 2.0  # was 3.0 — MediaPipe underestimates fast motion ~10-15%
-DEFAULT_LEGACY_THRESHOLD_MS = 0.8  # 2D-fallback mode
+DEFAULT_THRESHOLD_MS = 1.2  # was 2.0 — real jabs register ~1.5 m/s in MediaPipe world coords
+DEFAULT_LEGACY_THRESHOLD_MS = 0.5  # 2D-fallback mode (was 0.8)
 # Rest-gate parameters. When the fighter is standing still, MediaPipe
 # subpixel jitter fakes wrist "movements" that pass the velocity bar
 # and produce false positives (we saw 8 fake punches on a no-movement
@@ -52,14 +52,14 @@ DEFAULT_LEGACY_THRESHOLD_MS = 0.8  # 2D-fallback mode
 # `rest_body_speed_ms` for `rest_window_s` of history, raise the
 # wrist threshold by `rest_threshold_factor` so only a real, large
 # movement clears the bar.
-DEFAULT_REST_WINDOW_S = 1.0
-DEFAULT_REST_BODY_SPEED_MS = 0.10  # body essentially still
-DEFAULT_REST_THRESHOLD_FACTOR = 2.5
-DEFAULT_REFRACTORY_MS = 180.0  # was 300 — fast combos hit ~5/s = 200ms apart
+DEFAULT_REST_WINDOW_S = 2.0  # was 1.0 — need longer stillness before triggering rest gate
+DEFAULT_REST_BODY_SPEED_MS = 0.05  # was 0.10 — stricter: only truly still triggers rest mode
+DEFAULT_REST_THRESHOLD_FACTOR = 1.8  # was 2.5 — less aggressive multiplier
+DEFAULT_REFRACTORY_MS = 150.0  # was 180 — fast combos hit ~6/s = 167ms apart
 DEFAULT_MIN_VISIBILITY = 0.5  # was 0.6 — extended arms have lower visibility
 DEFAULT_BODY_MOTION_THRESHOLD_MS = 2.0  # was 1.2 — stepping into a cross is normal
-DEFAULT_MIN_FORWARD_TRAVEL = 0.03  # was 0.05 — accommodate MediaPipe jitter
-DEFAULT_DECEL_FACTOR = 0.92  # speed must drop by ≥8% — was 15%, too noisy
+DEFAULT_MIN_FORWARD_TRAVEL = 0.015  # was 0.03 — hooks have minimal forward travel
+DEFAULT_DECEL_FACTOR = 0.97  # speed must drop by ≥3% — was 8%, missed fast combos at 30fps
 # Elbow-angle gate: at the moment a peak fires, the elbow must have opened
 # at least this much (degrees). Set permissively by default — strict
 # gates rejected too many real punches in live testing on 2026-05-09.
@@ -67,7 +67,7 @@ DEFAULT_DECEL_FACTOR = 0.92  # speed must drop by ≥8% — was 15%, too noisy
 DEFAULT_MIN_ELBOW_ANGLE_DEG = 60.0  # was 80; hooks ~90°, blocks <50°
 # Start-from-guard ratio: a real punch starts compact (wrist near
 # shoulder) and ends extended. Permissive default for the same reason.
-DEFAULT_MIN_EXTENSION_RATIO = 1.05  # was 1.25
+DEFAULT_MIN_EXTENSION_RATIO = 1.02  # was 1.05 — even slight extension counts
 # Chambered → extended state-machine. A jab/cross is only legitimate if
 # the elbow was bent (≤ chambered_max_deg) within the last
 # punch_window_ms, then opened past extended_min_deg at the firing
@@ -278,11 +278,12 @@ class HeuristicPunchDetector:
         hist = self._body.speed_history
         # Need a populated window; otherwise treat as 'not resting'
         # (default behaviour).
-        if len(hist) < 15:
+        if len(hist) < 60:
             return False
-        # Use the recent tail (~1s of frames assuming 30fps; hand-tuned
-        # to be robust without an explicit fps).
-        recent = hist[-30:] if len(hist) >= 30 else hist
+        # Use the recent tail (~2s of frames assuming 30fps).
+        # Need a longer window to avoid false rest during natural
+        # pauses between combos.
+        recent = hist[-60:] if len(hist) >= 60 else hist
         max_speed = max(recent)
         return max_speed < self.rest_body_speed_ms
 

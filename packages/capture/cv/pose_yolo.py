@@ -110,7 +110,7 @@ class YOLOPoseEstimator:
     @contextmanager
     def open(self) -> Iterator[YOLOPoseEstimator]:
         """Load the YOLO model. Downloads weights on first use (~6 MB for nano)."""
-        from ultralytics import YOLO
+        from ultralytics import YOLO  # type: ignore[attr-defined]
 
         self._model = YOLO(self._model_name + ".pt")
         try:
