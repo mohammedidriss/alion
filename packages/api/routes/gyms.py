@@ -7,8 +7,11 @@ from uuid import UUID
 from fastapi import APIRouter, Depends, HTTPException, status
 from pydantic import BaseModel
 
-from api.deps import gym_repo
-from store import GymRepo
+from sqlmodel import Session as DBSession
+
+from api.deps import db_session, gym_repo, resolve_gym_id
+from api.routes.auth import get_current_user
+from store import GymRepo, User
 from store.models import GymCreate, GymMembershipRead, GymRead
 
 router = APIRouter(prefix="/gyms", tags=["gyms"])
@@ -36,7 +39,17 @@ def create_gym(data: GymCreate, repo: GymRepo = Depends(gym_repo)) -> GymRead:
 
 
 @router.get("", response_model=list[GymRead])
-def list_gyms(repo: GymRepo = Depends(gym_repo)) -> list[GymRead]:
+def list_gyms(
+    repo: GymRepo = Depends(gym_repo),
+    current_user: User | None = Depends(get_current_user),
+    session: DBSession = Depends(db_session),
+) -> list[GymRead]:
+    # Gym managers can only see their own gym
+    if current_user and current_user.role == "gym_manager":
+        scoped_gym = resolve_gym_id(current_user, session)
+        if scoped_gym:
+            gym = repo.get(scoped_gym)
+            return [GymRead.model_validate(gym, from_attributes=True)] if gym else []
     return [GymRead.model_validate(g, from_attributes=True) for g in repo.list_all()]
 
 

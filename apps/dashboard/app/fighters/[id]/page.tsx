@@ -6,7 +6,7 @@ import { useCallback, useEffect, useMemo, useState } from "react";
 import { FighterDashboard } from "@/components/FighterDashboard";
 import { ProfileAvatar } from "@/components/ProfileAvatar";
 import { Sparkline } from "@/components/Sparkline";
-import { useActiveProfile } from "@/lib/activeProfile";
+import { useAuth } from "@/lib/auth";
 import {
   api,
   type Allergy,
@@ -44,8 +44,9 @@ const PRO_LEVELS: SkillLevel[] = [
 export default function FighterPage({ params }: { params: { id: string } }) {
   const { id } = params;
   const router = useRouter();
-  const { activeRole } = useActiveProfile();
-  const canEdit = activeRole !== "fighter";
+  const { user } = useAuth();
+  const canEdit = user?.role !== "fighter";
+  const canCreateSession = canEdit && user?.role !== "gym_manager";
   const [fighter, setFighter] = useState<Fighter | null>(null);
   const [options, setOptions] = useState<FighterOptions | null>(null);
   const [sessions, setSessions] = useState<SessionWithStats[]>([]);
@@ -195,7 +196,7 @@ export default function FighterPage({ params }: { params: { id: string } }) {
   };
 
   return (
-    <div className="space-y-8">
+    <div className="space-y-8 px-8 py-6">
       <header className="flex flex-wrap items-start justify-between gap-4">
         <div className="min-w-0">
           <div className="flex items-baseline gap-3">
@@ -212,7 +213,7 @@ export default function FighterPage({ params }: { params: { id: string } }) {
             {age != null ? ` · ${age} yrs` : ""}
           </p>
           <p className="mt-1 font-mono text-xs text-neutral-500">{fighter.id}</p>
-          {canEdit && (
+          {canCreateSession && (
             <div className="mt-3 flex flex-wrap gap-2">
               <button
                 onClick={async (e) => {

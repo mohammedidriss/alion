@@ -13,12 +13,13 @@ import {
   type GymMembership,
   type GymPatch,
 } from "@/lib/api";
-import { useActiveProfile } from "@/lib/activeProfile";
+import { useAuth } from "@/lib/auth";
 
 export default function GymDetailPage() {
   const { id } = useParams<{ id: string }>();
   const router = useRouter();
-  const { active, activeRole } = useActiveProfile();
+  const { user } = useAuth();
+  const activeRole = user?.role ?? null;
   const isAdmin = activeRole === "admin";
 
   const [gym, setGym] = useState<Gym | null>(null);
@@ -110,10 +111,10 @@ export default function GymDetailPage() {
   const memberIds = new Set(members.map((m) => m.member_id));
   // Admin, gym manager for this gym, or coach who belongs to this gym can manage members
   const isGymCoach =
-    activeRole === "coach" && active?.id ? memberIds.has(active.id) : false;
+    activeRole === "coach" && user?.profile_id ? memberIds.has(user.profile_id) : false;
   const isGymMgr =
-    activeRole === "gym_manager" && active?.id
-      ? gymManagers.some((gm) => gm.id === active.id && gm.gym_id === id)
+    activeRole === "gym_manager" && user?.profile_id
+      ? gymManagers.some((gm) => gm.id === user.profile_id && gm.gym_id === id)
       : false;
   const canManage = isAdmin || isGymCoach || isGymMgr;
   // Gym managers can only add fighters/coaches not already in another gym

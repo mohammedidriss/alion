@@ -13,6 +13,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
 
 from api.routes import (
+    auth,
     cameras,
     coaches,
     fighters,
@@ -107,6 +108,7 @@ app.include_router(round_plans.router)
 
 # Profile-type expansion (coaches + referees): unversioned only.
 # These are NEW endpoints; not part of any frozen contract yet.
+app.include_router(auth.router)
 app.include_router(coaches.router)
 app.include_router(referees.router)
 app.include_router(gyms.router)

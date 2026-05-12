@@ -1,0 +1,544 @@
+"use client";
+
+import Link from "next/link";
+import { useCallback, useEffect, useMemo, useState } from "react";
+import { ProfileAvatar } from "@/components/ProfileAvatar";
+import {
+  api,
+  type Coach,
+  type Fighter,
+  type FighterPatch,
+  type Hand,
+  type SkillLevel,
+  type Stance,
+} from "@/lib/api";
+import { useAuth } from "@/lib/auth";
+
+const STANCES: Stance[] = ["orthodox", "southpaw", "switch"];
+const HANDS: Hand[] = ["left", "right"];
+const SKILL_LEVELS: SkillLevel[] = [
+  "recreational",
+  "amateur_novice",
+  "amateur_open",
+  "amateur_elite",
+  "semi_pro",
+  "professional",
+  "coach",
+];
+const SEXES = ["male", "female", "other"];
+const WEIGHT_CLASSES = [
+  "minimumweight",
+  "light_flyweight",
+  "flyweight",
+  "super_flyweight",
+  "bantamweight",
+  "super_bantamweight",
+  "featherweight",
+  "super_featherweight",
+  "lightweight",
+  "super_lightweight",
+  "welterweight",
+  "super_welterweight",
+  "middleweight",
+  "super_middleweight",
+  "light_heavyweight",
+  "cruiserweight",
+  "heavyweight",
+];
+
+function labelFor(s: string) {
+  return s.replace(/_/g, " ");
+}
+
+export default function MembersPage() {
+  const { user } = useAuth();
+  const isGymManager = user?.role === "gym_manager";
+
+  const [gymId, setGymId] = useState<string | null>(null);
+  const [fighters, setFighters] = useState<Fighter[]>([]);
+  const [coaches, setCoaches] = useState<Coach[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [search, setSearch] = useState("");
+  const [filterSkill, setFilterSkill] = useState("");
+  const [filterStance, setFilterStance] = useState("");
+
+  // Create form state
+  const [showForm, setShowForm] = useState(false);
+  const [creating, setCreating] = useState(false);
+  const [createError, setCreateError] = useState("");
+  const [photoFile, setPhotoFile] = useState<File | null>(null);
+  const [photoPreview, setPhotoPreview] = useState<string | null>(null);
+
+  // Identity
+  const [fName, setFName] = useState("");
+  const [fNickname, setFNickname] = useState("");
+  const [fDob, setFDob] = useState("");
+  const [fSex, setFSex] = useState("");
+  const [fNationality, setFNationality] = useState("");
+
+  // Boxing
+  const [fStance, setFStance] = useState<Stance>("orthodox");
+  const [fDominantHand, setFDominantHand] = useState("");
+  const [fSkillLevel, setFSkillLevel] = useState<string>("");
+  const [fWeightClass, setFWeightClass] = useState("");
+  const [fYearsTraining, setFYearsTraining] = useState("");
+  const [fTrainer, setFTrainer] = useState("");
+
+  // Physical
+  const [fHeightCm, setFHeightCm] = useState("");
+  const [fReachCm, setFReachCm] = useState("");
+  const [fWeightKg, setFWeightKg] = useState("");
+  const [fShoulderCm, setFShoulderCm] = useState("");
+
+  // Record
+  const [fWins, setFWins] = useState("");
+  const [fLosses, setFLosses] = useState("");
+  const [fDraws, setFDraws] = useState("");
+  const [fKos, setFKos] = useState("");
+
+  // External IDs
+  const [fBoxrecId, setFBoxrecId] = useState("");
+  const [fUsaBoxingId, setFUsaBoxingId] = useState("");
+
+  // Notes / Bio
+  const [fNotes, setFNotes] = useState("");
+  const [fBio, setFBio] = useState("");
+
+  const load = useCallback(async () => {
+    if (!isGymManager || !user) return;
+    setLoading(true);
+    try {
+      const gms = await api.listGymManagers();
+      const me = gms.find((gm) => gm.id === user.profile_id);
+      if (!me) return;
+      setGymId(me.gym_id);
+      const [fs, cs] = await Promise.all([
+        api.listFighters(me.gym_id),
+        api.listCoaches(me.gym_id),
+      ]);
+      setFighters(fs);
+      setCoaches(cs);
+    } finally {
+      setLoading(false);
+    }
+  }, [user, isGymManager]);
+
+  useEffect(() => { load(); }, [load]);
+
+  const q = search.toLowerCase().trim();
+  const filtered = useMemo(
+    () =>
+      fighters.filter((f) => {
+        if (filterSkill && f.skill_level !== filterSkill) return false;
+        if (filterStance && f.stance !== filterStance) return false;
+        if (q && !f.name.toLowerCase().includes(q)) return false;
+        return true;
+      }),
+    [fighters, filterSkill, filterStance, q],
+  );
+
+  const resetForm = () => {
+    setFName(""); setFNickname(""); setFDob(""); setFSex(""); setFNationality("");
+    setFStance("orthodox"); setFDominantHand(""); setFSkillLevel(""); setFWeightClass("");
+    setFYearsTraining(""); setFTrainer("");
+    setFHeightCm(""); setFReachCm(""); setFWeightKg(""); setFShoulderCm("");
+    setFWins(""); setFLosses(""); setFDraws(""); setFKos("");
+    setFBoxrecId(""); setFUsaBoxingId("");
+    setFNotes(""); setFBio("");
+    setPhotoFile(null); setPhotoPreview(null);
+    setCreateError("");
+  };
+
+  const handleCreate = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setCreateError("");
+
+    // Re-resolve gymId if state was lost (e.g. Fast Refresh)
+    let effectiveGymId = gymId;
+    if (!effectiveGymId && user) {
+      try {
+        const gms = await api.listGymManagers();
+        const me = gms.find((gm) => gm.id === user.profile_id);
+        if (me) {
+          effectiveGymId = me.gym_id;
+          setGymId(me.gym_id);
+        }
+      } catch { /* fallthrough to error below */ }
+    }
+
+    if (!effectiveGymId) {
+      setCreateError("Could not determine your gym. Please refresh the page.");
+      return;
+    }
+    if (!fName.trim()) {
+      setCreateError("Fighter name is required.");
+      return;
+    }
+
+    setCreating(true);
+    try {
+      const created = await api.createFighter(fName.trim(), fStance, effectiveGymId);
+
+      // Build patch with all extra fields
+      const patch: FighterPatch = {};
+      if (fNickname) patch.nickname = fNickname;
+      if (fDob) patch.dob = fDob;
+      if (fSex) patch.sex = fSex;
+      if (fNationality) patch.nationality = fNationality;
+      if (fDominantHand) patch.dominant_hand = fDominantHand as Hand;
+      if (fSkillLevel) patch.skill_level = fSkillLevel as SkillLevel;
+      if (fWeightClass) patch.weight_class = fWeightClass;
+      if (fYearsTraining) patch.years_training = parseInt(fYearsTraining);
+      if (fTrainer) patch.trainer = fTrainer;
+      if (fHeightCm) patch.height_cm = parseFloat(fHeightCm);
+      if (fReachCm) patch.reach_cm = parseFloat(fReachCm);
+      if (fWeightKg) patch.weight_kg = parseFloat(fWeightKg);
+      if (fShoulderCm) patch.shoulder_width_cm = parseFloat(fShoulderCm);
+      if (fWins) patch.record_wins = parseInt(fWins);
+      if (fLosses) patch.record_losses = parseInt(fLosses);
+      if (fDraws) patch.record_draws = parseInt(fDraws);
+      if (fKos) patch.record_kos = parseInt(fKos);
+      if (fBoxrecId) patch.boxrec_id = fBoxrecId;
+      if (fUsaBoxingId) patch.usa_boxing_id = fUsaBoxingId;
+      if (fNotes) patch.notes = fNotes;
+      if (fBio) patch.bio = fBio;
+
+      if (Object.keys(patch).length > 0) {
+        await api.updateFighter(created.id, patch);
+      }
+
+      // Upload photo if selected
+      if (photoFile) {
+        await api.uploadFighterPhoto(created.id, photoFile);
+      }
+
+      resetForm();
+      setShowForm(false);
+      load();
+    } catch (err: unknown) {
+      const msg = err instanceof Error ? err.message : "Failed to create fighter";
+      setCreateError(msg);
+    } finally {
+      setCreating(false);
+    }
+  };
+
+  const onPhotoChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (file) {
+      setPhotoFile(file);
+      setPhotoPreview(URL.createObjectURL(file));
+    }
+  };
+
+  if (!isGymManager) {
+    return (
+      <div className="px-8 py-12 text-neutral-400">
+        Sign in as a gym manager to access this page.
+      </div>
+    );
+  }
+
+  if (loading) {
+    return <div className="px-8 py-12 text-neutral-400">Loading members...</div>;
+  }
+
+  const inputCls =
+    "w-full rounded-xl border border-white/10 bg-white/[0.03] px-4 py-2.5 text-sm text-neutral-200 placeholder:text-neutral-600 focus:border-emerald-500/40 focus:outline-none";
+  const labelCls = "mb-1 block text-xs font-medium text-neutral-400";
+
+  return (
+    <div className="space-y-6 px-8 py-8">
+      <header className="flex items-center justify-between">
+        <div>
+          <h1 className="text-2xl font-bold">Members</h1>
+          <p className="text-sm text-neutral-500">
+            {fighters.length} fighter{fighters.length !== 1 ? "s" : ""} registered
+          </p>
+        </div>
+        <button
+          onClick={() => { setShowForm(!showForm); if (showForm) resetForm(); }}
+          className="rounded-xl bg-emerald-500 px-4 py-2 text-sm font-medium text-black hover:bg-emerald-400"
+        >
+          {showForm ? "Cancel" : "+ Add Fighter"}
+        </button>
+      </header>
+
+      {/* ─── Create form ─────────────────────────────────────────── */}
+      {showForm && (
+        <form onSubmit={handleCreate} className="card space-y-5">
+          <h3 className="text-lg font-semibold">New Fighter</h3>
+
+          {/* Photo */}
+          <fieldset className="rounded-xl border border-white/5 p-4">
+            <legend className="px-2 text-xs uppercase tracking-wider text-neutral-500">Photo</legend>
+            <div className="flex items-center gap-4">
+              {photoPreview ? (
+                // eslint-disable-next-line @next/next/no-img-element
+                <img src={photoPreview} alt="preview" className="h-20 w-20 rounded-full object-cover" />
+              ) : (
+                <div className="flex h-20 w-20 items-center justify-center rounded-full bg-white/[0.06] text-2xl text-neutral-500">
+                  {fName ? fName[0].toUpperCase() : "?"}
+                </div>
+              )}
+              <div className="flex-1">
+                <input
+                  type="file"
+                  accept="image/jpeg,image/png,image/webp"
+                  onChange={onPhotoChange}
+                  className="text-xs text-neutral-400"
+                />
+                <p className="mt-1 text-[11px] text-neutral-500">JPG / PNG / WebP, max 5 MB</p>
+              </div>
+            </div>
+          </fieldset>
+
+          {/* Identity */}
+          <fieldset className="rounded-xl border border-white/5 p-4">
+            <legend className="px-2 text-xs uppercase tracking-wider text-neutral-500">Identity</legend>
+            <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3">
+              <div>
+                <label className={labelCls}>Name *</label>
+                <input type="text" required value={fName} onChange={(e) => setFName(e.target.value)} placeholder="Fighter name" className={inputCls} />
+              </div>
+              <div>
+                <label className={labelCls}>Nickname</label>
+                <input type="text" value={fNickname} onChange={(e) => setFNickname(e.target.value)} placeholder='e.g. "The Flash"' className={inputCls} />
+              </div>
+              <div>
+                <label className={labelCls}>Date of Birth</label>
+                <input type="date" value={fDob} onChange={(e) => setFDob(e.target.value)} className={inputCls} />
+              </div>
+              <div>
+                <label className={labelCls}>Sex</label>
+                <select value={fSex} onChange={(e) => setFSex(e.target.value)} className={inputCls}>
+                  <option value="">—</option>
+                  {SEXES.map((s) => <option key={s} value={s}>{s}</option>)}
+                </select>
+              </div>
+              <div>
+                <label className={labelCls}>Nationality</label>
+                <input type="text" value={fNationality} onChange={(e) => setFNationality(e.target.value)} placeholder="e.g. USA" className={inputCls} />
+              </div>
+            </div>
+          </fieldset>
+
+          {/* Boxing */}
+          <fieldset className="rounded-xl border border-white/5 p-4">
+            <legend className="px-2 text-xs uppercase tracking-wider text-neutral-500">Boxing</legend>
+            <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3">
+              <div>
+                <label className={labelCls}>Stance</label>
+                <select value={fStance} onChange={(e) => setFStance(e.target.value as Stance)} className={inputCls}>
+                  {STANCES.map((s) => <option key={s} value={s}>{s}</option>)}
+                </select>
+              </div>
+              <div>
+                <label className={labelCls}>Dominant Hand</label>
+                <select value={fDominantHand} onChange={(e) => setFDominantHand(e.target.value)} className={inputCls}>
+                  <option value="">—</option>
+                  {HANDS.map((h) => <option key={h} value={h}>{h}</option>)}
+                </select>
+              </div>
+              <div>
+                <label className={labelCls}>Skill Level</label>
+                <select value={fSkillLevel} onChange={(e) => setFSkillLevel(e.target.value)} className={inputCls}>
+                  <option value="">—</option>
+                  {SKILL_LEVELS.map((s) => <option key={s} value={s}>{labelFor(s)}</option>)}
+                </select>
+              </div>
+              <div>
+                <label className={labelCls}>Weight Class</label>
+                <select value={fWeightClass} onChange={(e) => setFWeightClass(e.target.value)} className={inputCls}>
+                  <option value="">—</option>
+                  {WEIGHT_CLASSES.map((s) => <option key={s} value={s}>{labelFor(s)}</option>)}
+                </select>
+              </div>
+              <div>
+                <label className={labelCls}>Years Training</label>
+                <input type="number" min="0" max="80" value={fYearsTraining} onChange={(e) => setFYearsTraining(e.target.value)} placeholder="e.g. 5" className={inputCls} />
+              </div>
+              <div>
+                <label className={labelCls}>Trainer</label>
+                <select value={fTrainer} onChange={(e) => setFTrainer(e.target.value)} className={inputCls}>
+                  <option value="">— Select coach —</option>
+                  {coaches.map((c) => (
+                    <option key={c.id} value={c.name}>{c.name}{c.specialties ? ` (${c.specialties})` : ""}</option>
+                  ))}
+                </select>
+              </div>
+            </div>
+          </fieldset>
+
+          {/* Physical */}
+          <fieldset className="rounded-xl border border-white/5 p-4">
+            <legend className="px-2 text-xs uppercase tracking-wider text-neutral-500">Physical</legend>
+            <div className="grid grid-cols-2 gap-4 lg:grid-cols-4">
+              <div>
+                <label className={labelCls}>Height (cm)</label>
+                <input type="number" step="0.5" min="80" max="250" value={fHeightCm} onChange={(e) => setFHeightCm(e.target.value)} placeholder="175" className={inputCls} />
+              </div>
+              <div>
+                <label className={labelCls}>Reach (cm)</label>
+                <input type="number" step="0.5" min="80" max="260" value={fReachCm} onChange={(e) => setFReachCm(e.target.value)} placeholder="180" className={inputCls} />
+              </div>
+              <div>
+                <label className={labelCls}>Weight (kg)</label>
+                <input type="number" step="0.1" min="0" max="400" value={fWeightKg} onChange={(e) => setFWeightKg(e.target.value)} placeholder="72.5" className={inputCls} />
+              </div>
+              <div>
+                <label className={labelCls}>Shoulder Width (cm)</label>
+                <input type="number" step="0.5" min="20" max="80" value={fShoulderCm} onChange={(e) => setFShoulderCm(e.target.value)} placeholder="45" className={inputCls} />
+              </div>
+            </div>
+          </fieldset>
+
+          {/* Record */}
+          <fieldset className="rounded-xl border border-white/5 p-4">
+            <legend className="px-2 text-xs uppercase tracking-wider text-neutral-500">Record</legend>
+            <div className="grid grid-cols-2 gap-4 lg:grid-cols-4">
+              <div>
+                <label className={labelCls}>Wins</label>
+                <input type="number" min="0" value={fWins} onChange={(e) => setFWins(e.target.value)} placeholder="0" className={inputCls} />
+              </div>
+              <div>
+                <label className={labelCls}>Losses</label>
+                <input type="number" min="0" value={fLosses} onChange={(e) => setFLosses(e.target.value)} placeholder="0" className={inputCls} />
+              </div>
+              <div>
+                <label className={labelCls}>Draws</label>
+                <input type="number" min="0" value={fDraws} onChange={(e) => setFDraws(e.target.value)} placeholder="0" className={inputCls} />
+              </div>
+              <div>
+                <label className={labelCls}>KOs</label>
+                <input type="number" min="0" value={fKos} onChange={(e) => setFKos(e.target.value)} placeholder="0" className={inputCls} />
+              </div>
+            </div>
+          </fieldset>
+
+          {/* External IDs */}
+          <fieldset className="rounded-xl border border-white/5 p-4">
+            <legend className="px-2 text-xs uppercase tracking-wider text-neutral-500">External IDs</legend>
+            <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
+              <div>
+                <label className={labelCls}>BoxRec ID</label>
+                <input type="text" value={fBoxrecId} onChange={(e) => setFBoxrecId(e.target.value)} className={`${inputCls} font-mono`} />
+              </div>
+              <div>
+                <label className={labelCls}>USA Boxing ID</label>
+                <input type="text" value={fUsaBoxingId} onChange={(e) => setFUsaBoxingId(e.target.value)} className={`${inputCls} font-mono`} />
+              </div>
+            </div>
+          </fieldset>
+
+          {/* Bio & Notes */}
+          <fieldset className="rounded-xl border border-white/5 p-4">
+            <legend className="px-2 text-xs uppercase tracking-wider text-neutral-500">Bio & Notes</legend>
+            <div className="space-y-4">
+              <div>
+                <label className={labelCls}>Bio</label>
+                <textarea value={fBio} onChange={(e) => setFBio(e.target.value)} rows={2} placeholder="Short bio for the profile header" className={inputCls} />
+              </div>
+              <div>
+                <label className={labelCls}>Notes</label>
+                <textarea value={fNotes} onChange={(e) => setFNotes(e.target.value)} rows={2} placeholder="Internal notes" className={inputCls} />
+              </div>
+            </div>
+          </fieldset>
+
+          {createError && (
+            <div className="rounded-xl border border-red-500/30 bg-red-500/10 px-4 py-2.5 text-sm text-red-400">
+              {createError}
+            </div>
+          )}
+
+          <div className="flex items-center gap-3">
+            <button
+              type="submit"
+              disabled={creating || !fName.trim()}
+              className="rounded-xl bg-emerald-500 px-6 py-2.5 text-sm font-semibold text-black hover:bg-emerald-400 disabled:opacity-50"
+            >
+              {creating ? "Creating..." : "Create Fighter"}
+            </button>
+            <button
+              type="button"
+              onClick={() => { setShowForm(false); resetForm(); }}
+              className="rounded-xl border border-white/10 px-4 py-2.5 text-sm text-neutral-400 hover:bg-white/[0.04]"
+            >
+              Cancel
+            </button>
+          </div>
+        </form>
+      )}
+
+      {/* ─── Filters ─────────────────────────────────────────────── */}
+      <div className="flex flex-wrap items-center gap-3">
+        <div className="relative flex-1 min-w-[200px] max-w-sm">
+          <input
+            type="text"
+            value={search}
+            onChange={(e) => setSearch(e.target.value)}
+            placeholder="Search by name..."
+            className="w-full rounded-xl border border-white/10 bg-white/[0.03] px-4 py-2 pl-9 text-sm text-neutral-200 placeholder:text-neutral-600 focus:border-emerald-500/40 focus:outline-none"
+          />
+          <span className="absolute left-3 top-1/2 -translate-y-1/2 text-neutral-600 text-sm">⌕</span>
+        </div>
+        <select value={filterSkill} onChange={(e) => setFilterSkill(e.target.value)} className="rounded-xl border border-white/10 bg-white/[0.03] px-3 py-2 text-sm text-neutral-300">
+          <option value="">All skill levels</option>
+          {SKILL_LEVELS.map((s) => <option key={s} value={s}>{labelFor(s)}</option>)}
+        </select>
+        <select value={filterStance} onChange={(e) => setFilterStance(e.target.value)} className="rounded-xl border border-white/10 bg-white/[0.03] px-3 py-2 text-sm text-neutral-300">
+          <option value="">All stances</option>
+          {STANCES.map((s) => <option key={s} value={s}>{s}</option>)}
+        </select>
+        <span className="text-xs text-neutral-500">{filtered.length} of {fighters.length}</span>
+      </div>
+
+      {/* ─── Members table ───────────────────────────────────────── */}
+      <div className="card overflow-x-auto">
+        <table className="w-full text-sm">
+          <thead>
+            <tr className="border-b border-white/5 text-left text-xs uppercase tracking-wider text-neutral-500">
+              <th className="pb-2 pr-4">Name</th>
+              <th className="pb-2 pr-4">Stance</th>
+              <th className="pb-2 pr-4">Skill Level</th>
+              <th className="pb-2 pr-4">Weight</th>
+              <th className="pb-2 pr-4">Record</th>
+              <th className="pb-2">Created</th>
+            </tr>
+          </thead>
+          <tbody>
+            {filtered.map((f) => (
+              <tr key={f.id} className="border-b border-white/[0.03] hover:bg-white/[0.02]">
+                <td className="py-3 pr-4">
+                  <Link href={`/fighters/${f.id}`} className="flex items-center gap-2 hover:text-emerald-300">
+                    <ProfileAvatar name={f.name} photo_path={f.photo_path} size={32} />
+                    <div>
+                      <span className="font-medium">{f.name}</span>
+                      {f.nickname && <span className="ml-1.5 text-xs text-neutral-500">"{f.nickname}"</span>}
+                    </div>
+                  </Link>
+                </td>
+                <td className="py-3 pr-4 capitalize text-neutral-400">{f.stance ?? "—"}</td>
+                <td className="py-3 pr-4 capitalize text-neutral-400">{f.skill_level ? labelFor(f.skill_level) : "—"}</td>
+                <td className="py-3 pr-4 text-neutral-400">{f.weight_kg ? `${f.weight_kg} kg` : "—"}</td>
+                <td className="py-3 pr-4 text-neutral-400">
+                  {f.record_wins}-{f.record_losses}-{f.record_draws}
+                  {f.record_kos > 0 && <span className="ml-1 text-xs text-neutral-500">({f.record_kos} KO)</span>}
+                </td>
+                <td className="py-3 text-neutral-500 text-xs">{new Date(f.created_at).toLocaleDateString()}</td>
+              </tr>
+            ))}
+            {filtered.length === 0 && (
+              <tr>
+                <td colSpan={6} className="py-8 text-center text-neutral-500">
+                  {fighters.length === 0 ? "No fighters yet. Add your first fighter above." : "No fighters match your filters."}
+                </td>
+              </tr>
+            )}
+          </tbody>
+        </table>
+      </div>
+    </div>
+  );
+}

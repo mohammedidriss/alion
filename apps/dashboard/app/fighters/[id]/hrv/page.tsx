@@ -40,7 +40,7 @@ export default function HrvTab({ params }: { params: { id: string } }) {
 
   if (baselined.length === 0) {
     return (
-      <div className="space-y-6">
+      <div className="space-y-6 px-8 py-6">
         <header>
           <h1 className="text-2xl font-semibold">HRV</h1>
           <p className="text-sm text-neutral-400">
@@ -116,7 +116,7 @@ export default function HrvTab({ params }: { params: { id: string } }) {
   const ci = r != null ? ciOf(r, n) : null;
 
   return (
-    <div className="space-y-6">
+    <div className="space-y-6 px-8 py-6">
       <header>
         <h1 className="text-2xl font-semibold">HRV</h1>
         <p className="text-sm text-neutral-400">

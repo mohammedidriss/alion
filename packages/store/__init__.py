@@ -81,6 +81,10 @@ from store.models import (
     SkillLevel,
     Stance,
     TitleStatus,
+    User,
+    UserCreate,
+    UserRead,
+    UserRole,
     VelocitySourceEnum,
     WeighIn,
     WeighInCreate,
@@ -99,6 +103,7 @@ from store.repo import (
     PunchEventRepo,
     RefereeRepo,
     SessionRepo,
+    UserRepo,
     WeighInRepo,
 )
 
@@ -199,6 +204,11 @@ __all__ = [
     "WeighInCreate",
     "WeighInRead",
     "WeighInRepo",
+    "User",
+    "UserCreate",
+    "UserRead",
+    "UserRepo",
+    "UserRole",
     "create_db_and_tables",
     "get_session",
 ]

@@ -588,8 +588,43 @@ export interface CaptureStatus {
   punch_count: number;
 }
 
+export type UserRole = "fighter" | "coach" | "referee" | "gym_manager" | "admin";
+
+export interface AuthUser {
+  id: string;
+  email: string;
+  name: string;
+  role: UserRole;
+  profile_id: string | null;
+  photo_path: string | null;
+  is_active: boolean;
+  created_at: string;
+}
+
+export interface AuthResponse {
+  access_token: string;
+  token_type: string;
+  user: AuthUser;
+}
+
 async function req<T>(path: string, init?: RequestInit): Promise<T> {
-  const r = await fetch(`${BASE}${path}`, { cache: "no-store", ...init });
+  // Auto-attach auth token from storage
+  const token =
+    (typeof window !== "undefined" &&
+      (localStorage.getItem("alion.token") ??
+        sessionStorage.getItem("alion.token"))) ||
+    null;
+  const headers: Record<string, string> = {
+    ...(init?.headers as Record<string, string>),
+  };
+  if (token && !headers["Authorization"]) {
+    headers["Authorization"] = `Bearer ${token}`;
+  }
+  const r = await fetch(`${BASE}${path}`, {
+    cache: "no-store",
+    ...init,
+    headers,
+  });
   if (!r.ok) throw new Error(`${r.status} ${await r.text()}`);
   if (r.status === 204) return undefined as T;
   return r.json();
@@ -832,9 +867,17 @@ export const api = {
   uploadCoachPhoto: async (id: string, file: File) => {
     const fd = new FormData();
     fd.append("file", file);
+    const token =
+      (typeof window !== "undefined" &&
+        (localStorage.getItem("alion.token") ??
+          sessionStorage.getItem("alion.token"))) ||
+      null;
+    const headers: Record<string, string> = {};
+    if (token) headers["Authorization"] = `Bearer ${token}`;
     const r = await fetch(`${BASE}/coaches/${id}/photo`, {
       method: "POST",
       body: fd,
+      headers,
     });
     if (!r.ok) throw new Error(`${r.status} ${await r.text()}`);
     return r.json() as Promise<Coach>;
@@ -932,9 +975,17 @@ export const api = {
   uploadFighterPhoto: async (id: string, file: File) => {
     const fd = new FormData();
     fd.append("file", file);
+    const token =
+      (typeof window !== "undefined" &&
+        (localStorage.getItem("alion.token") ??
+          sessionStorage.getItem("alion.token"))) ||
+      null;
+    const headers: Record<string, string> = {};
+    if (token) headers["Authorization"] = `Bearer ${token}`;
     const r = await fetch(`${BASE}/fighters/${id}/photo`, {
       method: "POST",
       body: fd,
+      headers,
     });
     if (!r.ok) throw new Error(`${r.status} ${await r.text()}`);
     return r.json() as Promise<Fighter>;
@@ -1094,6 +1145,33 @@ export const api = {
     req<EvaluationResponse>(
       `/sessions/${sessionId}/evaluation?tolerance_ms=${toleranceMs}`,
     ),
+
+  // Auth
+  register: (email: string, password: string, name: string, role: UserRole = "fighter") =>
+    req<AuthResponse>("/auth/register", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ email, password, name, role }),
+    }),
+  login: (email: string, password: string) => {
+    const body = new URLSearchParams();
+    body.append("username", email);
+    body.append("password", password);
+    return fetch(`${BASE}/auth/login`, { method: "POST", body }).then(async (r) => {
+      if (!r.ok) {
+        const detail = await r.json().catch(() => ({ detail: "Login failed" }));
+        throw new Error(detail.detail ?? "Login failed");
+      }
+      return r.json() as Promise<AuthResponse>;
+    });
+  },
+  me: (token: string) =>
+    fetch(`${BASE}/auth/me`, {
+      headers: { Authorization: `Bearer ${token}` },
+    }).then(async (r) => {
+      if (!r.ok) throw new Error("Not authenticated");
+      return r.json() as Promise<AuthUser>;
+    }),
 };
 
 // ---- Evaluation types ----

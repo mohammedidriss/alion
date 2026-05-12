@@ -7,8 +7,11 @@ from uuid import UUID
 from fastapi import APIRouter, Depends, HTTPException, status
 from pydantic import BaseModel
 
-from api.deps import gym_manager_repo, gym_repo
-from store import GymManagerRepo, GymRepo
+from sqlmodel import Session as DBSession
+
+from api.deps import db_session, gym_manager_repo, gym_repo, resolve_gym_id
+from api.routes.auth import get_current_user
+from store import GymManagerRepo, GymRepo, User
 from store.models import GymManagerCreate, GymManagerRead
 
 router = APIRouter(prefix="/gym-managers", tags=["gym-managers"])
@@ -52,12 +55,24 @@ def create_gym_manager(
 def list_gym_managers(
     repo: GymManagerRepo = Depends(gym_manager_repo),
     gyms: GymRepo = Depends(gym_repo),
+    current_user: User | None = Depends(get_current_user),
+    session: DBSession = Depends(db_session),
 ) -> list[GymManagerRead]:
-    out: list[GymManagerRead] = []
+    # Gym managers can only see managers in their own gym
+    if current_user and current_user.role == "gym_manager":
+        scoped_gym = resolve_gym_id(current_user, session)
+        if scoped_gym:
+            out: list[GymManagerRead] = []
+            for mgr in repo.list_all():
+                if mgr.gym_id == scoped_gym:
+                    g = gyms.get(mgr.gym_id)
+                    out.append(_enrich(mgr, g.name if g else "?"))
+            return out
+    out2: list[GymManagerRead] = []
     for mgr in repo.list_all():
         g = gyms.get(mgr.gym_id)
-        out.append(_enrich(mgr, g.name if g else "?"))
-    return out
+        out2.append(_enrich(mgr, g.name if g else "?"))
+    return out2
 
 
 @router.get("/{manager_id}", response_model=GymManagerRead)

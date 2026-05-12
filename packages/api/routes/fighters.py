@@ -19,10 +19,13 @@ from api.deps import (
     fighter_team_repo,
     medical_repo,
     punch_event_repo,
+    resolve_gym_id,
     session_repo,
 )
+from api.routes.auth import get_current_user
 from api.services.photos import delete_photos_for, save_photo
 from store import (
+    User,
     WEIGHT_CLASSES,
     AllergyCreate,
     AllergyRead,
@@ -109,7 +112,14 @@ def create_fighter(data: FighterCreate, repo: FighterRepo = Depends(fighter_repo
 def list_fighters(
     gym_id: UUID | None = None,
     repo: FighterRepo = Depends(fighter_repo),
+    current_user: User | None = Depends(get_current_user),
+    session: DBSession = Depends(db_session),
 ) -> list[FighterRead]:
+    # Gym managers can only see their own gym's fighters
+    if current_user and current_user.role == "gym_manager":
+        scoped_gym = resolve_gym_id(current_user, session)
+        if scoped_gym:
+            gym_id = scoped_gym  # override any client-supplied gym_id
     rows = repo.list_for_gym(gym_id) if gym_id else repo.list_all()
     return [FighterRead.model_validate(f, from_attributes=True) for f in rows]
 

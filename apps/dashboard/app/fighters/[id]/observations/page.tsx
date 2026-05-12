@@ -75,7 +75,7 @@ export default function ObservationsTab({
     return <p className="text-sm text-red-400">{err}</p>;
 
   return (
-    <div className="space-y-6">
+    <div className="space-y-6 px-8 py-6">
       <header>
         <h1 className="text-2xl font-semibold">Observations</h1>
         <p className="text-sm text-neutral-400">

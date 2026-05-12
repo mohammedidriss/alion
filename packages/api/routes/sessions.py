@@ -20,18 +20,21 @@ from pydantic import BaseModel
 from sqlmodel import Session as DBSession
 
 from analyze import compute_score, mean_hr_bpm, rmssd_ms, sdnn_ms
-from api.deps import db_session, punch_event_repo, session_repo
+from api.deps import db_session, fighter_repo, punch_event_repo, resolve_gym_id, session_repo
+from api.routes.auth import get_current_user
 from api.services import capture_runner
 from capture.hrv import parse_rr_csv
 from contracts import HRSample
 from store import (
     AttachmentKind,
+    FighterRepo,
     PunchEventRepo,
     SessionAttachment,
     SessionAttachmentRead,
     SessionRepo,
     SessionSourceEnum,
     SessionStatus,
+    User,
 )
 from store.models import (
     PunchEventRead,
@@ -95,9 +98,23 @@ def delete_stale_pending(repo: SessionRepo = Depends(session_repo)) -> dict:
 def list_sessions(
     fighter_id: UUID | None = None,
     repo: SessionRepo = Depends(session_repo),
+    current_user: User | None = Depends(get_current_user),
+    session: DBSession = Depends(db_session),
+    frepo: FighterRepo = Depends(fighter_repo),
 ) -> list[SessionRead]:
     # Auto-clean stale pending sessions on every list call.
     _purge_stale_pending(repo)
+
+    # Gym managers can only see sessions for their gym's fighters
+    if current_user and current_user.role == "gym_manager":
+        scoped_gym = resolve_gym_id(current_user, session)
+        if scoped_gym:
+            gym_fighters = frepo.list_for_gym(scoped_gym)
+            gym_fighter_ids = {f.id for f in gym_fighters}
+            all_rows = repo.list_for_fighter(fighter_id) if fighter_id else repo.list_all()
+            rows = [s for s in all_rows if s.fighter_id in gym_fighter_ids]
+            return [SessionRead.model_validate(s, from_attributes=True) for s in rows]
+
     rows = repo.list_for_fighter(fighter_id) if fighter_id else repo.list_all()
     return [SessionRead.model_validate(s, from_attributes=True) for s in rows]
 

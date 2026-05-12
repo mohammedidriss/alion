@@ -89,6 +89,53 @@ WEIGHT_CLASSES = (
 
 
 # ----------------------------------------------------------------------
+# User — authentication identity (email + hashed password).
+# A user may own one or more profiles (fighter, coach, gym_manager, etc.)
+# ----------------------------------------------------------------------
+
+
+class UserRole(StrEnum):
+    FIGHTER = "fighter"
+    COACH = "coach"
+    REFEREE = "referee"
+    GYM_MANAGER = "gym_manager"
+    ADMIN = "admin"
+
+
+class User(SQLModel, table=True):
+    """Authentication identity. Separate from profile entities."""
+
+    id: UUID = Field(default_factory=uuid4, primary_key=True)
+    email: str = Field(index=True, unique=True, max_length=200)
+    password_hash: str = Field(max_length=300)
+    name: str = Field(min_length=1, max_length=120)
+    role: UserRole = Field(default=UserRole.FIGHTER)
+    # Link to the actual profile (fighter.id, coach.id, gym_manager.id, etc.)
+    profile_id: UUID | None = Field(default=None)
+    photo_path: str | None = None
+    is_active: bool = Field(default=True)
+    created_at: datetime = Field(default_factory=lambda: datetime.now(UTC))
+
+
+class UserCreate(SQLModel):
+    email: str = Field(max_length=200)
+    password: str = Field(min_length=6, max_length=128)
+    name: str = Field(min_length=1, max_length=120)
+    role: UserRole = UserRole.FIGHTER
+
+
+class UserRead(SQLModel):
+    id: UUID
+    email: str
+    name: str
+    role: UserRole
+    profile_id: UUID | None = None
+    photo_path: str | None = None
+    is_active: bool
+    created_at: datetime
+
+
+# ----------------------------------------------------------------------
 # Gym — facility where fighters train and coaches work.
 # ----------------------------------------------------------------------
 

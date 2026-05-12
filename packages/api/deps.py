@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from collections.abc import Iterator
+from uuid import UUID
 
 from fastapi import Depends
 from sqlmodel import Session
@@ -20,6 +21,7 @@ from store import (
     PunchEventRepo,
     RefereeRepo,
     SessionRepo,
+    User,
     get_session,
 )
 
@@ -76,3 +78,17 @@ def gym_repo(session: Session = Depends(db_session)) -> GymRepo:
 
 def gym_manager_repo(session: Session = Depends(db_session)) -> GymManagerRepo:
     return GymManagerRepo(session)
+
+
+def resolve_gym_id(user: User | None, session: Session) -> UUID | None:
+    """Return the gym_id for a gym_manager user, or None for admins/others."""
+    if user is None:
+        return None
+    if user.role == "admin":
+        return None  # admins see everything
+    if user.role == "gym_manager" and user.profile_id:
+        repo = GymManagerRepo(session)
+        gm = repo.get(user.profile_id)
+        if gm:
+            return UUID(str(gm.gym_id))
+    return None

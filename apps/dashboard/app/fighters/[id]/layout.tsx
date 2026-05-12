@@ -1,7 +1,6 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { FighterSidebar } from "@/components/FighterSidebar";
 import { api, type Fighter } from "@/lib/api";
 
 export default function FighterLayout({
@@ -32,10 +31,5 @@ export default function FighterLayout({
     );
   }
 
-  return (
-    <div className="flex">
-      <FighterSidebar fighter={fighter} />
-      <main className="min-w-0 flex-1 px-8 py-6">{children}</main>
-    </div>
-  );
+  return <>{children}</>;
 }

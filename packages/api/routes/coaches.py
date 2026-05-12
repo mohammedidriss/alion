@@ -9,9 +9,10 @@ from fastapi import APIRouter, Depends, File, HTTPException, UploadFile, status
 from pydantic import BaseModel
 from sqlmodel import Session as DBSession, select
 
-from api.deps import coach_note_repo, coach_repo, db_session
+from api.deps import coach_note_repo, coach_repo, db_session, resolve_gym_id
+from api.routes.auth import get_current_user
 from api.services.photos import delete_photos_for, save_photo
-from store import CoachingLevel, CoachNoteRepo, CoachRepo
+from store import CoachingLevel, CoachNoteRepo, CoachRepo, User
 from store.models import (
     Coach,
     CoachAssignment,
@@ -55,7 +56,14 @@ def create_coach(data: CoachCreate, repo: CoachRepo = Depends(coach_repo)) -> Co
 def list_coaches(
     gym_id: UUID | None = None,
     repo: CoachRepo = Depends(coach_repo),
+    current_user: User | None = Depends(get_current_user),
+    session: DBSession = Depends(db_session),
 ) -> list[CoachRead]:
+    # Gym managers can only see their own gym's coaches
+    if current_user and current_user.role == "gym_manager":
+        scoped_gym = resolve_gym_id(current_user, session)
+        if scoped_gym:
+            gym_id = scoped_gym
     rows = repo.list_for_gym(gym_id) if gym_id else repo.list_all()
     return [CoachRead.model_validate(c, from_attributes=True) for c in rows]
 

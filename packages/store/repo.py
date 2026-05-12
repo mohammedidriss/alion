@@ -28,6 +28,8 @@ from store.models import (
     GymManagerCreate,
     GymMembership,
     HRSampleRow,
+    User,
+    UserCreate,
     IMUSampleRow,
     MedicalCondition,
     MedicalConditionCreate,
@@ -828,6 +830,52 @@ class GymManagerRepo:
 
     def delete(self, manager_id: UUID) -> bool:
         row = self.get(manager_id)
+        if row is None:
+            return False
+        self._session.delete(row)
+        self._session.commit()
+        return True
+
+
+class UserRepo:
+    def __init__(self, session: DBSession) -> None:
+        self._session = session
+
+    def create(self, data: UserCreate, password_hash: str) -> User:
+        user = User(
+            email=data.email,
+            password_hash=password_hash,
+            name=data.name,
+            role=data.role,
+        )
+        self._session.add(user)
+        self._session.commit()
+        self._session.refresh(user)
+        return user
+
+    def get(self, user_id: UUID) -> User | None:
+        return self._session.get(User, user_id)
+
+    def get_by_email(self, email: str) -> User | None:
+        stmt = select(User).where(User.email == email)
+        return self._session.exec(stmt).first()
+
+    def list_all(self) -> list[User]:
+        return list(self._session.exec(select(User)).all())
+
+    def update(self, user_id: UUID, fields: dict) -> User | None:  # type: ignore[type-arg]
+        row = self.get(user_id)
+        if row is None:
+            return None
+        for k, v in fields.items():
+            setattr(row, k, v)
+        self._session.add(row)
+        self._session.commit()
+        self._session.refresh(row)
+        return row
+
+    def delete(self, user_id: UUID) -> bool:
+        row = self.get(user_id)
         if row is None:
             return False
         self._session.delete(row)
