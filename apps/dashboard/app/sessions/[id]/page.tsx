@@ -139,10 +139,10 @@ export default function SessionPage({ params }: { params: { id: string } }) {
         });
       }
     }
-    // Auto-stop the session once the planned rounds are done. Only fire
-    // once — refresh() will flip status to "completed" on the next poll.
+    // Auto-stop the session once the planned rounds are done. Immediately
+    // refresh so `isLive` flips to false and the camera preview stops.
     if (phase === "done" && session?.status === "capturing") {
-      api.stopCapture(id).catch(() => undefined);
+      api.stopCapture(id).then(() => refresh()).catch(() => undefined);
     }
   }, [
     now,
@@ -428,6 +428,16 @@ export default function SessionPage({ params }: { params: { id: string } }) {
   const isManualPaused =
     !!status?.is_paused && manualPauseStart !== null;
   const isBreak = !!status?.is_paused && manualPauseStart === null;
+
+  // How many rounds have fully finished (elapsed time past their end).
+  // Used to trigger progressive AI advice after each round.
+  const completedRounds = (() => {
+    if (!isLive || !captureEpoch) return 0;
+    const roundS = session.round_duration_s ?? 180;
+    const elapsedS = liveDurationMs / 1000;
+    const totalRounds = session.round_count ?? 3;
+    return Math.min(totalRounds, Math.floor(elapsedS / roundS));
+  })();
 
   return (
     <main className="mx-auto max-w-7xl space-y-6 p-8">
@@ -820,165 +830,117 @@ export default function SessionPage({ params }: { params: { id: string } }) {
       {session.status !== "pending" && (
       <div className="grid grid-cols-1 gap-6 xl:grid-cols-[280px_minmax(0,1fr)_320px]">
         <aside className="space-y-4 xl:sticky xl:top-4 xl:self-start">
+          {/* ── Session stats panel (combined) ── */}
+          {(() => {
+            const durationMs = status?.duration_ms ?? 0;
+            const hasData = events.length > 0 && durationMs > 0;
+            let peakP90: number | null = null;
+            let ppmVal: number | null = null;
+            let score: number | null = null;
+            const durationMin = durationMs / 60_000;
+            if (hasData) {
+              const sorted = [...events].map((e) => e.velocity_ms).sort((a, b) => a - b);
+              const k = (sorted.length - 1) * 0.9;
+              const lo = Math.floor(k);
+              const hi = Math.min(lo + 1, sorted.length - 1);
+              peakP90 = sorted[lo] * (1 - (k - lo)) + sorted[hi] * (k - lo);
+              ppmVal = events.length / Math.max(durationMin, 1e-6);
+              score = peakP90 * (ppmVal / 60) * durationMin;
+            }
+            const fmt = (v: number | null, d = 2) => (v === null ? "—" : v.toFixed(d));
+            const hardest = events.length > 0
+              ? events.reduce((m, e) => (e.velocity_ms > m.velocity_ms ? e : m), events[0])
+              : null;
+            const meanConf = events.length >= 5
+              ? events.reduce((s, e) => s + e.confidence, 0) / events.length
+              : 1;
+
+            return (
+              <section className="rounded-lg border border-neutral-800 bg-neutral-950/60 p-4 space-y-3">
+                {/* Quick stats row */}
+                <div className="grid grid-cols-2 gap-2">
+                  <MiniStat label="Frames" value={status?.frame_count ?? 0} />
+                  <MiniStat label="Duration" value={`${((durationMs) / 1000).toFixed(1)}s`} />
+                  <MiniStat label="Punches" value={status?.punch_count ?? 0} />
+                  <MiniStat label="PPM" value={ppmVal !== null ? ppmVal.toFixed(0) : "—"} />
+                </div>
+
+                {/* Performance metrics */}
+                <div className="border-t border-white/5 pt-3">
+                  <div className="flex items-baseline justify-between">
+                    <h3 className="text-xs font-medium text-neutral-300">Performance</h3>
+                    <span className="rounded bg-amber-950/40 px-1.5 py-0.5 text-[10px] font-semibold tabular-nums text-amber-200">
+                      Score {fmt(score)}
+                    </span>
+                  </div>
+                  <div className="mt-2 grid grid-cols-3 gap-2 text-center text-xs">
+                    <div>
+                      <div className="text-[10px] text-neutral-500">Peak p90</div>
+                      <div className="font-semibold tabular-nums">{fmt(peakP90)} <span className="text-[10px] text-neutral-500">m/s</span></div>
+                    </div>
+                    <div>
+                      <div className="text-[10px] text-neutral-500">Throughput</div>
+                      <div className="font-semibold tabular-nums">{fmt(ppmVal, 0)} <span className="text-[10px] text-neutral-500">ppm</span></div>
+                    </div>
+                    <div>
+                      <div className="text-[10px] text-neutral-500">Duration</div>
+                      <div className="font-semibold tabular-nums">{durationMin > 0 ? durationMin.toFixed(2) : "—"} <span className="text-[10px] text-neutral-500">min</span></div>
+                    </div>
+                  </div>
+                </div>
+
+                {/* Hardest punch */}
+                <div className="border-t border-white/5 pt-3">
+                  <div className="flex items-baseline justify-between">
+                    <h3 className="text-xs font-medium text-amber-200">Hardest punch</h3>
+                    <span className="text-[10px] text-neutral-500">
+                      {hardest ? formatPunchTime(session.started_at, hardest.t_ms) : "—"}
+                    </span>
+                  </div>
+                  <div className="mt-1 flex items-baseline gap-2">
+                    <span className="text-2xl font-bold tabular-nums text-amber-100">
+                      {hardest ? hardest.velocity_ms.toFixed(2) : "—"}
+                    </span>
+                    <span className="text-xs text-neutral-400">m/s</span>
+                  </div>
+                  {hardest && (
+                    <div className="mt-1 flex flex-wrap gap-x-3 text-[11px] text-neutral-400">
+                      <span>
+                        <span className={hardest.hand === "left" ? "text-amber-300" : "text-sky-300"}>
+                          {hardest.hand}
+                        </span>
+                      </span>
+                      {hardest.punch_type && <span>{hardest.punch_type}</span>}
+                      {hardest.lead_or_rear && <span>{hardest.lead_or_rear}</span>}
+                      <span>conf {hardest.confidence.toFixed(2)}</span>
+                    </div>
+                  )}
+                </div>
+
+                {/* Low pose quality warning */}
+                {events.length >= 5 && meanConf < 0.7 && (
+                  <div className="border-t border-amber-700/40 pt-3">
+                    <p className="text-[11px] font-medium text-amber-200">Low pose quality</p>
+                    <p className="mt-0.5 text-[10px] text-amber-100/70">
+                      Mean conf {meanConf.toFixed(2)} (threshold 0.70). Better
+                      lighting or closer framing may help.
+                    </p>
+                  </div>
+                )}
+
+                {!hasData && (
+                  <p className="text-[10px] text-neutral-500">
+                    Waiting for first punch detection…
+                  </p>
+                )}
+              </section>
+            );
+          })()}
+
           <RoundConfigCard session={session} onChange={setSession} />
         </aside>
         <div className="space-y-6">
-          <section className="grid grid-cols-2 gap-3 sm:grid-cols-4">
-            <Stat label="Frames" value={status?.frame_count ?? 0} />
-            <Stat
-              label="Duration"
-              value={`${((status?.duration_ms ?? 0) / 1000).toFixed(1)}s`}
-            />
-            <Stat label="Punches" value={status?.punch_count ?? 0} />
-            <Stat
-              label="Punches / min"
-              value={(() => {
-                const ms = status?.duration_ms ?? 0;
-                const n = status?.punch_count ?? 0;
-                if (!ms || !n) return "—";
-                const ppm = (n / (ms / 1000)) * 60;
-                return ppm.toFixed(0);
-              })()}
-            />
-          </section>
-
-      {(() => {
-        // Always show Session performance — placeholders ("—") when
-        // no events yet so the panel structure is visible during a
-        // fresh capture before the first detection lands.
-        const durationMs = status?.duration_ms ?? 0;
-        const hasData = events.length > 0 && durationMs > 0;
-        let peakP90: number | null = null;
-        let ppm: number | null = null;
-        let score: number | null = null;
-        let durationMin = durationMs / 60_000;
-        if (hasData) {
-          const sorted = [...events]
-            .map((e) => e.velocity_ms)
-            .sort((a, b) => a - b);
-          const k = (sorted.length - 1) * 0.9;
-          const lo = Math.floor(k);
-          const hi = Math.min(lo + 1, sorted.length - 1);
-          peakP90 = sorted[lo] * (1 - (k - lo)) + sorted[hi] * (k - lo);
-          ppm = events.length / Math.max(durationMin, 1e-6);
-          score = peakP90 * (ppm / 60) * durationMin;
-        }
-        const fmt = (v: number | null, d = 2) => (v === null ? "—" : v.toFixed(d));
-        return (
-          <section className="rounded-lg border border-neutral-800 bg-neutral-950 p-4">
-            <h2 className="font-medium">Session performance</h2>
-            <p className="mt-1 text-xs text-neutral-500">
-              Transparent v1: peak_v_p90 × ppm/60 × duration_min. Same
-              formula as the per-fighter progress chart.
-            </p>
-            <div className="mt-3 grid grid-cols-2 gap-3 sm:grid-cols-4">
-              <div className="rounded border border-neutral-800 p-3">
-                <div className="text-xs text-neutral-500">Peak v p90</div>
-                <div className="mt-1 text-xl font-semibold tabular-nums">
-                  {fmt(peakP90)} <span className="text-xs text-neutral-500">m/s</span>
-                </div>
-              </div>
-              <div className="rounded border border-neutral-800 p-3">
-                <div className="text-xs text-neutral-500">Throughput</div>
-                <div className="mt-1 text-xl font-semibold tabular-nums">
-                  {fmt(ppm, 0)} <span className="text-xs text-neutral-500">ppm</span>
-                </div>
-              </div>
-              <div className="rounded border border-neutral-800 p-3">
-                <div className="text-xs text-neutral-500">Duration</div>
-                <div className="mt-1 text-xl font-semibold tabular-nums">
-                  {durationMin > 0 ? durationMin.toFixed(2) : "—"}{" "}
-                  <span className="text-xs text-neutral-500">min</span>
-                </div>
-              </div>
-              <div className="rounded border border-amber-700/40 bg-amber-950/30 p-3">
-                <div className="text-xs text-amber-300/80">Score</div>
-                <div className="mt-1 text-xl font-semibold tabular-nums text-amber-100">
-                  {fmt(score)}
-                </div>
-              </div>
-            </div>
-            {!hasData && (
-              <p className="mt-3 text-[11px] text-neutral-500">
-                Waiting for the first detected punch — metrics populate live as the detector fires.
-              </p>
-            )}
-          </section>
-        );
-      })()}
-
-      {(() => {
-        // Always show the hardest-punch panel; placeholders when no
-        // events yet so the user sees the structure during a fresh
-        // capture.
-        const hardest =
-          events.length > 0
-            ? events.reduce(
-                (m, e) => (e.velocity_ms > m.velocity_ms ? e : m),
-                events[0],
-              )
-            : null;
-        return (
-          <section className="rounded-lg border border-amber-700/40 bg-gradient-to-br from-amber-950/30 to-neutral-950 p-4">
-            <div className="flex items-baseline justify-between">
-              <h2 className="font-medium text-amber-200">Hardest punch</h2>
-              <span className="text-xs text-neutral-500">
-                {hardest ? formatPunchTime(session.started_at, hardest.t_ms) : "—"}
-              </span>
-            </div>
-            <div className="mt-3 flex items-baseline gap-3">
-              <span className="text-4xl font-bold tabular-nums text-amber-100">
-                {hardest ? hardest.velocity_ms.toFixed(2) : "—"}
-              </span>
-              <span className="text-sm text-neutral-400">m/s</span>
-            </div>
-            <div className="mt-2 flex flex-wrap gap-x-4 gap-y-1 text-xs text-neutral-400">
-              <span>
-                hand:{" "}
-                <span
-                  className={
-                    hardest?.hand === "left"
-                      ? "text-amber-300"
-                      : hardest?.hand === "right"
-                        ? "text-sky-300"
-                        : "text-neutral-500"
-                  }
-                >
-                  {hardest?.hand ?? "—"}
-                </span>
-              </span>
-              {hardest?.punch_type && <span>type: {hardest.punch_type}</span>}
-              {hardest?.lead_or_rear && <span>{hardest.lead_or_rear}</span>}
-              <span>
-                conf: {hardest ? hardest.confidence.toFixed(2) : "—"}
-              </span>
-            </div>
-            {!hardest && (
-              <p className="mt-3 text-[11px] text-neutral-500">
-                Will surface the highest-velocity detection of this session as soon as one fires.
-              </p>
-            )}
-          </section>
-        );
-      })()}
-
-
-      {events.length >= 5 &&
-        (() => {
-          const meanConf =
-            events.reduce((s, e) => s + e.confidence, 0) / events.length;
-          if (meanConf >= 0.7) return null;
-          return (
-            <div className="rounded-lg border border-amber-700/60 bg-amber-950/40 p-3 text-sm">
-              <p className="font-medium text-amber-200">Low pose quality</p>
-              <p className="mt-1 text-xs text-amber-100/80">
-                Mean detection confidence is {meanConf.toFixed(2)} (threshold
-                0.70). Try better lighting, framing the full upper body, or
-                moving closer to the camera for more reliable detections.
-              </p>
-            </div>
-          );
-        })()}
+      <RoundBreakdownCard sessionId={session.id} status={session.status} />
 
       {/* Detector evaluation — labels-vs-detections accuracy.
           Shown for any completed session; the card itself handles the
@@ -986,8 +948,6 @@ export default function SessionPage({ params }: { params: { id: string } }) {
       {session.status === "completed" && events.length > 0 && (
         <EvaluationCard sessionId={id} />
       )}
-
-      <RoundBreakdownCard sessionId={session.id} status={session.status} />
       <HrvPanel sessionId={session.id} />
       <IMUPanel sessionId={session.id} punchEvents={events} />
       <RQ1RaterCard sessionId={session.id} />
@@ -1177,7 +1137,11 @@ export default function SessionPage({ params }: { params: { id: string } }) {
       </section>
         </div>
         <aside className="space-y-4 xl:sticky xl:top-4 xl:self-start">
-          <LiveAdviceCard sessionId={session.id} status={session.status} />
+          <LiveAdviceCard
+            sessionId={session.id}
+            status={session.status}
+            completedRounds={completedRounds}
+          />
           <DetectorComparisonCard
             sessionId={session.id}
             status={session.status}
@@ -1224,6 +1188,15 @@ function Stat({ label, value }: { label: string; value: string | number }) {
     <div className="rounded-lg border border-neutral-800 p-3">
       <div className="text-xs text-neutral-500">{label}</div>
       <div className="mt-1 text-2xl font-semibold">{value}</div>
+    </div>
+  );
+}
+
+function MiniStat({ label, value }: { label: string; value: string | number }) {
+  return (
+    <div className="rounded border border-white/5 bg-black/30 px-2 py-1.5">
+      <div className="text-[10px] text-neutral-500">{label}</div>
+      <div className="text-sm font-semibold tabular-nums">{value}</div>
     </div>
   );
 }

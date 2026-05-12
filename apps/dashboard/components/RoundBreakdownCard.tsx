@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import {
   api,
   type RoundExportItem,
@@ -18,19 +18,25 @@ interface Props {
  * a small computed performance score for each round, side-by-side
  * with the HRV / IMU summaries the fused export already provides.
  *
- * Reads `/sessions/{id}/rounds_export` (which is populated for every
- * session — the heuristic detector wrote the events, the round
- * structure was set in /sessions/new). Refetches when the session
- * transitions to `completed` so the card lights up automatically at
- * end of capture.
+ * Reads `/sessions/{id}/rounds_export`. During live capture, polls
+ * every 2 s so completed rounds appear progressively as the fighter
+ * finishes each one. Stops polling once the session is completed.
  */
 export function RoundBreakdownCard({ sessionId, status }: Props) {
   const [data, setData] = useState<RoundsExportResponse | null>(null);
   const [err, setErr] = useState<string | null>(null);
+  const prevCompletedRef = useRef(0);
 
   const refresh = async () => {
     try {
-      setData(await api.roundsExport(sessionId));
+      const d = await api.roundsExport(sessionId);
+      setData(d);
+
+      // Track how many rounds have punch data — when a new round
+      // completes (punch_count goes from 0 to >0), the UI will
+      // naturally re-render and show it.
+      const completed = d.rounds.filter((r) => r.punch_count > 0).length;
+      prevCompletedRef.current = completed;
     } catch (e) {
       setErr(String(e));
     }
@@ -38,6 +44,14 @@ export function RoundBreakdownCard({ sessionId, status }: Props) {
 
   useEffect(() => {
     refresh();
+
+    // During live capture, poll every 2 s so each round's results
+    // appear as soon as the round ends and punches are assigned.
+    const isLive = status === "capturing" || status === "processing";
+    if (isLive) {
+      const t = setInterval(refresh, 2000);
+      return () => clearInterval(t);
+    }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [sessionId, status]);
 
@@ -95,7 +109,11 @@ export function RoundBreakdownCard({ sessionId, status }: Props) {
           </thead>
           <tbody className="divide-y divide-white/5">
             {data.rounds.map((r) => (
-              <RoundRow key={r.round_number} round={r} />
+              <RoundRow
+                key={r.round_number}
+                round={r}
+                isLive={status === "capturing" || status === "processing"}
+              />
             ))}
           </tbody>
         </table>
@@ -104,7 +122,13 @@ export function RoundBreakdownCard({ sessionId, status }: Props) {
   );
 }
 
-function RoundRow({ round: r }: { round: RoundExportItem }) {
+function RoundRow({
+  round: r,
+  isLive,
+}: {
+  round: RoundExportItem;
+  isLive: boolean;
+}) {
   const durationMin = r.duration_ms / 60_000;
   const score =
     r.peak_velocity_ms != null && r.ppm != null
@@ -112,8 +136,13 @@ function RoundRow({ round: r }: { round: RoundExportItem }) {
       : null;
   const fmt = (v: number | null | undefined, d = 2) =>
     v == null ? "—" : v.toFixed(d);
+  const hasData = r.punch_count > 0;
+  // During live capture, dim rounds that haven't happened yet.
+  const rowClass = isLive && !hasData
+    ? "text-neutral-600"
+    : "text-neutral-200";
   return (
-    <tr className="text-neutral-200">
+    <tr className={rowClass}>
       <td className="py-2 pr-3 font-medium tabular-nums">
         {r.round_number}
       </td>
