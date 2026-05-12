@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { ProfileAvatar } from "@/components/ProfileAvatar";
 import {
   api,
@@ -8,6 +8,8 @@ import {
   type CoachingLevel,
   type Fighter,
   type FighterPatch,
+  type Gym,
+  type GymManager,
   type Hand,
   type Referee,
   type RefereeCertLevel,
@@ -15,10 +17,14 @@ import {
   type Stance,
 } from "@/lib/api";
 
-type Kind = "fighter" | "coach" | "referee";
+type Kind = "fighter" | "coach" | "referee" | "gym" | "gym_manager";
 
 interface Props {
   kind: Kind;
+  /** When a gym manager creates a fighter/coach, auto-assign this gym. */
+  gymId?: string;
+  /** Coaches available for assignment (pre-filtered to same gym). */
+  gymCoaches?: { id: string; name: string }[];
   onClose: () => void;
   onCreated: (id: string, name: string, photo_path: string | null) => void;
 }
@@ -27,6 +33,8 @@ const TITLE: Record<Kind, string> = {
   fighter: "Create fighter profile",
   coach: "Create coach profile",
   referee: "Create referee profile",
+  gym: "Create gym",
+  gym_manager: "Create gym manager",
 };
 
 const SKILL_LEVELS: SkillLevel[] = [
@@ -113,11 +121,29 @@ interface RefereeForm {
   bio: string;
 }
 
-export function CreateProfileModal({ kind, onClose, onCreated }: Props) {
+interface GymForm {
+  name: string;
+  address: string;
+  city: string;
+  country: string;
+  phone: string;
+  email: string;
+  specialties: string;
+}
+
+interface GymManagerForm {
+  name: string;
+  email: string;
+  phone: string;
+  gym_id: string;
+}
+
+export function CreateProfileModal({ kind, gymId, gymCoaches, onClose, onCreated }: Props) {
   const [photo, setPhoto] = useState<File | null>(null);
   const [photoPreview, setPhotoPreview] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
   const [err, setErr] = useState<string | null>(null);
+  const [assignedCoachId, setAssignedCoachId] = useState("");
 
   const [fighter, setFighter] = useState<FighterForm>({
     name: "",
@@ -173,8 +199,41 @@ export function CreateProfileModal({ kind, onClose, onCreated }: Props) {
     bio: "",
   });
 
+  const [gym, setGym] = useState<GymForm>({
+    name: "",
+    address: "",
+    city: "",
+    country: "",
+    phone: "",
+    email: "",
+    specialties: "",
+  });
+
+  const [gymMgr, setGymMgr] = useState<GymManagerForm>({
+    name: "",
+    email: "",
+    phone: "",
+    gym_id: "",
+  });
+
+  // Fetch gym list for the gym_manager form's dropdown
+  const [gymList, setGymList] = useState<Gym[]>([]);
+  useEffect(() => {
+    if (kind === "gym_manager") {
+      api.listGyms().then(setGymList).catch(() => {});
+    }
+  }, [kind]);
+
   const currentName =
-    kind === "fighter" ? fighter.name : kind === "coach" ? coach.name : referee.name;
+    kind === "fighter"
+      ? fighter.name
+      : kind === "coach"
+        ? coach.name
+        : kind === "referee"
+          ? referee.name
+          : kind === "gym"
+            ? gym.name
+            : gymMgr.name;
 
   const onPick = (f: File | null) => {
     setPhoto(f);
@@ -203,6 +262,7 @@ export function CreateProfileModal({ kind, onClose, onCreated }: Props) {
         const f: Fighter = await api.createFighter(
           fighter.name.trim(),
           fighter.stance,
+          gymId,
         );
         id = f.id;
         const patch: FighterPatch = {};
@@ -231,10 +291,19 @@ export function CreateProfileModal({ kind, onClose, onCreated }: Props) {
           const updated = await api.uploadFighterPhoto(id, photo);
           photo_path = updated.photo_path;
         }
+        // Auto-assign coach if selected (gym manager flow)
+        if (assignedCoachId) {
+          try {
+            await api.addCoachAssignment(id, { coach_id: assignedCoachId });
+          } catch {
+            // non-fatal — fighter was created, assignment can be done later
+          }
+        }
       } else if (kind === "coach") {
         const c: Coach = await api.createCoach({
           name: coach.name.trim(),
           gym: coach.gym.trim() || undefined,
+          ...(gymId ? { gym_id: gymId } : {}),
         });
         id = c.id;
         const patch: Partial<Coach> = {};
@@ -264,7 +333,7 @@ export function CreateProfileModal({ kind, onClose, onCreated }: Props) {
           const updated = await api.uploadCoachPhoto(id, photo);
           photo_path = updated.photo_path;
         }
-      } else {
+      } else if (kind === "referee") {
         const r: Referee = await api.createReferee({
           name: referee.name.trim(),
           sanctioning_body: referee.sanctioning_body.trim() || undefined,
@@ -296,6 +365,32 @@ export function CreateProfileModal({ kind, onClose, onCreated }: Props) {
           const updated = await api.uploadRefereePhoto(id, photo);
           photo_path = updated.photo_path;
         }
+      } else if (kind === "gym") {
+        const data: Record<string, string> = { name: gym.name.trim() };
+        if (gym.address.trim()) data.address = gym.address.trim();
+        if (gym.city.trim()) data.city = gym.city.trim();
+        if (gym.country.trim()) data.country = gym.country.trim();
+        if (gym.phone.trim()) data.phone = gym.phone.trim();
+        if (gym.email.trim()) data.email = gym.email.trim();
+        if (gym.specialties.trim()) data.specialties = gym.specialties.trim();
+        const g: Gym = await api.createGym(data as Parameters<typeof api.createGym>[0]);
+        id = g.id;
+        photo_path = null;
+      } else {
+        // gym_manager
+        if (!gymMgr.gym_id) {
+          setErr("Please select a gym.");
+          setBusy(false);
+          return;
+        }
+        const mgr: GymManager = await api.createGymManager({
+          name: gymMgr.name.trim(),
+          gym_id: gymMgr.gym_id,
+          email: gymMgr.email.trim() || undefined,
+          phone: gymMgr.phone.trim() || undefined,
+        });
+        id = mgr.id;
+        photo_path = null;
       }
       onCreated(id, currentName.trim(), photo_path);
     } catch (e) {
@@ -325,7 +420,7 @@ export function CreateProfileModal({ kind, onClose, onCreated }: Props) {
             </p>
           )}
 
-          <div className="flex items-start gap-4">
+          {kind !== "gym" && kind !== "gym_manager" && <div className="flex items-start gap-4">
             {photoPreview ? (
               // eslint-disable-next-line @next/next/no-img-element
               <img
@@ -352,16 +447,18 @@ export function CreateProfileModal({ kind, onClose, onCreated }: Props) {
                 JPG / PNG / WebP, max 5 MB.
               </p>
             </div>
-          </div>
+          </div>}
 
-          <Section title="Identity">
+          <Section title={kind === "gym" ? "Gym" : "Identity"}>
             <Input
-              label="Full name *"
+              label={kind === "gym" ? "Gym name *" : "Full name *"}
               value={currentName}
               onChange={(v) => {
                 if (kind === "fighter") setFighter({ ...fighter, name: v });
                 else if (kind === "coach") setCoach({ ...coach, name: v });
-                else setReferee({ ...referee, name: v });
+                else if (kind === "referee") setReferee({ ...referee, name: v });
+                else if (kind === "gym") setGym({ ...gym, name: v });
+                else setGymMgr({ ...gymMgr, name: v });
               }}
               autoFocus
             />
@@ -504,6 +601,20 @@ export function CreateProfileModal({ kind, onClose, onCreated }: Props) {
                   value={fighter.trainer}
                   onChange={(v) => setFighter({ ...fighter, trainer: v })}
                 />
+                {gymCoaches && gymCoaches.length > 0 && (
+                  <Select
+                    label="Assigned Coach"
+                    value={assignedCoachId}
+                    onChange={(v) => setAssignedCoachId(v)}
+                    options={[
+                      { value: "", label: "— none —" },
+                      ...gymCoaches.map((c) => ({
+                        value: c.id,
+                        label: c.name,
+                      })),
+                    ]}
+                  />
+                )}
               </Section>
             </>
           )}
@@ -626,6 +737,82 @@ export function CreateProfileModal({ kind, onClose, onCreated }: Props) {
                   value={coach.bio}
                   onChange={(v) => setCoach({ ...coach, bio: v })}
                   rows={4}
+                />
+              </Section>
+            </>
+          )}
+
+          {kind === "gym" && (
+            <>
+              <Section title="Details">
+                <Input
+                  label="Address"
+                  value={gym.address}
+                  onChange={(v) => setGym({ ...gym, address: v })}
+                  placeholder="123 Main St"
+                />
+                <Input
+                  label="City"
+                  value={gym.city}
+                  onChange={(v) => setGym({ ...gym, city: v })}
+                />
+                <Input
+                  label="Country"
+                  value={gym.country}
+                  onChange={(v) => setGym({ ...gym, country: v })}
+                />
+              </Section>
+              <Section title="Contact">
+                <Input
+                  label="Phone"
+                  value={gym.phone}
+                  onChange={(v) => setGym({ ...gym, phone: v })}
+                />
+                <Input
+                  label="Email"
+                  type="email"
+                  value={gym.email}
+                  onChange={(v) => setGym({ ...gym, email: v })}
+                />
+              </Section>
+              <Section title="Info">
+                <Input
+                  label="Specialties"
+                  value={gym.specialties}
+                  onChange={(v) => setGym({ ...gym, specialties: v })}
+                  placeholder="boxing, MMA, kickboxing"
+                />
+              </Section>
+            </>
+          )}
+
+          {kind === "gym_manager" && (
+            <>
+              <Section title="Assigned Gym">
+                <Select
+                  label="Gym *"
+                  value={gymMgr.gym_id}
+                  onChange={(v) => setGymMgr({ ...gymMgr, gym_id: v })}
+                  options={[
+                    { value: "", label: "— select a gym —" },
+                    ...gymList.map((g) => ({
+                      value: g.id,
+                      label: g.name,
+                    })),
+                  ]}
+                />
+              </Section>
+              <Section title="Contact">
+                <Input
+                  label="Email"
+                  type="email"
+                  value={gymMgr.email}
+                  onChange={(v) => setGymMgr({ ...gymMgr, email: v })}
+                />
+                <Input
+                  label="Phone"
+                  value={gymMgr.phone}
+                  onChange={(v) => setGymMgr({ ...gymMgr, phone: v })}
                 />
               </Section>
             </>

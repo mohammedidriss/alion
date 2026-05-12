@@ -16,6 +16,8 @@ from api.routes import (
     cameras,
     coaches,
     fighters,
+    gym_managers,
+    gyms,
     health,
     hrv,
     imu,
@@ -107,6 +109,8 @@ app.include_router(round_plans.router)
 # These are NEW endpoints; not part of any frozen contract yet.
 app.include_router(coaches.router)
 app.include_router(referees.router)
+app.include_router(gyms.router)
+app.include_router(gym_managers.router)
 
 # Serve uploaded profile photos. Path matches what's stored in the DB:
 # data/photos/{kind}/{id}.{ext} → GET /static/photos/{kind}/{id}.{ext}

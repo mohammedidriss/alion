@@ -45,6 +45,7 @@ export interface Fighter {
   weight_class: string | null;
   years_training: number | null;
   gym: string | null;
+  gym_id: string | null;
   trainer: string | null;
   record_wins: number;
   record_losses: number;
@@ -124,6 +125,7 @@ export interface Coach {
   email: string | null;
   phone: string | null;
   gym: string | null;
+  gym_id: string | null;
   specialties: string | null;
   coaching_level: CoachingLevel | null;
   years_experience: number | null;
@@ -138,6 +140,56 @@ export interface Coach {
 }
 
 export type CoachPatch = Partial<Omit<Coach, "id" | "created_at">>;
+
+export interface CoachNote {
+  id: number;
+  coach_id: string;
+  fighter_id: string;
+  coach_name: string;
+  coach_photo_path: string | null;
+  content: string;
+  created_at: string;
+}
+
+export interface Gym {
+  id: string;
+  name: string;
+  address: string | null;
+  city: string | null;
+  country: string | null;
+  phone: string | null;
+  email: string | null;
+  specialties: string | null;
+  notes: string | null;
+  created_at: string;
+}
+
+export type GymPatch = Partial<Omit<Gym, "id" | "created_at">>;
+
+export interface GymMembership {
+  id: number;
+  gym_id: string;
+  member_id: string;
+  member_type: "fighter" | "coach";
+  member_name: string;
+  joined_on: string | null;
+  left_on: string | null;
+  created_at: string;
+}
+
+export interface GymManager {
+  id: string;
+  name: string;
+  photo_path: string | null;
+  email: string | null;
+  phone: string | null;
+  gym_id: string;
+  gym_name: string;
+  notes: string | null;
+  created_at: string;
+}
+
+export type GymManagerPatch = Partial<Pick<GymManager, "name" | "email" | "phone" | "notes">>;
 
 export type RefereeCertLevel = "local" | "regional" | "national" | "international";
 
@@ -545,7 +597,8 @@ async function req<T>(path: string, init?: RequestInit): Promise<T> {
 
 export const api = {
   capabilities: () => req<Capabilities>("/health/capabilities"),
-  listFighters: () => req<Fighter[]>("/fighters"),
+  listFighters: (gymId?: string) =>
+    req<Fighter[]>(gymId ? `/fighters?gym_id=${gymId}` : "/fighters"),
   getFighter: (id: string) => req<Fighter>(`/fighters/${id}`),
   generateObservations: (fighterId: string) =>
     req<FighterObservationResponse>(
@@ -556,11 +609,11 @@ export const api = {
     req<PerformanceTrendResponse>(
       `/fighters/${fighterId}/performance-trend?months=${months}`,
     ),
-  createFighter: (name: string, stance: Stance = "orthodox") =>
+  createFighter: (name: string, stance: Stance = "orthodox", gymId?: string) =>
     req<Fighter>("/fighters", {
       method: "POST",
       headers: { "content-type": "application/json" },
-      body: JSON.stringify({ name, stance }),
+      body: JSON.stringify({ name, stance, ...(gymId ? { gym_id: gymId } : {}) }),
     }),
   updateFighter: (id: string, patch: FighterPatch) =>
     req<Fighter>(`/fighters/${id}`, {
@@ -759,9 +812,10 @@ export const api = {
     req<FighterReadiness | null>(`/fighters/${id}/readiness`),
 
   // ---- Coaches ----
-  listCoaches: () => req<Coach[]>("/coaches"),
+  listCoaches: (gymId?: string) =>
+    req<Coach[]>(gymId ? `/coaches?gym_id=${gymId}` : "/coaches"),
   getCoach: (id: string) => req<Coach>(`/coaches/${id}`),
-  createCoach: (data: { name: string; gym?: string }) =>
+  createCoach: (data: { name: string; gym?: string; gym_id?: string }) =>
     req<Coach>("/coaches", {
       method: "POST",
       headers: { "content-type": "application/json" },
@@ -785,6 +839,20 @@ export const api = {
     if (!r.ok) throw new Error(`${r.status} ${await r.text()}`);
     return r.json() as Promise<Coach>;
   },
+  listCoachFighters: (coachId: string) =>
+    req<Fighter[]>(`/coaches/${coachId}/fighters`),
+  createCoachNote: (coachId: string, fighterId: string, content: string) =>
+    req<CoachNote>(`/coaches/${coachId}/fighters/${fighterId}/notes`, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ content }),
+    }),
+  listCoachNotes: (coachId: string) =>
+    req<CoachNote[]>(`/coaches/${coachId}/notes`),
+  deleteCoachNote: (coachId: string, noteId: number) =>
+    req<void>(`/coaches/${coachId}/notes/${noteId}`, { method: "DELETE" }),
+  listFighterCoachNotes: (fighterId: string) =>
+    req<CoachNote[]>(`/fighters/${fighterId}/coach-notes`),
 
   // ---- Referees ----
   listReferees: () => req<Referee[]>("/referees"),
@@ -813,6 +881,52 @@ export const api = {
     if (!r.ok) throw new Error(`${r.status} ${await r.text()}`);
     return r.json() as Promise<Referee>;
   },
+
+  // ---- Gyms ----
+  listGyms: () => req<Gym[]>("/gyms"),
+  getGym: (id: string) => req<Gym>(`/gyms/${id}`),
+  createGym: (data: { name: string; address?: string; city?: string; country?: string; phone?: string; email?: string; specialties?: string }) =>
+    req<Gym>("/gyms", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify(data),
+    }),
+  updateGym: (id: string, patch: GymPatch) =>
+    req<Gym>(`/gyms/${id}`, {
+      method: "PATCH",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify(patch),
+    }),
+  deleteGym: (id: string) =>
+    req<void>(`/gyms/${id}`, { method: "DELETE" }),
+  listGymMembers: (gymId: string) =>
+    req<GymMembership[]>(`/gyms/${gymId}/members`),
+  addGymMember: (gymId: string, memberId: string, memberType: "fighter" | "coach") =>
+    req<GymMembership>(`/gyms/${gymId}/members`, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ member_id: memberId, member_type: memberType }),
+    }),
+  removeGymMember: (gymId: string, membershipId: number) =>
+    req<void>(`/gyms/${gymId}/members/${membershipId}`, { method: "DELETE" }),
+
+  // ---- Gym Managers ----
+  listGymManagers: () => req<GymManager[]>("/gym-managers"),
+  getGymManager: (id: string) => req<GymManager>(`/gym-managers/${id}`),
+  createGymManager: (data: { name: string; gym_id: string; email?: string; phone?: string }) =>
+    req<GymManager>("/gym-managers", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify(data),
+    }),
+  updateGymManager: (id: string, patch: GymManagerPatch) =>
+    req<GymManager>(`/gym-managers/${id}`, {
+      method: "PATCH",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify(patch),
+    }),
+  deleteGymManager: (id: string) =>
+    req<void>(`/gym-managers/${id}`, { method: "DELETE" }),
 
   // ---- Photos ----
   uploadFighterPhoto: async (id: string, file: File) => {

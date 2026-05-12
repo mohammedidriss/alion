@@ -13,6 +13,7 @@ from sqlmodel import Session as DBSession
 from analyze import compute_readiness, compute_score, compute_swc
 from analyze.readiness import MIN_HISTORY
 from api.deps import (
+    coach_note_repo,
     db_session,
     fighter_repo,
     fighter_team_repo,
@@ -50,6 +51,7 @@ from store import (
     WeighInRead,
     WeighInRepo,
 )
+from store import CoachNoteRead, CoachNoteRepo
 from store.models import FighterCreate, FighterRead
 
 router = APIRouter(prefix="/fighters", tags=["fighters"])
@@ -104,8 +106,12 @@ def create_fighter(data: FighterCreate, repo: FighterRepo = Depends(fighter_repo
 
 
 @router.get("", response_model=list[FighterRead])
-def list_fighters(repo: FighterRepo = Depends(fighter_repo)) -> list[FighterRead]:
-    return [FighterRead.model_validate(f, from_attributes=True) for f in repo.list_all()]
+def list_fighters(
+    gym_id: UUID | None = None,
+    repo: FighterRepo = Depends(fighter_repo),
+) -> list[FighterRead]:
+    rows = repo.list_for_gym(gym_id) if gym_id else repo.list_all()
+    return [FighterRead.model_validate(f, from_attributes=True) for f in rows]
 
 
 @router.get("/{fighter_id}", response_model=FighterRead)
@@ -921,6 +927,35 @@ async def generate_fighter_observations(
         training_plan=[],
         summary=raw_text[:300] if raw_text else "Unable to generate structured observations.",
     )
+
+
+# ------------------------------------------------------------------
+# Coach notes on a fighter (read-only from fighter side)
+# ------------------------------------------------------------------
+
+
+@router.get("/{fighter_id}/coach-notes", response_model=list[CoachNoteRead])
+def list_fighter_coach_notes(
+    fighter_id: UUID,
+    repo: CoachNoteRepo = Depends(coach_note_repo),
+    frepo: FighterRepo = Depends(fighter_repo),
+) -> list[CoachNoteRead]:
+    """All notes from all coaches on this fighter, newest first."""
+    if frepo.get(fighter_id) is None:
+        raise HTTPException(status_code=404, detail="fighter not found")
+    rows = repo.list_for_fighter(fighter_id)
+    return [
+        CoachNoteRead(
+            id=note.id,  # type: ignore[arg-type]
+            coach_id=note.coach_id,
+            fighter_id=note.fighter_id,
+            coach_name=cname,
+            coach_photo_path=cphoto,
+            content=note.content,
+            created_at=note.created_at,
+        )
+        for note, cname, cphoto in rows
+    ]
 
 
 def _parse_observation_json(text: str) -> dict | None:

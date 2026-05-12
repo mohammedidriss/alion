@@ -8,7 +8,10 @@ from fastapi import Depends
 from sqlmodel import Session
 
 from store import (
+    CoachNoteRepo,
     CoachRepo,
+    GymManagerRepo,
+    GymRepo,
     ConsensusEventRepo,
     FighterRepo,
     FighterTeamRepo,
@@ -61,3 +64,15 @@ def medical_repo(session: Session = Depends(db_session)) -> MedicalRepo:
 
 def fighter_team_repo(session: Session = Depends(db_session)) -> FighterTeamRepo:
     return FighterTeamRepo(session)
+
+
+def coach_note_repo(session: Session = Depends(db_session)) -> CoachNoteRepo:
+    return CoachNoteRepo(session)
+
+
+def gym_repo(session: Session = Depends(db_session)) -> GymRepo:
+    return GymRepo(session)
+
+
+def gym_manager_repo(session: Session = Depends(db_session)) -> GymManagerRepo:
+    return GymManagerRepo(session)

@@ -6,12 +6,16 @@ import { useCallback, useEffect, useMemo, useState } from "react";
 import { FighterDashboard } from "@/components/FighterDashboard";
 import { ProfileAvatar } from "@/components/ProfileAvatar";
 import { Sparkline } from "@/components/Sparkline";
+import { useActiveProfile } from "@/lib/activeProfile";
 import {
   api,
+  type Allergy,
   type Fighter,
   type FighterOptions,
   type FighterPatch,
   type Hand,
+  type MedicalCondition,
+  type Medication,
   type PunchEvent,
   type Session,
   type SkillLevel,
@@ -40,6 +44,8 @@ const PRO_LEVELS: SkillLevel[] = [
 export default function FighterPage({ params }: { params: { id: string } }) {
   const { id } = params;
   const router = useRouter();
+  const { activeRole } = useActiveProfile();
+  const canEdit = activeRole !== "fighter";
   const [fighter, setFighter] = useState<Fighter | null>(null);
   const [options, setOptions] = useState<FighterOptions | null>(null);
   const [sessions, setSessions] = useState<SessionWithStats[]>([]);
@@ -50,6 +56,9 @@ export default function FighterPage({ params }: { params: { id: string } }) {
   const [newWeight, setNewWeight] = useState("");
   const [newWeightNotes, setNewWeightNotes] = useState("");
   const [err, setErr] = useState<string | null>(null);
+  const [severeAllergies, setSevereAllergies] = useState<Allergy[]>([]);
+  const [activeConds, setActiveConds] = useState<MedicalCondition[]>([]);
+  const [activeMeds, setActiveMeds] = useState<Medication[]>([]);
 
   const load = useCallback(async () => {
     try {
@@ -79,6 +88,19 @@ export default function FighterPage({ params }: { params: { id: string } }) {
           }),
       );
       setSessions(withStats);
+      // Medical alerts for the dashboard banner
+      const [allergies, meds, conds] = await Promise.all([
+        api.listAllergies(id).catch(() => [] as Allergy[]),
+        api.listMedications(id).catch(() => [] as Medication[]),
+        api.listConditions(id).catch(() => [] as MedicalCondition[]),
+      ]);
+      setSevereAllergies(
+        allergies.filter(
+          (a) => a.severity === "severe" || a.severity === "anaphylactic",
+        ),
+      );
+      setActiveConds(conds.filter((c) => c.status === "active"));
+      setActiveMeds(meds.filter((m) => m.is_active));
     } catch (e) {
       setErr(String(e));
     }
@@ -190,42 +212,95 @@ export default function FighterPage({ params }: { params: { id: string } }) {
             {age != null ? ` · ${age} yrs` : ""}
           </p>
           <p className="mt-1 font-mono text-xs text-neutral-500">{fighter.id}</p>
-          <div className="mt-3 flex flex-wrap gap-2">
+          {canEdit && (
+            <div className="mt-3 flex flex-wrap gap-2">
+              <button
+                onClick={async (e) => {
+                  const btn = e.currentTarget;
+                  btn.disabled = true;
+                  try {
+                    const s = await api.createSession(fighter.id, "live_webcam", "mediapipe");
+                    router.push(`/sessions/${s.id}`);
+                  } catch { btn.disabled = false; }
+                }}
+                className="rounded-xl bg-emerald-500 px-3 py-1.5 text-sm font-medium text-black hover:bg-emerald-400 disabled:opacity-50"
+              >
+                New session
+              </button>
+            </div>
+          )}
+        </div>
+        {canEdit && (
+          <div className="flex shrink-0 items-center gap-2">
             <button
-              onClick={async (e) => {
-                const btn = e.currentTarget;
-                btn.disabled = true;
-                try {
-                  const s = await api.createSession(fighter.id, "live_webcam", "mediapipe");
-                  router.push(`/sessions/${s.id}`);
-                } catch { btn.disabled = false; }
-              }}
-              className="rounded-xl bg-emerald-500 px-3 py-1.5 text-sm font-medium text-black hover:bg-emerald-400 disabled:opacity-50"
+              onClick={() => setEditing(true)}
+              className="rounded-xl border border-white/5 bg-white/[0.03] px-3 py-1.5 text-sm hover:bg-white/[0.07]"
             >
-              New session
+              Edit profile
+            </button>
+            <button
+              onClick={() => setConfirmDeleteFighter(true)}
+              className="rounded-xl border border-red-500/30 bg-red-500/10 px-3 py-1.5 text-sm text-red-300 hover:bg-red-500/20"
+            >
+              Delete profile
             </button>
           </div>
-        </div>
-        <div className="flex shrink-0 items-center gap-2">
-          <button
-            onClick={() => setEditing(true)}
-            className="rounded-xl border border-white/5 bg-white/[0.03] px-3 py-1.5 text-sm hover:bg-white/[0.07]"
-          >
-            Edit profile
-          </button>
-          <button
-            onClick={() => setConfirmDeleteFighter(true)}
-            className="rounded-xl border border-red-500/30 bg-red-500/10 px-3 py-1.5 text-sm text-red-300 hover:bg-red-500/20"
-          >
-            Delete profile
-          </button>
-        </div>
+        )}
       </header>
 
       {err && (
         <p className="rounded-2xl border border-red-500/30 bg-red-950/30 p-3 text-sm text-red-200">
           {err}
         </p>
+      )}
+
+      {/* Medical alert banner — surfaces ringside-critical info immediately */}
+      {(severeAllergies.length > 0 ||
+        activeConds.length > 0 ||
+        activeMeds.length > 0) && (
+        <div className="rounded-xl border border-red-500/30 bg-red-500/5 p-4">
+          <div className="flex items-center justify-between">
+            <h2 className="text-sm font-semibold text-red-200">
+              Medical Alert
+            </h2>
+            <Link
+              href={`/fighters/${id}/medical`}
+              className="text-[10px] uppercase tracking-wider text-red-300/60 hover:text-red-200"
+            >
+              full medical record →
+            </Link>
+          </div>
+          <div className="mt-2 flex flex-wrap gap-2 text-xs">
+            {severeAllergies.map((a) => (
+              <span
+                key={a.id}
+                className={`rounded-full px-2 py-0.5 font-medium ${
+                  a.severity === "anaphylactic"
+                    ? "bg-red-600/30 text-red-200"
+                    : "bg-red-500/15 text-red-300"
+                }`}
+              >
+                {a.severity}: {a.substance}
+              </span>
+            ))}
+            {activeConds.map((c) => (
+              <span
+                key={c.id}
+                className="rounded-full bg-amber-500/15 px-2 py-0.5 font-medium text-amber-300"
+              >
+                {c.name}
+              </span>
+            ))}
+            {activeMeds.map((m) => (
+              <span
+                key={m.id}
+                className="rounded-full bg-blue-500/15 px-2 py-0.5 font-medium text-blue-300"
+              >
+                {m.name} {m.dose ?? ""}
+              </span>
+            ))}
+          </div>
+        </div>
       )}
 
       <FighterDashboard

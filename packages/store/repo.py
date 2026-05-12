@@ -22,6 +22,11 @@ from store.models import (
     FighterSponsorCreate,
     FighterTitle,
     FighterTitleCreate,
+    Gym,
+    GymCreate,
+    GymManager,
+    GymManagerCreate,
+    GymMembership,
     HRSampleRow,
     IMUSampleRow,
     MedicalCondition,
@@ -57,6 +62,10 @@ class FighterRepo:
 
     def list_all(self) -> list[Fighter]:
         return list(self._session.exec(select(Fighter)).all())
+
+    def list_for_gym(self, gym_id: UUID) -> list[Fighter]:
+        stmt = select(Fighter).where(Fighter.gym_id == gym_id)
+        return list(self._session.exec(stmt).all())
 
     def update(self, fighter_id: UUID, patch: dict[str, object]) -> Fighter | None:
         """Apply a partial patch to a fighter row. Unknown keys are ignored.
@@ -292,6 +301,10 @@ class CoachRepo:
     def list_all(self) -> list[Coach]:
         return list(self._session.exec(select(Coach).order_by(Coach.name)).all())
 
+    def list_for_gym(self, gym_id: UUID) -> list[Coach]:
+        stmt = select(Coach).where(Coach.gym_id == gym_id).order_by(Coach.name)
+        return list(self._session.exec(stmt).all())
+
     def update(self, coach_id: UUID, patch: dict[str, object]) -> Coach | None:
         row = self.get(coach_id)
         if row is None:
@@ -307,6 +320,97 @@ class CoachRepo:
     def delete(self, coach_id: UUID) -> bool:
         row = self.get(coach_id)
         if row is None:
+            return False
+        self._session.delete(row)
+        self._session.commit()
+        return True
+
+
+class GymRepo:
+    def __init__(self, session: DBSession) -> None:
+        self._session = session
+
+    def create(self, data: GymCreate) -> Gym:
+        row = Gym(**data.model_dump())
+        self._session.add(row)
+        self._session.commit()
+        self._session.refresh(row)
+        return row
+
+    def get(self, gym_id: UUID) -> Gym | None:
+        return self._session.get(Gym, gym_id)
+
+    def list_all(self) -> list[Gym]:
+        return list(self._session.exec(select(Gym).order_by(Gym.name)).all())
+
+    def update(self, gym_id: UUID, patch: dict[str, object]) -> Gym | None:
+        row = self.get(gym_id)
+        if row is None:
+            return None
+        for k, v in patch.items():
+            if hasattr(row, k):
+                setattr(row, k, v)
+        self._session.add(row)
+        self._session.commit()
+        self._session.refresh(row)
+        return row
+
+    def delete(self, gym_id: UUID) -> bool:
+        row = self.get(gym_id)
+        if row is None:
+            return False
+        # Remove memberships first
+        from sqlmodel import delete as sqlmodel_delete
+
+        self._session.exec(
+            sqlmodel_delete(GymMembership).where(GymMembership.gym_id == gym_id)  # type: ignore[arg-type]
+        )
+        self._session.delete(row)
+        self._session.commit()
+        return True
+
+    def add_member(
+        self, gym_id: UUID, member_id: UUID, member_type: str
+    ) -> GymMembership:
+        row = GymMembership(
+            gym_id=gym_id, member_id=member_id, member_type=member_type
+        )
+        self._session.add(row)
+        self._session.commit()
+        self._session.refresh(row)
+        return row
+
+    def list_members(
+        self, gym_id: UUID
+    ) -> list[tuple[GymMembership, str]]:
+        """Returns (membership, member_name) tuples."""
+        # Fighters
+        fighter_stmt = (
+            select(GymMembership, Fighter.name)
+            .join(Fighter, Fighter.id == GymMembership.member_id)  # type: ignore[arg-type]
+            .where(
+                GymMembership.gym_id == gym_id,
+                GymMembership.member_type == "fighter",
+            )
+        )
+        # Coaches
+        coach_stmt = (
+            select(GymMembership, Coach.name)
+            .join(Coach, Coach.id == GymMembership.member_id)  # type: ignore[arg-type]
+            .where(
+                GymMembership.gym_id == gym_id,
+                GymMembership.member_type == "coach",
+            )
+        )
+        rows = list(self._session.exec(fighter_stmt).all()) + list(
+            self._session.exec(coach_stmt).all()
+        )
+        rows.sort(key=lambda r: (r[0].member_type, r[1]))
+        return rows
+
+    def remove_member(self, gym_id: UUID, membership_id: int) -> bool:
+        row = self._session.get(GymMembership, membership_id)
+        if row is None or row.gym_id != gym_id:
             return False
         self._session.delete(row)
         self._session.commit()
@@ -570,6 +674,60 @@ class FighterTeamRepo:
         return True
 
 
+class CoachNoteRepo:
+    """CRUD for coach notes on fighters."""
+
+    def __init__(self, session: DBSession) -> None:
+        self._session = session
+
+    def create(self, coach_id: UUID, fighter_id: UUID, content: str) -> "CoachNote":
+        from store.models import CoachNote
+
+        row = CoachNote(coach_id=coach_id, fighter_id=fighter_id, content=content)
+        self._session.add(row)
+        self._session.commit()
+        self._session.refresh(row)
+        return row
+
+    def list_for_fighter(
+        self, fighter_id: UUID
+    ) -> list[tuple["CoachNote", str, str | None]]:
+        """Returns (note, coach_name, coach_photo_path) tuples."""
+        from store.models import CoachNote
+
+        stmt = (
+            select(CoachNote, Coach.name, Coach.photo_path)
+            .join(Coach, Coach.id == CoachNote.coach_id)  # type: ignore[arg-type]
+            .where(CoachNote.fighter_id == fighter_id)
+            .order_by(CoachNote.created_at.desc())  # type: ignore[attr-defined]
+        )
+        return list(self._session.exec(stmt).all())
+
+    def list_for_coach(
+        self, coach_id: UUID
+    ) -> list[tuple["CoachNote", str]]:
+        """Returns (note, fighter_name) tuples."""
+        from store.models import CoachNote
+
+        stmt = (
+            select(CoachNote, Fighter.name)
+            .join(Fighter, Fighter.id == CoachNote.fighter_id)  # type: ignore[arg-type]
+            .where(CoachNote.coach_id == coach_id)
+            .order_by(CoachNote.created_at.desc())  # type: ignore[attr-defined]
+        )
+        return list(self._session.exec(stmt).all())
+
+    def delete(self, note_id: int, coach_id: UUID) -> bool:
+        from store.models import CoachNote
+
+        row = self._session.get(CoachNote, note_id)
+        if row is None or row.coach_id != coach_id:
+            return False
+        self._session.delete(row)
+        self._session.commit()
+        return True
+
+
 class IMUSampleRepo:
     """Per-session IMU samples — accelerometer + gyroscope rows.
 
@@ -634,3 +792,44 @@ class ConsensusEventRepo:
 
     def count_for_session(self, session_id: UUID) -> int:
         return len(self.list_for_session(session_id))
+
+
+class GymManagerRepo:
+    def __init__(self, session: DBSession) -> None:
+        self._session = session
+
+    def create(self, data: GymManagerCreate) -> GymManager:
+        row = GymManager(**data.model_dump())
+        self._session.add(row)
+        self._session.commit()
+        self._session.refresh(row)
+        return row
+
+    def get(self, manager_id: UUID) -> GymManager | None:
+        return self._session.get(GymManager, manager_id)
+
+    def list_all(self) -> list[GymManager]:
+        return list(self._session.exec(select(GymManager)).all())
+
+    def list_for_gym(self, gym_id: UUID) -> list[GymManager]:
+        stmt = select(GymManager).where(GymManager.gym_id == gym_id)
+        return list(self._session.exec(stmt).all())
+
+    def update(self, manager_id: UUID, fields: dict) -> GymManager | None:  # type: ignore[type-arg]
+        row = self.get(manager_id)
+        if row is None:
+            return None
+        for k, v in fields.items():
+            setattr(row, k, v)
+        self._session.add(row)
+        self._session.commit()
+        self._session.refresh(row)
+        return row
+
+    def delete(self, manager_id: UUID) -> bool:
+        row = self.get(manager_id)
+        if row is None:
+            return False
+        self._session.delete(row)
+        self._session.commit()
+        return True

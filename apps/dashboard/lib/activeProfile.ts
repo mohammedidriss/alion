@@ -2,7 +2,7 @@
 
 import { useEffect, useState } from "react";
 
-export type ProfileKind = "fighter" | "coach" | "referee";
+export type ProfileKind = "fighter" | "coach" | "referee" | "admin" | "gym_manager";
 
 export interface ActiveProfile {
   kind: ProfileKind;
@@ -19,9 +19,14 @@ const KEY = "alion.activeProfile";
  * across page reloads. Real auth would be a Phase 4 concern (multi-user
  * deployment); for a single-user dissertation tool a profile picker is
  * sufficient and avoids storing passwords.
+ *
+ * The `activeRole` derived field lets the UI conditionally show/hide
+ * controls (e.g. hide "Edit medical" from fighter view, show it for
+ * coaches). It's purely UX gating — the API has no auth enforcement.
  */
 export function useActiveProfile(): {
   active: ActiveProfile | null;
+  activeRole: ProfileKind | null;
   setActive: (p: ActiveProfile | null) => void;
 } {
   const [active, setActiveState] = useState<ActiveProfile | null>(null);
@@ -59,5 +64,5 @@ export function useActiveProfile(): {
     }
   };
 
-  return { active, setActive };
+  return { active, activeRole: active?.kind ?? null, setActive };
 }

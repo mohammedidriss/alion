@@ -4,6 +4,7 @@ import Link from "next/link";
 import { useEffect, useState } from "react";
 import {
   api,
+  type CoachNote,
   type FighterObservationResponse,
   type PerformanceTrendItem,
   type Session,
@@ -29,12 +30,17 @@ export default function ObservationsTab({
   const [trendMonths, setTrendMonths] = useState(3);
   const [trendData, setTrendData] = useState<PerformanceTrendItem[]>([]);
   const [trendLoading, setTrendLoading] = useState(false);
+  const [coachNotes, setCoachNotes] = useState<CoachNote[]>([]);
 
   useEffect(() => {
     api
       .listSessions(params.id)
       .then(setSessions)
       .catch((e) => setErr(String(e)));
+    api
+      .listFighterCoachNotes(params.id)
+      .then(setCoachNotes)
+      .catch(() => setCoachNotes([]));
   }, [params.id]);
 
   useEffect(() => {
@@ -126,7 +132,7 @@ export default function ObservationsTab({
             Coach notes
           </div>
           <div className="mt-1 text-2xl font-semibold tabular-nums">
-            {annotated.length}
+            {coachNotes.length + annotated.length}
           </div>
         </div>
         <div className="rounded-2xl border border-white/5 bg-white/[0.02] p-3">
@@ -282,22 +288,58 @@ export default function ObservationsTab({
         )}
       </section>
 
-      {/* ── Part 2: Coach Observations ── */}
+      {/* ── Part 2: Coach Notes ── */}
       <section className="rounded-lg border border-neutral-800 p-5 space-y-4">
         <div>
-          <h2 className="text-lg font-semibold">Coach Observations</h2>
+          <h2 className="text-lg font-semibold">Coach Notes</h2>
           <p className="mt-0.5 text-xs text-neutral-400">
-            Free-form notes entered on each session&apos;s detail page.
-            Chronological log of coach feedback.
+            Observations written by assigned coaches. Notes are created
+            from the coach&apos;s profile page.
           </p>
         </div>
-        {annotated.length === 0 ? (
+        {coachNotes.length === 0 && annotated.length === 0 ? (
           <p className="text-sm text-neutral-500">
-            No coach notes yet. Open any session and add notes — they&apos;ll
-            appear here as a chronological log.
+            No coach notes yet. Coaches can write notes from their profile
+            page under the assigned fighters section.
           </p>
         ) : (
           <ul className="space-y-3">
+            {coachNotes.map((n) => (
+              <li
+                key={`cn-${n.id}`}
+                className="rounded-lg border border-white/5 bg-black/30 p-4"
+              >
+                <div className="flex items-center gap-2 text-xs text-neutral-500">
+                  {n.coach_photo_path ? (
+                    <img
+                      src={n.coach_photo_path}
+                      alt=""
+                      className="h-5 w-5 rounded-full object-cover"
+                    />
+                  ) : (
+                    <span className="inline-flex h-5 w-5 items-center justify-center rounded-full bg-emerald-500/20 text-[10px] font-bold text-emerald-300">
+                      {n.coach_name.charAt(0)}
+                    </span>
+                  )}
+                  <span className="font-medium text-neutral-300">
+                    {n.coach_name}
+                  </span>
+                  <span className="rounded bg-neutral-800 px-1.5 py-0.5 text-[10px] font-medium">
+                    {new Date(n.created_at).toLocaleDateString()}
+                  </span>
+                </div>
+                <p className="mt-2 whitespace-pre-wrap text-sm text-neutral-100 leading-relaxed">
+                  {n.content}
+                </p>
+              </li>
+            ))}
+
+            {/* Session-level notes (legacy) */}
+            {annotated.length > 0 && coachNotes.length > 0 && (
+              <li className="pt-2 text-xs text-neutral-600 border-t border-neutral-800">
+                Session notes
+              </li>
+            )}
             {annotated.map((s) => (
               <li
                 key={s.id}

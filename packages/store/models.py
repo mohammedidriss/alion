@@ -88,6 +88,111 @@ WEIGHT_CLASSES = (
 )
 
 
+# ----------------------------------------------------------------------
+# Gym — facility where fighters train and coaches work.
+# ----------------------------------------------------------------------
+
+
+class Gym(SQLModel, table=True):
+    """A boxing gym / training facility."""
+
+    id: UUID = Field(default_factory=uuid4, primary_key=True)
+    name: str = Field(min_length=1, max_length=160)
+    address: str | None = Field(default=None, max_length=300)
+    city: str | None = Field(default=None, max_length=100)
+    country: str | None = Field(default=None, max_length=80)
+    phone: str | None = Field(default=None, max_length=40)
+    email: str | None = Field(default=None, max_length=160)
+    specialties: str | None = Field(
+        default=None,
+        max_length=200,
+        description="Free-form, e.g. 'boxing, MMA, strength & conditioning'",
+    )
+    notes: str | None = None
+    created_at: datetime = Field(default_factory=lambda: datetime.now(UTC))
+
+
+class GymCreate(SQLModel):
+    name: str = Field(min_length=1, max_length=160)
+    address: str | None = None
+    city: str | None = None
+    country: str | None = None
+    phone: str | None = None
+    email: str | None = None
+    specialties: str | None = None
+    notes: str | None = None
+
+
+class GymRead(SQLModel):
+    id: UUID
+    name: str
+    address: str | None = None
+    city: str | None = None
+    country: str | None = None
+    phone: str | None = None
+    email: str | None = None
+    specialties: str | None = None
+    notes: str | None = None
+    created_at: datetime
+
+
+class GymMembership(SQLModel, table=True):
+    """Links fighters and coaches to a gym."""
+
+    __tablename__ = "gym_membership"
+    id: int | None = Field(default=None, primary_key=True)
+    gym_id: UUID = Field(foreign_key="gym.id", index=True)
+    member_id: UUID = Field(index=True)  # fighter.id or coach.id
+    member_type: str = Field(max_length=10)  # "fighter" or "coach"
+    joined_on: date | None = None
+    left_on: date | None = None  # None = current member
+    created_at: datetime = Field(default_factory=lambda: datetime.now(UTC))
+
+
+class GymMembershipRead(SQLModel):
+    id: int
+    gym_id: UUID
+    member_id: UUID
+    member_type: str
+    member_name: str  # denormalised
+    joined_on: date | None = None
+    left_on: date | None = None
+    created_at: datetime
+
+
+class GymManager(SQLModel, table=True):
+    """A gym manager — can manage members for a specific gym."""
+
+    __tablename__ = "gym_manager"
+    id: UUID = Field(default_factory=uuid4, primary_key=True)
+    name: str = Field(min_length=1, max_length=120)
+    photo_path: str | None = None
+    email: str | None = Field(default=None, max_length=160)
+    phone: str | None = Field(default=None, max_length=40)
+    gym_id: UUID = Field(foreign_key="gym.id", index=True)
+    notes: str | None = None
+    created_at: datetime = Field(default_factory=lambda: datetime.now(UTC))
+
+
+class GymManagerCreate(SQLModel):
+    name: str = Field(min_length=1, max_length=120)
+    gym_id: UUID
+    email: str | None = None
+    phone: str | None = None
+
+
+class GymManagerRead(SQLModel):
+    id: UUID
+    name: str
+    photo_path: str | None = None
+    email: str | None = None
+    phone: str | None = None
+    gym_id: UUID
+    gym_name: str  # denormalised
+    notes: str | None = None
+    created_at: datetime
+
+
 class Fighter(SQLModel, table=True):
     id: UUID = Field(default_factory=uuid4, primary_key=True)
 
@@ -113,6 +218,7 @@ class Fighter(SQLModel, table=True):
     weight_class: str | None = Field(default=None, max_length=40)
     years_training: int | None = Field(default=None, ge=0, le=80)
     gym: str | None = Field(default=None, max_length=120)
+    gym_id: UUID | None = Field(default=None, foreign_key="gym.id", index=True)
     trainer: str | None = Field(default=None, max_length=120)
 
     # Record
@@ -138,6 +244,7 @@ class FighterCreate(SQLModel):
     name: str = Field(min_length=1, max_length=120)
     dob: date | None = None
     stance: Stance = Stance.ORTHODOX
+    gym_id: UUID | None = None
 
 
 class FighterRead(SQLModel):
@@ -157,6 +264,7 @@ class FighterRead(SQLModel):
     weight_class: str | None = None
     years_training: int | None = None
     gym: str | None = None
+    gym_id: UUID | None = None
     trainer: str | None = None
     record_wins: int = 0
     record_losses: int = 0
@@ -511,6 +619,7 @@ class Coach(SQLModel, table=True):
     phone: str | None = Field(default=None, max_length=40)
     # Coaching context
     gym: str | None = Field(default=None, max_length=120)
+    gym_id: UUID | None = Field(default=None, foreign_key="gym.id", index=True)
     specialties: str | None = Field(
         default=None,
         max_length=200,
@@ -541,6 +650,7 @@ class Coach(SQLModel, table=True):
 class CoachCreate(SQLModel):
     name: str = Field(min_length=1, max_length=120)
     gym: str | None = None
+    gym_id: UUID | None = None
     specialties: str | None = None
     years_experience: int | None = None
     bio: str | None = None
@@ -556,6 +666,7 @@ class CoachRead(SQLModel):
     email: str | None = None
     phone: str | None = None
     gym: str | None = None
+    gym_id: UUID | None = None
     specialties: str | None = None
     coaching_level: CoachingLevel | None = None
     years_experience: int | None = None
@@ -912,6 +1023,42 @@ class CoachAssignmentRead(SQLModel):
     started_on: date | None = None
     ended_on: date | None = None
     notes: str | None = None
+    created_at: datetime
+
+
+# ----------------------------------------------------------------------
+# Coach notes — free-form observations a coach writes about a fighter
+# outside of any particular session.
+# ----------------------------------------------------------------------
+
+
+class CoachNote(SQLModel, table=True):
+    """A timestamped note written by a coach about a fighter.
+
+    Lives outside the session model so coaches can record observations
+    that span multiple sessions (e.g. "guard has been dropping for the
+    last three sparring rounds").
+    """
+
+    __tablename__ = "coach_note"
+    id: int | None = Field(default=None, primary_key=True)
+    coach_id: UUID = Field(foreign_key="coach.id", index=True)
+    fighter_id: UUID = Field(foreign_key="fighter.id", index=True)
+    content: str = Field(min_length=1)
+    created_at: datetime = Field(default_factory=lambda: datetime.now(UTC))
+
+
+class CoachNoteCreate(SQLModel):
+    content: str = Field(min_length=1)
+
+
+class CoachNoteRead(SQLModel):
+    id: int
+    coach_id: UUID
+    fighter_id: UUID
+    coach_name: str  # denormalised for the UI
+    coach_photo_path: str | None = None
+    content: str
     created_at: datetime
 
 

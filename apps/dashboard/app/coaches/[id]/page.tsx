@@ -4,7 +4,7 @@ import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useEffect, useRef, useState } from "react";
 import { ProfileAvatar } from "@/components/ProfileAvatar";
-import { api, type Coach, type CoachingLevel } from "@/lib/api";
+import { api, type Coach, type CoachNote, type CoachingLevel, type Fighter } from "@/lib/api";
 
 export default function CoachPage({ params }: { params: { id: string } }) {
   const router = useRouter();
@@ -13,6 +13,15 @@ export default function CoachPage({ params }: { params: { id: string } }) {
   const [draft, setDraft] = useState<Partial<Coach>>({});
   const [err, setErr] = useState<string | null>(null);
   const photoInput = useRef<HTMLInputElement>(null);
+  const [fighters, setFighters] = useState<Fighter[]>([]);
+  const [notes, setNotes] = useState<CoachNote[]>([]);
+  const [noteTarget, setNoteTarget] = useState<string | null>(null);
+  const [noteContent, setNoteContent] = useState("");
+  const [noteSaving, setNoteSaving] = useState(false);
+
+  const refreshNotes = () => {
+    api.listCoachNotes(params.id).then(setNotes).catch(() => setNotes([]));
+  };
 
   useEffect(() => {
     api
@@ -22,7 +31,33 @@ export default function CoachPage({ params }: { params: { id: string } }) {
         setDraft(c);
       })
       .catch((e) => setErr(String(e)));
+    api.listCoachFighters(params.id).then(setFighters).catch(() => setFighters([]));
+    refreshNotes();
   }, [params.id]);
+
+  const submitNote = async () => {
+    if (!noteTarget || !noteContent.trim()) return;
+    setNoteSaving(true);
+    try {
+      await api.createCoachNote(params.id, noteTarget, noteContent.trim());
+      setNoteContent("");
+      setNoteTarget(null);
+      refreshNotes();
+    } catch (e) {
+      setErr(String(e));
+    } finally {
+      setNoteSaving(false);
+    }
+  };
+
+  const removeNote = async (noteId: number) => {
+    try {
+      await api.deleteCoachNote(params.id, noteId);
+      refreshNotes();
+    } catch (e) {
+      setErr(String(e));
+    }
+  };
 
   const save = async () => {
     if (!coach) return;
@@ -332,6 +367,115 @@ export default function CoachPage({ params }: { params: { id: string } }) {
               </div>
             </div>
           </section>
+
+          {/* ── Assigned fighters ── */}
+          <section className="card space-y-4">
+            <h2 className="text-base font-semibold">Assigned Fighters</h2>
+            {fighters.length === 0 ? (
+              <p className="text-sm text-neutral-500">
+                No fighters currently assigned. Assign this coach from a
+                fighter&apos;s Team tab.
+              </p>
+            ) : (
+              <ul className="grid grid-cols-1 gap-2 sm:grid-cols-2">
+                {fighters.map((f) => (
+                  <li
+                    key={f.id}
+                    className="flex items-center justify-between rounded-xl border border-white/5 bg-black/30 p-3"
+                  >
+                    <Link
+                      href={`/fighters/${f.id}`}
+                      className="text-sm font-medium text-emerald-400 hover:underline"
+                    >
+                      {f.name}
+                    </Link>
+                    <button
+                      onClick={() => {
+                        setNoteTarget(f.id);
+                        setNoteContent("");
+                      }}
+                      className="rounded-lg border border-violet-500/30 bg-violet-500/10 px-2.5 py-1 text-xs text-violet-300 hover:bg-violet-500/20"
+                    >
+                      + Note
+                    </button>
+                  </li>
+                ))}
+              </ul>
+            )}
+
+            {/* New note form */}
+            {noteTarget && (
+              <div className="rounded-xl border border-violet-500/30 bg-violet-500/5 p-4 space-y-3">
+                <div className="text-xs text-violet-300/70">
+                  Writing note for{" "}
+                  <span className="font-semibold text-violet-200">
+                    {fighters.find((f) => f.id === noteTarget)?.name}
+                  </span>
+                </div>
+                <textarea
+                  rows={4}
+                  value={noteContent}
+                  onChange={(e) => setNoteContent(e.target.value)}
+                  placeholder="Observations, feedback, training notes..."
+                  className="w-full rounded-xl border border-white/5 bg-black/30 px-3 py-2 text-sm focus:border-violet-500/50 focus:outline-none"
+                />
+                <div className="flex gap-2">
+                  <button
+                    onClick={submitNote}
+                    disabled={noteSaving || !noteContent.trim()}
+                    className="rounded-xl bg-violet-500 px-4 py-2 text-sm font-medium text-white hover:bg-violet-400 disabled:opacity-50"
+                  >
+                    {noteSaving ? "Saving..." : "Save note"}
+                  </button>
+                  <button
+                    onClick={() => setNoteTarget(null)}
+                    className="rounded-xl bg-neutral-800 px-3 py-2 text-sm hover:bg-neutral-700"
+                  >
+                    Cancel
+                  </button>
+                </div>
+              </div>
+            )}
+          </section>
+
+          {/* ── Recent notes by this coach ── */}
+          {notes.length > 0 && (
+            <section className="card space-y-4">
+              <h2 className="text-base font-semibold">Recent Notes</h2>
+              <ul className="space-y-3">
+                {notes.map((n) => (
+                  <li
+                    key={n.id}
+                    className="rounded-lg border border-white/5 bg-black/30 p-4"
+                  >
+                    <div className="flex items-center justify-between text-xs text-neutral-500">
+                      <div className="flex items-center gap-2">
+                        <span className="rounded bg-neutral-800 px-1.5 py-0.5 text-[10px] font-medium">
+                          {new Date(n.created_at).toLocaleDateString()}
+                        </span>
+                        <Link
+                          href={`/fighters/${n.fighter_id}/observations`}
+                          className="text-emerald-400 hover:underline"
+                        >
+                          {fighters.find((f) => f.id === n.fighter_id)?.name ??
+                            "fighter"}
+                        </Link>
+                      </div>
+                      <button
+                        onClick={() => removeNote(n.id)}
+                        className="text-red-400/60 hover:text-red-400"
+                      >
+                        delete
+                      </button>
+                    </div>
+                    <p className="mt-2 whitespace-pre-wrap text-sm text-neutral-100 leading-relaxed">
+                      {n.content}
+                    </p>
+                  </li>
+                ))}
+              </ul>
+            </section>
+          )}
         </>
       )}
     </main>
