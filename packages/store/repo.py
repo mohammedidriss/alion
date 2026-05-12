@@ -860,6 +860,13 @@ class UserRepo:
         stmt = select(User).where(User.email == email)
         return self._session.exec(stmt).first()
 
+    def set_profile_id(self, user_id: UUID, profile_id: UUID) -> None:
+        row = self.get(user_id)
+        if row:
+            row.profile_id = profile_id
+            self._session.add(row)
+            self._session.commit()
+
     def list_all(self) -> list[User]:
         return list(self._session.exec(select(User)).all())
 

@@ -10,7 +10,7 @@ from pydantic import BaseModel
 from sqlmodel import Session as DBSession, select
 
 from api.deps import coach_note_repo, coach_repo, db_session, resolve_gym_id
-from api.routes.auth import get_current_user
+from api.routes.auth import get_current_user, require_current_user
 from api.services.photos import delete_photos_for, save_photo
 from store import CoachingLevel, CoachNoteRepo, CoachRepo, User
 from store.models import (
@@ -24,7 +24,11 @@ from store.models import (
     FighterRead,
 )
 
-router = APIRouter(prefix="/coaches", tags=["coaches"])
+router = APIRouter(
+    prefix="/coaches",
+    tags=["coaches"],
+    dependencies=[Depends(require_current_user)],
+)
 
 
 class CoachUpdate(BaseModel):

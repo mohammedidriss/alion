@@ -22,7 +22,7 @@ from api.deps import (
     resolve_gym_id,
     session_repo,
 )
-from api.routes.auth import get_current_user
+from api.routes.auth import get_current_user, require_current_user
 from api.services.photos import delete_photos_for, save_photo
 from store import (
     User,
@@ -57,7 +57,11 @@ from store import (
 from store import CoachNoteRead, CoachNoteRepo
 from store.models import FighterCreate, FighterRead
 
-router = APIRouter(prefix="/fighters", tags=["fighters"])
+router = APIRouter(
+    prefix="/fighters",
+    tags=["fighters"],
+    dependencies=[Depends(require_current_user)],
+)
 
 
 class FighterUpdate(BaseModel):

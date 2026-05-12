@@ -10,11 +10,15 @@ from pydantic import BaseModel
 from sqlmodel import Session as DBSession
 
 from api.deps import db_session, gym_manager_repo, gym_repo, resolve_gym_id
-from api.routes.auth import get_current_user
+from api.routes.auth import get_current_user, require_current_user
 from store import GymManagerRepo, GymRepo, User
 from store.models import GymManagerCreate, GymManagerRead
 
-router = APIRouter(prefix="/gym-managers", tags=["gym-managers"])
+router = APIRouter(
+    prefix="/gym-managers",
+    tags=["gym-managers"],
+    dependencies=[Depends(require_current_user)],
+)
 
 
 class GymManagerUpdate(BaseModel):

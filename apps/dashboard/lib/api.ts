@@ -625,6 +625,13 @@ async function req<T>(path: string, init?: RequestInit): Promise<T> {
     ...init,
     headers,
   });
+  if (r.status === 401 && typeof window !== "undefined") {
+    // Token expired or invalid — clear auth and redirect to login
+    localStorage.removeItem("alion.token");
+    sessionStorage.removeItem("alion.token");
+    window.location.href = "/";
+    throw new Error("Session expired. Please sign in again.");
+  }
   if (!r.ok) throw new Error(`${r.status} ${await r.text()}`);
   if (r.status === 204) return undefined as T;
   return r.json();

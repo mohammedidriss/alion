@@ -31,17 +31,22 @@ export default function CoachesPage() {
   const [newYears, setNewYears] = useState("");
   const [newCertifications, setNewCertifications] = useState("");
   const [creating, setCreating] = useState(false);
+  const [loadError, setLoadError] = useState<string | null>(null);
+  const [createError, setCreateError] = useState<string | null>(null);
 
   const load = useCallback(async () => {
     if (!isGymManager || !user) return;
     setLoading(true);
+    setLoadError(null);
     try {
       const gms = await api.listGymManagers();
       const me = gms.find((gm) => gm.id === user.profile_id);
-      if (!me) return;
+      if (!me) { setLoadError("Could not find your gym manager profile."); return; }
       setGymId(me.gym_id);
       const cs = await api.listCoaches(me.gym_id);
       setCoaches(cs);
+    } catch (err) {
+      setLoadError(err instanceof Error ? err.message : "Failed to load coaches.");
     } finally {
       setLoading(false);
     }
@@ -57,12 +62,25 @@ export default function CoachesPage() {
 
   const handleCreate = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!gymId || !newName.trim()) return;
+    if (!newName.trim()) return;
     setCreating(true);
+    setCreateError(null);
     try {
+      // Re-resolve gymId to avoid stale closure from Fast Refresh
+      let resolvedGymId = gymId;
+      if (!resolvedGymId && user) {
+        const gms = await api.listGymManagers();
+        const me = gms.find((gm) => gm.id === user.profile_id);
+        resolvedGymId = me?.gym_id ?? null;
+      }
+      if (!resolvedGymId) {
+        setCreateError("Could not determine your gym. Please reload the page.");
+        return;
+      }
+
       const created = await api.createCoach({
         name: newName.trim(),
-        gym_id: gymId,
+        gym_id: resolvedGymId,
       });
       // Update additional fields
       const patch: Record<string, unknown> = {};
@@ -86,6 +104,8 @@ export default function CoachesPage() {
       setNewCertifications("");
       setShowForm(false);
       load();
+    } catch (err) {
+      setCreateError(err instanceof Error ? err.message : "Failed to create coach.");
     } finally {
       setCreating(false);
     }
@@ -101,6 +121,16 @@ export default function CoachesPage() {
 
   if (loading) {
     return <div className="px-8 py-12 text-neutral-400">Loading coaches...</div>;
+  }
+
+  if (loadError) {
+    return (
+      <div className="px-8 py-12">
+        <p className="rounded-lg border border-red-500/30 bg-red-950/30 px-4 py-3 text-sm text-red-300">
+          {loadError}
+        </p>
+      </div>
+    );
   }
 
   return (
@@ -200,6 +230,11 @@ export default function CoachesPage() {
               />
             </div>
           </div>
+          {createError && (
+            <p className="rounded-lg border border-red-500/30 bg-red-950/30 px-3 py-2 text-xs text-red-300">
+              {createError}
+            </p>
+          )}
           <button
             type="submit"
             disabled={creating || !newName.trim()}

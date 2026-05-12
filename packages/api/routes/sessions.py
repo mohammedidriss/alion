@@ -21,7 +21,7 @@ from sqlmodel import Session as DBSession
 
 from analyze import compute_score, mean_hr_bpm, rmssd_ms, sdnn_ms
 from api.deps import db_session, fighter_repo, punch_event_repo, resolve_gym_id, session_repo
-from api.routes.auth import get_current_user
+from api.routes.auth import get_current_user, require_current_user
 from api.services import capture_runner
 from capture.hrv import parse_rr_csv
 from contracts import HRSample
@@ -44,7 +44,11 @@ from store.models import (
 from studies import DetectedPunch, confusion_matrix, match_events
 from studies.evaluation import load_labels
 
-router = APIRouter(prefix="/sessions", tags=["sessions"])
+router = APIRouter(
+    prefix="/sessions",
+    tags=["sessions"],
+    dependencies=[Depends(require_current_user)],
+)
 
 _VIDEO_DIR = Path("data/raw/uploaded")
 

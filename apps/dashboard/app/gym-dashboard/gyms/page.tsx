@@ -34,10 +34,13 @@ export default function GymsPage() {
   const [newEmail, setNewEmail] = useState("");
   const [newSpecialties, setNewSpecialties] = useState("");
   const [creating, setCreating] = useState(false);
+  const [loadError, setLoadError] = useState<string | null>(null);
+  const [createError, setCreateError] = useState<string | null>(null);
 
   const load = useCallback(async () => {
     if (!isGymManager || !user) return;
     setLoading(true);
+    setLoadError(null);
     try {
       const [allGyms, gms] = await Promise.all([
         api.listGyms(),
@@ -70,6 +73,8 @@ export default function GymsPage() {
         return a.name.localeCompare(b.name);
       });
       setGyms(rows);
+    } catch (err) {
+      setLoadError(err instanceof Error ? err.message : "Failed to load gyms.");
     } finally {
       setLoading(false);
     }
@@ -95,6 +100,7 @@ export default function GymsPage() {
     e.preventDefault();
     if (!newName.trim()) return;
     setCreating(true);
+    setCreateError(null);
     try {
       await api.createGym({
         name: newName.trim(),
@@ -116,6 +122,8 @@ export default function GymsPage() {
       setNewSpecialties("");
       setShowForm(false);
       load();
+    } catch (err) {
+      setCreateError(err instanceof Error ? err.message : "Failed to create gym.");
     } finally {
       setCreating(false);
     }
@@ -131,6 +139,16 @@ export default function GymsPage() {
 
   if (loading) {
     return <div className="px-8 py-12 text-neutral-400">Loading gyms...</div>;
+  }
+
+  if (loadError) {
+    return (
+      <div className="px-8 py-12">
+        <p className="rounded-lg border border-red-500/30 bg-red-950/30 px-4 py-3 text-sm text-red-300">
+          {loadError}
+        </p>
+      </div>
+    );
   }
 
   return (
@@ -227,6 +245,11 @@ export default function GymsPage() {
               />
             </div>
           </div>
+          {createError && (
+            <p className="rounded-lg border border-red-500/30 bg-red-950/30 px-3 py-2 text-xs text-red-300">
+              {createError}
+            </p>
+          )}
           <button
             type="submit"
             disabled={creating || !newName.trim()}

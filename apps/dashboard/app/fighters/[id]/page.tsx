@@ -45,7 +45,7 @@ export default function FighterPage({ params }: { params: { id: string } }) {
   const { id } = params;
   const router = useRouter();
   const { user } = useAuth();
-  const canEdit = user?.role !== "fighter";
+  const canEdit = !!user && user.role !== "fighter";
   const canCreateSession = canEdit && user?.role !== "gym_manager";
   const [fighter, setFighter] = useState<Fighter | null>(null);
   const [options, setOptions] = useState<FighterOptions | null>(null);
@@ -212,7 +212,7 @@ export default function FighterPage({ params }: { params: { id: string } }) {
             {fighter.nationality ? ` · ${fighter.nationality}` : ""}
             {age != null ? ` · ${age} yrs` : ""}
           </p>
-          <p className="mt-1 font-mono text-xs text-neutral-500">{fighter.id}</p>
+          {/* UUID hidden from UI — available in URL */}
           {canCreateSession && (
             <div className="mt-3 flex flex-wrap gap-2">
               <button

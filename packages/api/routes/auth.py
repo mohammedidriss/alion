@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import os
+import re
 from datetime import UTC, datetime, timedelta
 from uuid import UUID
 
@@ -9,20 +11,32 @@ import bcrypt
 from fastapi import APIRouter, Depends, HTTPException, status
 from fastapi.security import OAuth2PasswordBearer, OAuth2PasswordRequestForm
 from jose import JWTError, jwt
-from pydantic import BaseModel
+from pydantic import BaseModel, field_validator
 from sqlmodel import Session as DBSession
 
 from api.deps import db_session
-from store import User, UserCreate, UserRead, UserRepo, UserRole
+from store import (
+    CoachRepo,
+    FighterRepo,
+    RefereeRepo,
+    User,
+    UserCreate,
+    UserRead,
+    UserRepo,
+    UserRole,
+)
+from store.models import FighterCreate, CoachCreate, RefereeCreate
 
 router = APIRouter(prefix="/auth", tags=["auth"])
 
 # --- Security config ---
-SECRET_KEY = "alion-dev-secret-key-change-in-production"  # noqa: S105
+SECRET_KEY = os.environ.get("ALION_JWT_SECRET", "alion-dev-secret-key-change-in-production")  # noqa: S105
 ALGORITHM = "HS256"
 ACCESS_TOKEN_EXPIRE_MINUTES = 60 * 24 * 7  # 7 days for dev convenience
 
 oauth2_scheme = OAuth2PasswordBearer(tokenUrl="/auth/login", auto_error=False)
+
+_EMAIL_RE = re.compile(r"^[^@\s]+@[^@\s]+\.[^@\s]+$")
 
 
 # --- Helpers ---
@@ -89,6 +103,29 @@ class RegisterRequest(BaseModel):
     name: str
     role: UserRole = UserRole.FIGHTER
 
+    @field_validator("email")
+    @classmethod
+    def validate_email(cls, v: str) -> str:
+        v = v.strip().lower()
+        if not _EMAIL_RE.match(v):
+            raise ValueError("Invalid email format")
+        return v
+
+    @field_validator("password")
+    @classmethod
+    def validate_password(cls, v: str) -> str:
+        if len(v) < 6:
+            raise ValueError("Password must be at least 6 characters")
+        return v
+
+    @field_validator("name")
+    @classmethod
+    def validate_name(cls, v: str) -> str:
+        v = v.strip()
+        if len(v) < 1:
+            raise ValueError("Name is required")
+        return v
+
 
 class TokenResponse(BaseModel):
     access_token: str
@@ -99,27 +136,56 @@ class TokenResponse(BaseModel):
 # --- Routes ---
 
 @router.post("/register", response_model=TokenResponse, status_code=status.HTTP_201_CREATED)
-def register(data: RegisterRequest, repo: UserRepo = Depends(_user_repo)) -> TokenResponse:
-    """Create a new user account and return a JWT."""
-    existing = repo.get_by_email(data.email.lower().strip())
+def register(
+    data: RegisterRequest,
+    repo: UserRepo = Depends(_user_repo),
+    session: DBSession = Depends(db_session),
+) -> TokenResponse:
+    """Create a new user account, auto-create a linked profile, and return a JWT."""
+    existing = repo.get_by_email(data.email)
     if existing:
         raise HTTPException(
             status_code=status.HTTP_409_CONFLICT,
             detail="Email already registered",
         )
     user_create = UserCreate(
-        email=data.email.lower().strip(),
+        email=data.email,
         password=data.password,
         name=data.name,
         role=data.role,
     )
     hashed = _hash_password(data.password)
     user = repo.create(user_create, hashed)
+
+    # Auto-create a linked profile based on role
+    profile_id = _create_profile_for_role(user, session)
+    if profile_id:
+        repo.set_profile_id(user.id, profile_id)
+        user.profile_id = profile_id
+
     token = _create_access_token(user.id, user.role)
     return TokenResponse(
         access_token=token,
         user=UserRead.model_validate(user, from_attributes=True),
     )
+
+
+def _create_profile_for_role(user: User, session: DBSession) -> UUID | None:
+    """Create a profile entity matching the user's role and return its id."""
+    if user.role == UserRole.FIGHTER or user.role == "fighter":
+        repo = FighterRepo(session)
+        f = repo.create(FighterCreate(name=user.name, stance="orthodox"))
+        return f.id  # type: ignore[return-value]
+    if user.role == UserRole.COACH or user.role == "coach":
+        repo = CoachRepo(session)
+        c = repo.create(CoachCreate(name=user.name))
+        return c.id  # type: ignore[return-value]
+    if user.role == UserRole.REFEREE or user.role == "referee":
+        repo = RefereeRepo(session)
+        r = repo.create(RefereeCreate(name=user.name))
+        return r.id  # type: ignore[return-value]
+    # gym_manager profiles need a gym — created later when assigned to a gym
+    return None
 
 
 @router.post("/login", response_model=TokenResponse)

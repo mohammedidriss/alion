@@ -31,7 +31,7 @@ const FIGHTER_TABS: { slug: string; label: string; icon: string }[] = [
   { slug: "imu", label: "IMU", icon: "▤" },
 ];
 
-export function Sidebar() {
+export function Sidebar({ onNavigate }: { onNavigate?: () => void } = {}) {
   const pathname = usePathname();
   const router = useRouter();
   const { user, logout } = useAuth();
@@ -103,6 +103,7 @@ export function Sidebar() {
           <Link
             key={item.href + item.label}
             href={item.href}
+            onClick={onNavigate}
             className={`flex items-center gap-2.5 rounded-lg px-3 py-2 text-sm transition-colors ${
               isTabActive(item.href)
                 ? "bg-white/[0.08] text-white font-medium"
