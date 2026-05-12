@@ -191,12 +191,19 @@ export default function FighterPage({ params }: { params: { id: string } }) {
           </p>
           <p className="mt-1 font-mono text-xs text-neutral-500">{fighter.id}</p>
           <div className="mt-3 flex flex-wrap gap-2">
-            <Link
-              href={`/sessions/new?fighter=${fighter.id}`}
-              className="rounded-xl bg-emerald-500 px-3 py-1.5 text-sm font-medium text-black hover:bg-emerald-400"
+            <button
+              onClick={async (e) => {
+                const btn = e.currentTarget;
+                btn.disabled = true;
+                try {
+                  const s = await api.createSession(fighter.id, "live_webcam", "mediapipe");
+                  router.push(`/sessions/${s.id}`);
+                } catch { btn.disabled = false; }
+              }}
+              className="rounded-xl bg-emerald-500 px-3 py-1.5 text-sm font-medium text-black hover:bg-emerald-400 disabled:opacity-50"
             >
               New session
-            </Link>
+            </button>
           </div>
         </div>
         <div className="flex shrink-0 items-center gap-2">

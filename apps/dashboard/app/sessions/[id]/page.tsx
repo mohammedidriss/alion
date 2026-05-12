@@ -24,8 +24,10 @@ import {
   type Camera,
   type Capabilities,
   type CaptureStatus,
+  type PoseBackend,
   type PunchEvent,
   type Session,
+  type SessionSource,
 } from "@/lib/api";
 
 export default function SessionPage({ params }: { params: { id: string } }) {
@@ -43,6 +45,12 @@ export default function SessionPage({ params }: { params: { id: string } }) {
   const [notesDraft, setNotesDraft] = useState<string>("");
   const [notesDirty, setNotesDirty] = useState(false);
   const [baselineUploading, setBaselineUploading] = useState(false);
+  // ---- Pending-state setup UI ----
+  const [setupSource, setSetupSource] = useState<SessionSource>("live_webcam");
+  const [setupBackend, setSetupBackend] = useState<PoseBackend>("mediapipe");
+  const [setupVideoFile, setSetupVideoFile] = useState<File | null>(null);
+  const [setupHrvFile, setSetupHrvFile] = useState<File | null>(null);
+  const [setupBusy, setSetupBusy] = useState(false);
   const [now, setNow] = useState(() => Date.now());
   // Manual-pause bookkeeping. Timer freezes only when the user hits the
   // pause button — not when auto-rest pauses the camera (the timer must
@@ -164,6 +172,9 @@ export default function SessionPage({ params }: { params: { id: string } }) {
       // Only sync notes from the server if the user hasn't typed unsaved
       // changes in the textarea.
       if (!notesDirty) setNotesDraft(s.notes ?? "");
+      // NOTE: setup fields (source, backend, rounds) are seeded once
+      // in a separate effect below — NOT here, because refresh() runs
+      // every 1.5 s and would overwrite the user's local picks.
     } catch (e) {
       setErr(String(e));
     }
@@ -183,6 +194,21 @@ export default function SessionPage({ params }: { params: { id: string } }) {
     return () => clearInterval(t);
   }, [id]);
 
+  // One-shot: seed the setup form from the server's initial values.
+  // Runs once on mount, then never again — so the 1.5 s poll can't
+  // overwrite what the user picks in the UI.
+  useEffect(() => {
+    let cancelled = false;
+    api.getSession(id).then((s) => {
+      if (cancelled || s.status !== "pending") return;
+      setSetupSource(s.source);
+      setSetupBackend(s.pose_backend);
+      // Round config is seeded by RoundConfigCard internally.
+    }).catch(() => {});
+    return () => { cancelled = true; };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [id]);
+
   const upload = async (file: File) => {
     setUploading(true);
     try {
@@ -195,9 +221,29 @@ export default function SessionPage({ params }: { params: { id: string } }) {
     }
   };
 
-  const start = () => {
+  const startSession = async () => {
     if (countdown !== null) return;
-    setCountdown({ kind: "start", n: 3 });
+    setSetupBusy(true);
+    setErr(null);
+    try {
+      // Round config is auto-saved by RoundConfigCard (debounced 600 ms),
+      // so no need to patch it here. Just handle source-specific uploads.
+      // Side-channel uploads when the source needs them.
+      if (setupSource === "uploaded_video" && setupVideoFile) {
+        await api.uploadVideo(id, setupVideoFile);
+      }
+      if (setupSource === "hrv_replay" && setupHrvFile) {
+        await api.uploadHrvCsv(id, setupHrvFile);
+        await api.loadHrvSync(id).catch(() => undefined);
+      }
+      await refresh();
+      // Now kick the 3-2-1 countdown.
+      setCountdown({ kind: "start", n: 3 });
+    } catch (e) {
+      setErr(String(e));
+    } finally {
+      setSetupBusy(false);
+    }
   };
 
   const stop = async () => {
@@ -265,7 +311,7 @@ export default function SessionPage({ params }: { params: { id: string } }) {
       (async () => {
         try {
           if (kind === "start") {
-            await api.startCapture(id, { camera_index: cameraIndex, pose_backend: session?.pose_backend });
+            await api.startCapture(id, { camera_index: cameraIndex, pose_backend: setupBackend });
             setCaptureEpoch(Date.now());
           } else {
             await api.resumeCapture(id);
@@ -353,10 +399,9 @@ export default function SessionPage({ params }: { params: { id: string } }) {
   );
 
   const cvAvailable = caps?.cv_available ?? true; // assume yes if check failed
-  const showStart =
-    session.status === "pending" &&
-    (session.source === "live_webcam" ||
-      (session.source === "uploaded_video" && !!session.video_path));
+  // showStart is no longer used — the inline setup UI handles the
+  // pending state. Keep a minimal flag only for the countdown overlay.
+  const showStart = false;
 
   const isLive =
     session.status === "capturing" || session.status === "processing";
@@ -424,46 +469,48 @@ export default function SessionPage({ params }: { params: { id: string } }) {
             🥊 Gym Mode
           </Link>
         </div>
-        {(() => {
-          // Live status badge — reflects pause/break overlays on top of
-          // the persisted session.status, so the header stays in sync
-          // with what the camera panel is actually doing.
-          let label: string = session.status;
-          let cls = "bg-neutral-800 text-neutral-300";
-          if (session.status === "completed") {
-            cls = "bg-emerald-900 text-emerald-200";
-          } else if (session.status === "failed") {
-            cls = "bg-red-900 text-red-200";
-          } else if (
-            session.status === "capturing" ||
-            session.status === "processing"
-          ) {
-            if (isManualPaused) {
-              label = "paused";
-              cls = "bg-red-700 text-red-100";
-            } else if (isBreak) {
-              label = "break";
-              cls = "bg-amber-700 text-amber-100";
-            } else {
-              cls = "bg-amber-900 text-amber-200";
-            }
-          }
-          return (
-            <span
-              className={`rounded-full px-3 py-1 text-xs font-medium ${cls}`}
-            >
-              {label}
+        {/* Status + backend badges — hidden for pending (the setup UI
+            below already conveys both). */}
+        {session.status !== "pending" && (
+          <div className="flex items-center gap-2">
+            {(() => {
+              let label: string = session.status;
+              let cls = "bg-neutral-800 text-neutral-300";
+              if (session.status === "completed") {
+                cls = "bg-emerald-900 text-emerald-200";
+              } else if (session.status === "failed") {
+                cls = "bg-red-900 text-red-200";
+              } else if (
+                session.status === "capturing" ||
+                session.status === "processing"
+              ) {
+                if (isManualPaused) {
+                  label = "paused";
+                  cls = "bg-red-700 text-red-100";
+                } else if (isBreak) {
+                  label = "break";
+                  cls = "bg-amber-700 text-amber-100";
+                } else {
+                  cls = "bg-amber-900 text-amber-200";
+                }
+              }
+              return (
+                <span
+                  className={`rounded-full px-3 py-1 text-xs font-medium ${cls}`}
+                >
+                  {label}
+                </span>
+              );
+            })()}
+            <span className={`rounded-full px-3 py-1 text-xs font-medium ${
+              session.pose_backend === "yolov8"
+                ? "bg-purple-900 text-purple-200"
+                : "bg-blue-900 text-blue-200"
+            }`}>
+              {session.pose_backend === "yolov8" ? "YOLOv8" : "MediaPipe"}
             </span>
-          );
-        })()}
-        {/* Pose backend badge */}
-        <span className={`rounded-full px-3 py-1 text-xs font-medium ${
-          session.pose_backend === "yolov8"
-            ? "bg-purple-900 text-purple-200"
-            : "bg-blue-900 text-blue-200"
-        }`}>
-          {session.pose_backend === "yolov8" ? "YOLOv8" : "MediaPipe"}
-        </span>
+          </div>
+        )}
       </header>
 
       {err && <p className="text-sm text-red-400">{err}</p>}
@@ -493,13 +540,139 @@ export default function SessionPage({ params }: { params: { id: string } }) {
         </div>
       )}
 
+      {/* ── Pending: full setup UI ── */}
+      {session.status === "pending" && (
+        <section className="space-y-5 rounded-lg border border-neutral-800 bg-neutral-950/60 p-5">
+          <h2 className="text-lg font-semibold">Session setup</h2>
+
+          {/* Source + Pose model on the same row */}
+          <div className="flex flex-wrap items-start justify-between gap-4">
+            <div>
+              <label className="text-xs text-neutral-400">Source</label>
+              <div className="mt-1 flex flex-wrap gap-2">
+                {(
+                  [
+                    ["live_webcam", "Live webcam"],
+                    ["uploaded_video", "Upload MP4"],
+                    ["hrv_replay", "HRV replay"],
+                  ] as const
+                ).map(([val, lbl]) => (
+                  <button
+                    key={val}
+                    onClick={() => setSetupSource(val)}
+                    className={`rounded-full px-3 py-1 text-xs ${
+                      setupSource === val
+                        ? "bg-emerald-600 text-white"
+                        : "bg-white/[0.04] text-neutral-400 hover:bg-white/[0.08]"
+                    }`}
+                  >
+                    {lbl}
+                  </button>
+                ))}
+              </div>
+            </div>
+            <div>
+              <label className="text-xs text-neutral-400">Pose model</label>
+              <div className="mt-1 flex flex-wrap gap-2">
+                {(
+                  [
+                    ["mediapipe", "MediaPipe"],
+                    ["yolov8", "YOLOv8"],
+                  ] as const
+                ).map(([val, lbl]) => (
+                  <button
+                    key={val}
+                    onClick={() => setSetupBackend(val)}
+                    className={`rounded-full px-3 py-1 text-xs ${
+                      setupBackend === val
+                        ? "bg-purple-600 text-white"
+                        : "bg-white/[0.04] text-neutral-400 hover:bg-white/[0.08]"
+                    }`}
+                  >
+                    {lbl}
+                  </button>
+                ))}
+              </div>
+            </div>
+          </div>
+
+          {/* Round structure — reuses RoundConfigCard which includes
+              saved plans, presets (3×3 pro, 12×3 fight, 3×2 amateur),
+              and auto-saves to the server after 600 ms. */}
+          <RoundConfigCard session={session} onChange={setSession} />
+
+          {/* Camera picker (live_webcam only) */}
+          {setupSource === "live_webcam" && cameras.length > 1 && (
+            <div>
+              <label className="text-xs text-neutral-400">Camera</label>
+              <select
+                className="mt-1 w-full rounded bg-neutral-900 p-2 text-sm"
+                value={cameraIndex}
+                onChange={(e) => setCameraIndex(Number(e.target.value))}
+              >
+                {cameras.map((c) => (
+                  <option key={c.index} value={c.index}>
+                    Camera {c.index} ({c.width}×{c.height})
+                  </option>
+                ))}
+              </select>
+            </div>
+          )}
+
+          {/* File upload for uploaded_video / hrv_replay */}
+          {setupSource === "uploaded_video" && (
+            <div>
+              <label className="text-xs text-neutral-400">Video file</label>
+              <input
+                type="file"
+                accept="video/*"
+                onChange={(e) => setSetupVideoFile(e.target.files?.[0] ?? null)}
+                className="mt-1 w-full text-sm"
+              />
+            </div>
+          )}
+          {setupSource === "hrv_replay" && (
+            <div>
+              <label className="text-xs text-neutral-400">HRV CSV file</label>
+              <input
+                type="file"
+                accept=".csv,text/csv"
+                onChange={(e) => setSetupHrvFile(e.target.files?.[0] ?? null)}
+                className="mt-1 w-full text-sm"
+              />
+            </div>
+          )}
+
+          {/* Start button */}
+          <button
+            onClick={startSession}
+            disabled={
+              setupBusy ||
+              countdown !== null ||
+              (setupSource === "uploaded_video" && !setupVideoFile) ||
+              (setupSource === "hrv_replay" && !setupHrvFile)
+            }
+            className="w-full rounded-xl bg-emerald-500 px-5 py-3 text-sm font-semibold text-black shadow-lg shadow-emerald-900/30 hover:bg-emerald-400 disabled:opacity-50"
+          >
+            {setupBusy ? "Starting…" : countdown ? `${countdown.n}…` : "Start live capture"}
+          </button>
+
+          {/* Countdown overlay */}
+          {countdown?.kind === "start" && (
+            <div className="flex items-center justify-center py-8">
+              <span className="text-[10rem] font-black leading-none text-emerald-400 drop-shadow-2xl">
+                {countdown.n > 0 ? countdown.n : "GO"}
+              </span>
+            </div>
+          )}
+        </section>
+      )}
+
       {/* Top action bar — controls + (when live) the camera preview.
           Sits above the main 3-column layout so the primary capture
           controls and the live skeleton overlay are always above the
           fold regardless of state. */}
-      {(showStart ||
-        isLive ||
-        (session.source === "uploaded_video" && !session.video_path)) && (
+      {isLive && (
         <section
           className={`relative space-y-4 rounded-lg border p-4 transition-colors ${
             isManualPaused
@@ -596,58 +769,8 @@ export default function SessionPage({ params }: { params: { id: string } }) {
               </div>
             )}
 
-            {/* Controls column. */}
+            {/* Controls column — only live capture controls remain. */}
             <div className="flex flex-wrap items-end gap-3">
-              {session.source === "uploaded_video" && !session.video_path && (
-                <div className="flex flex-col">
-                  <label className="mb-1 text-xs text-neutral-400">Upload MP4</label>
-                  <input
-                    type="file"
-                    accept="video/mp4,video/quicktime"
-                    disabled={uploading}
-                    onChange={(e) =>
-                      e.target.files?.[0] && upload(e.target.files[0])
-                    }
-                    className="text-xs"
-                  />
-                </div>
-              )}
-              {showStart &&
-                session.source === "live_webcam" &&
-                cameras.length > 0 && (
-                  <div className="flex flex-col">
-                    <label className="mb-1 text-xs text-neutral-400">Camera</label>
-                    <select
-                      className="rounded bg-neutral-900 px-3 py-2 text-sm"
-                      value={cameraIndex}
-                      onChange={(e) => setCameraIndex(Number(e.target.value))}
-                    >
-                      {cameras.map((c) => (
-                        <option key={c.index} value={c.index}>
-                          #{c.index} — {c.width}×{c.height} @ {Math.round(c.fps)} fps
-                        </option>
-                      ))}
-                    </select>
-                  </div>
-                )}
-              {showStart && (
-                <button
-                  onClick={start}
-                  disabled={!cvAvailable || countdown !== null}
-                  title={
-                    cvAvailable
-                      ? undefined
-                      : "Disabled — capture is not available on this server. Run on the host."
-                  }
-                  className="rounded bg-emerald-600 px-4 py-2 font-medium hover:bg-emerald-500 disabled:cursor-wait disabled:bg-neutral-700 disabled:text-neutral-400"
-                >
-                  {countdown?.kind === "start"
-                    ? `Starting in ${countdown.n}…`
-                    : session.source === "live_webcam"
-                      ? "Start live capture"
-                      : "Process video"}
-                </button>
-              )}
               {isLive && (
                 <>
                   {status?.is_paused ? (
@@ -691,7 +814,10 @@ export default function SessionPage({ params }: { params: { id: string } }) {
       )}
 
       {/* 3-col layout: timer + round config (left), all metrics +
-          analysis (middle), AI corner advice (right). Stacks on mobile. */}
+          analysis (middle), AI corner advice (right). Stacks on mobile.
+          Hidden entirely for pending sessions — the setup UI above is
+          all the user needs before capture starts. */}
+      {session.status !== "pending" && (
       <div className="grid grid-cols-1 gap-6 xl:grid-cols-[280px_minmax(0,1fr)_320px]">
         <aside className="space-y-4 xl:sticky xl:top-4 xl:self-start">
           <RoundConfigCard session={session} onChange={setSession} />
@@ -924,16 +1050,6 @@ export default function SessionPage({ params }: { params: { id: string } }) {
               </span>
             )}
           </div>
-        ) : session.status === "pending" ? (
-          <input
-            type="file"
-            accept=".csv,text/csv"
-            disabled={baselineUploading}
-            onChange={(e) =>
-              e.target.files?.[0] && uploadBaseline(e.target.files[0])
-            }
-            className="mt-3 w-full text-sm"
-          />
         ) : (
           <p className="mt-3 text-sm text-neutral-500">
             No baseline recorded for this session.
@@ -1068,6 +1184,7 @@ export default function SessionPage({ params }: { params: { id: string } }) {
           />
         </aside>
       </div>
+      )}
 
       {confirmDelete && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/70">

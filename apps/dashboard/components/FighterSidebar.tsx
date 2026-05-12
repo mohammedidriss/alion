@@ -1,9 +1,9 @@
 "use client";
 
 import Link from "next/link";
-import { usePathname } from "next/navigation";
+import { usePathname, useRouter } from "next/navigation";
 import { ProfileAvatar } from "@/components/ProfileAvatar";
-import type { Fighter } from "@/lib/api";
+import { api, type Fighter } from "@/lib/api";
 
 const TABS = [
   { slug: "", label: "Dashboard", icon: "▦" },
@@ -17,6 +17,7 @@ const TABS = [
 
 export function FighterSidebar({ fighter }: { fighter: Fighter }) {
   const pathname = usePathname();
+  const router = useRouter();
   const base = `/fighters/${fighter.id}`;
   const isActive = (slug: string) => {
     if (slug === "") {
@@ -75,12 +76,19 @@ export function FighterSidebar({ fighter }: { fighter: Fighter }) {
       </nav>
 
       <div className="mt-auto pt-4">
-        <Link
-          href={`/sessions/new?fighter=${fighter.id}`}
-          className="flex w-full items-center justify-center rounded-xl bg-emerald-500 px-3 py-2 text-sm font-medium text-black hover:bg-emerald-400"
+        <button
+          onClick={async (e) => {
+            const btn = e.currentTarget;
+            btn.disabled = true;
+            try {
+              const s = await api.createSession(fighter.id, "live_webcam", "mediapipe");
+              router.push(`/sessions/${s.id}`);
+            } catch { btn.disabled = false; }
+          }}
+          className="flex w-full items-center justify-center rounded-xl bg-emerald-500 px-3 py-2 text-sm font-medium text-black hover:bg-emerald-400 disabled:opacity-50"
         >
           + New session
-        </Link>
+        </button>
       </div>
     </aside>
   );
