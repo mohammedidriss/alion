@@ -3,8 +3,8 @@
 Constraint: depends only on `contracts` and `common`. Never imports from sibling feature modules.
 """
 
-from .llm_client import CoachAdvice, generate_corner_advice
-from .prompts import CORNER_ADVICE_SYSTEM_PROMPT
+from .llm_client import CoachAdvice, generate_corner_advice, generate_raw
+from .prompts import CORNER_ADVICE_SYSTEM_PROMPT, FIGHTER_OBSERVATION_SYSTEM_PROMPT
 
 # Bumping this string invalidates every cached advice row. The /advice
 # route stores it on each cache entry; a mismatch on lookup forces a
@@ -14,7 +14,9 @@ PROMPT_VERSION = "v2"
 
 __all__ = [
     "CORNER_ADVICE_SYSTEM_PROMPT",
+    "FIGHTER_OBSERVATION_SYSTEM_PROMPT",
     "PROMPT_VERSION",
     "CoachAdvice",
     "generate_corner_advice",
+    "generate_raw",
 ]

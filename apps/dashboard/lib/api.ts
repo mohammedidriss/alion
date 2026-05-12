@@ -316,6 +316,14 @@ export interface CoachAdviceResponse {
   action_items: string[];
 }
 
+export interface FighterObservationResponse {
+  observations: string[];
+  strengths: string[];
+  weaknesses: string[];
+  training_plan: string[];
+  summary: string;
+}
+
 export interface RoundPlan {
   id: number;
   name: string;
@@ -523,6 +531,11 @@ export const api = {
   capabilities: () => req<Capabilities>("/health/capabilities"),
   listFighters: () => req<Fighter[]>("/fighters"),
   getFighter: (id: string) => req<Fighter>(`/fighters/${id}`),
+  generateObservations: (fighterId: string) =>
+    req<FighterObservationResponse>(
+      `/fighters/${fighterId}/observations/generate`,
+      { method: "POST" },
+    ),
   createFighter: (name: string, stance: Stance = "orthodox") =>
     req<Fighter>("/fighters", {
       method: "POST",

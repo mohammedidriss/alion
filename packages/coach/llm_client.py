@@ -143,6 +143,42 @@ def _parse_advice(content: str) -> CoachAdvice:
     )
 
 
+async def generate_raw(system_prompt: str, user_content: str) -> str:
+    """Send a prompt to the LLM and return the raw response text.
+
+    No parsing — the caller handles structured extraction. Uses the same
+    retry logic as generate_corner_advice.
+    """
+    import asyncio
+
+    async def _call():
+        c = AsyncOpenAI(base_url=OPENAI_BASE_URL, api_key=OPENAI_API_KEY)
+        return await c.chat.completions.create(
+            model=MODEL,
+            messages=[
+                {"role": "system", "content": system_prompt},
+                {"role": "user", "content": user_content},
+            ],
+            temperature=0.5,
+            max_tokens=1200,
+        )
+
+    last_err: Exception | None = None
+    for attempt in range(2):
+        try:
+            completion = await _call()
+            return completion.choices[0].message.content or ""
+        except Exception as e:
+            last_err = e
+            msg = str(e).lower()
+            transient = "404" in msg or "not found" in msg or "connection error" in msg
+            if attempt == 0 and transient:
+                await asyncio.sleep(2.0)
+                continue
+            break
+    return f'{{"error": "LLM error: {last_err}"}}'
+
+
 def _first_balanced_object(s: str) -> str | None:
     """Return the first {...} substring with balanced braces, or None."""
     start = s.find("{")

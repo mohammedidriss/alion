@@ -1,8 +1,9 @@
-"""Fighter CRUD + weigh-in tracking."""
+"""Fighter CRUD + weigh-in tracking + longitudinal observations."""
 
 from __future__ import annotations
 
-from datetime import date, datetime
+import json as _json
+from datetime import date, datetime, timedelta
 from uuid import UUID
 
 from fastapi import APIRouter, Depends, File, HTTPException, UploadFile, status
@@ -708,3 +709,187 @@ def list_coach_roles() -> list[str]:
 @router.get("/_meta/title-statuses", response_model=list[str])
 def list_title_statuses() -> list[str]:
     return [t.value for t in TitleStatus]
+
+
+# ---------------------------------------------------------------------------
+# Longitudinal AI observations
+# ---------------------------------------------------------------------------
+
+
+class FighterObservationResponse(BaseModel):
+    observations: list[str]
+    strengths: list[str]
+    weaknesses: list[str]
+    training_plan: list[str]
+    summary: str
+
+
+@router.post(
+    "/{fighter_id}/observations/generate",
+    response_model=FighterObservationResponse,
+)
+async def generate_fighter_observations(
+    fighter_id: UUID,
+    repo: FighterRepo = Depends(fighter_repo),
+    session_repo_dep: SessionRepo = Depends(session_repo),
+    event_repo: PunchEventRepo = Depends(punch_event_repo),
+) -> FighterObservationResponse:
+    """Generate LLM-based longitudinal observations from the last 3 months."""
+    fighter = repo.get(fighter_id)
+    if fighter is None:
+        raise HTTPException(status_code=404, detail="fighter not found")
+
+    # Gather completed sessions from the last 3 months.
+    cutoff = datetime.utcnow() - timedelta(days=90)
+    all_sessions = session_repo_dep.list_for_fighter(fighter_id)
+    completed = [
+        s for s in all_sessions
+        if s.status.value == "completed" and s.started_at >= cutoff
+    ]
+    completed.sort(key=lambda s: s.started_at)
+
+    if len(completed) < 2:
+        return FighterObservationResponse(
+            observations=["Not enough completed sessions in the last 3 months for analysis."],
+            strengths=[],
+            weaknesses=[],
+            training_plan=["Complete more training sessions to enable trend analysis."],
+            summary="Insufficient data — need at least 2 completed sessions in the last 3 months.",
+        )
+
+    # Build per-session summaries.
+    session_summaries = []
+    for s in completed:
+        events = event_repo.list_for_session(s.id)
+        velocities = [e.velocity_ms for e in events]
+        duration_min = (s.duration_ms / 1000.0) / 60.0 if s.duration_ms > 0 else 0.0
+        ppm = len(events) / max(duration_min, 1e-6) if events else 0.0
+        p90 = _percentile_90(sorted(velocities)) if velocities else 0.0
+        score = p90 * (ppm / 60.0) * duration_min
+
+        session_summaries.append({
+            "date": s.started_at.strftime("%Y-%m-%d"),
+            "punch_count": len(events),
+            "peak_velocity_ms": round(p90, 2),
+            "ppm": round(ppm, 1),
+            "score": round(score, 2),
+            "duration_min": round(duration_min, 2),
+            "baseline_rmssd_ms": s.baseline_rmssd_ms,
+            "coach_notes": s.notes or None,
+        })
+
+    # Compute trend deltas (first half vs second half).
+    mid = len(session_summaries) // 2
+    first_half = session_summaries[:mid] if mid > 0 else session_summaries[:1]
+    second_half = session_summaries[mid:] if mid > 0 else session_summaries[1:]
+
+    def _avg(items: list[dict], key: str) -> float:
+        vals = [i[key] for i in items if i[key] is not None]
+        return sum(vals) / len(vals) if vals else 0.0
+
+    trend = {
+        "velocity_change_pct": round(
+            ((_avg(second_half, "peak_velocity_ms") - _avg(first_half, "peak_velocity_ms"))
+             / max(_avg(first_half, "peak_velocity_ms"), 1e-6)) * 100, 1
+        ),
+        "ppm_change_pct": round(
+            ((_avg(second_half, "ppm") - _avg(first_half, "ppm"))
+             / max(_avg(first_half, "ppm"), 1e-6)) * 100, 1
+        ),
+        "score_change_pct": round(
+            ((_avg(second_half, "score") - _avg(first_half, "score"))
+             / max(_avg(first_half, "score"), 1e-6)) * 100, 1
+        ),
+        "sessions_count": len(completed),
+        "period_days": (completed[-1].started_at - completed[0].started_at).days,
+    }
+
+    # Build fighter profile.
+    age = None
+    if fighter.dob:
+        age = (datetime.utcnow().date() - fighter.dob).days // 365
+
+    fighter_info = {
+        "name": fighter.name,
+        "stance": fighter.stance.value if fighter.stance else None,
+        "weight_class": fighter.weight_class,
+        "age": age,
+    }
+
+    # Send only the last 15 sessions to stay within LLM context limits,
+    # but trends are computed from the full 3-month window above.
+    recent_summaries = session_summaries[-15:]
+    # Strip None coach_notes to save tokens.
+    for ss in recent_summaries:
+        if ss["coach_notes"] is None:
+            del ss["coach_notes"]
+        if ss["baseline_rmssd_ms"] is None:
+            del ss["baseline_rmssd_ms"]
+
+    payload = _json.dumps({
+        "fighter": fighter_info,
+        "sessions": recent_summaries,
+        "trend_summary": trend,
+    })
+
+    from coach import FIGHTER_OBSERVATION_SYSTEM_PROMPT
+    from coach.llm_client import generate_raw
+
+    raw_text = await generate_raw(FIGHTER_OBSERVATION_SYSTEM_PROMPT, payload)
+
+    # Parse the structured observation JSON from the LLM response.
+    data = _parse_observation_json(raw_text)
+    if data:
+        return FighterObservationResponse(
+            observations=data.get("observations", []),
+            strengths=data.get("strengths", []),
+            weaknesses=data.get("weaknesses", []),
+            training_plan=data.get("training_plan", []),
+            summary=data.get("summary", ""),
+        )
+
+    # Fallback: return the raw text as a single observation.
+    return FighterObservationResponse(
+        observations=[raw_text[:500]] if raw_text else ["No response from LLM."],
+        strengths=[],
+        weaknesses=[],
+        training_plan=[],
+        summary=raw_text[:300] if raw_text else "Unable to generate structured observations.",
+    )
+
+
+def _parse_observation_json(text: str) -> dict | None:
+    """Extract the first balanced JSON object containing 'observations'."""
+    import re
+    s = text.strip()
+    # Strip markdown fences.
+    s = re.sub(r"^```(?:json)?\s*", "", s)
+    s = re.sub(r"\s*```$", "", s)
+    # Find first balanced {...}.
+    start = s.find("{")
+    if start < 0:
+        return None
+    depth = 0
+    for i in range(start, len(s)):
+        if s[i] == "{":
+            depth += 1
+        elif s[i] == "}":
+            depth -= 1
+            if depth == 0:
+                try:
+                    data = _json.loads(s[start:i + 1])
+                    if isinstance(data, dict):
+                        return data
+                except _json.JSONDecodeError:
+                    pass
+                break
+    return None
+
+
+def _percentile_90(sorted_vals: list[float]) -> float:
+    if not sorted_vals:
+        return 0.0
+    k = (len(sorted_vals) - 1) * 0.9
+    lo = int(k)
+    hi = min(lo + 1, len(sorted_vals) - 1)
+    return sorted_vals[lo] * (1 - (k - lo)) + sorted_vals[hi] * (k - lo)
