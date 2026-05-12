@@ -68,11 +68,36 @@ def create_session(data: SessionCreate, repo: SessionRepo = Depends(session_repo
     return SessionRead.model_validate(row, from_attributes=True)
 
 
+def _purge_stale_pending(repo: SessionRepo) -> int:
+    """Delete pending sessions with 0 frames that are older than 10 minutes."""
+    cutoff = datetime.datetime.utcnow() - datetime.timedelta(minutes=10)
+    all_sessions = repo.list_all()
+    deleted = 0
+    for s in all_sessions:
+        if (
+            s.status == SessionStatus.PENDING
+            and s.frame_count == 0
+            and s.started_at < cutoff
+        ):
+            repo.delete(s.id)
+            deleted += 1
+    return deleted
+
+
+@router.delete("/stale-pending")
+def delete_stale_pending(repo: SessionRepo = Depends(session_repo)) -> dict:
+    """Explicitly purge old empty pending sessions."""
+    deleted = _purge_stale_pending(repo)
+    return {"deleted": deleted}
+
+
 @router.get("", response_model=list[SessionRead])
 def list_sessions(
     fighter_id: UUID | None = None,
     repo: SessionRepo = Depends(session_repo),
 ) -> list[SessionRead]:
+    # Auto-clean stale pending sessions on every list call.
+    _purge_stale_pending(repo)
     rows = repo.list_for_fighter(fighter_id) if fighter_id else repo.list_all()
     return [SessionRead.model_validate(s, from_attributes=True) for s in rows]
 
