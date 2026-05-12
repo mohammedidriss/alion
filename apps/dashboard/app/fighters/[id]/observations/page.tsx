@@ -5,8 +5,16 @@ import { useEffect, useState } from "react";
 import {
   api,
   type FighterObservationResponse,
+  type PerformanceTrendItem,
   type Session,
 } from "@/lib/api";
+
+const PERIOD_OPTIONS = [
+  { label: "3 months", value: 3 },
+  { label: "6 months", value: 6 },
+  { label: "9 months", value: 9 },
+  { label: "12 months", value: 12 },
+] as const;
 
 export default function ObservationsTab({
   params,
@@ -18,6 +26,9 @@ export default function ObservationsTab({
   const [aiData, setAiData] = useState<FighterObservationResponse | null>(null);
   const [aiLoading, setAiLoading] = useState(false);
   const [aiErr, setAiErr] = useState<string | null>(null);
+  const [trendMonths, setTrendMonths] = useState(3);
+  const [trendData, setTrendData] = useState<PerformanceTrendItem[]>([]);
+  const [trendLoading, setTrendLoading] = useState(false);
 
   useEffect(() => {
     api
@@ -25,6 +36,15 @@ export default function ObservationsTab({
       .then(setSessions)
       .catch((e) => setErr(String(e)));
   }, [params.id]);
+
+  useEffect(() => {
+    setTrendLoading(true);
+    api
+      .performanceTrend(params.id, trendMonths)
+      .then((r) => setTrendData(r.items))
+      .catch(() => setTrendData([]))
+      .finally(() => setTrendLoading(false));
+  }, [params.id, trendMonths]);
 
   const annotated = sessions
     .filter((s) => s.notes && s.notes.trim().length > 0)
@@ -53,18 +73,52 @@ export default function ObservationsTab({
       <header>
         <h1 className="text-2xl font-semibold">Observations</h1>
         <p className="text-sm text-neutral-400">
-          AI-powered training analysis and coach notes from the last 3 months.
+          AI-powered training analysis, performance trends, and coach notes.
         </p>
       </header>
+
+      {/* ── Performance Trend Chart ── */}
+      <section className="rounded-lg border border-neutral-800 p-5 space-y-4">
+        <div className="flex items-center justify-between">
+          <div>
+            <h2 className="text-lg font-semibold">Performance Trend</h2>
+            <p className="mt-0.5 text-xs text-neutral-400">
+              Score, velocity, and volume over time.
+              {trendData.length > 0 && ` ${trendData.length} sessions plotted.`}
+            </p>
+          </div>
+          <select
+            value={trendMonths}
+            onChange={(e) => setTrendMonths(Number(e.target.value))}
+            className="rounded-lg border border-neutral-700 bg-neutral-900 px-3 py-1.5 text-sm text-neutral-200"
+          >
+            {PERIOD_OPTIONS.map((o) => (
+              <option key={o.value} value={o.value}>
+                {o.label}
+              </option>
+            ))}
+          </select>
+        </div>
+
+        {trendLoading ? (
+          <p className="text-xs text-neutral-500">Loading trend data...</p>
+        ) : trendData.length < 2 ? (
+          <p className="text-sm text-neutral-500">
+            Not enough sessions in this period to chart a trend.
+          </p>
+        ) : (
+          <TrendChart data={trendData} />
+        )}
+      </section>
 
       {/* Headline strip */}
       <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
         <div className="rounded-2xl border border-white/5 bg-white/[0.02] p-3">
           <div className="text-[10px] uppercase tracking-wide text-neutral-500">
-            Sessions (3 mo)
+            Sessions ({trendMonths} mo)
           </div>
           <div className="mt-1 text-2xl font-semibold tabular-nums">
-            {completed.length}
+            {trendData.length || completed.length}
           </div>
         </div>
         <div className="rounded-2xl border border-white/5 bg-white/[0.02] p-3">
@@ -275,6 +329,234 @@ export default function ObservationsTab({
           </ul>
         )}
       </section>
+    </div>
+  );
+}
+
+/* ─── SVG Line Chart ─── */
+
+const SERIES_CONFIG = [
+  { key: "score" as const, label: "Score", color: "#a78bfa" },        // violet
+  { key: "peak_velocity_ms" as const, label: "Velocity (m/s)", color: "#34d399" }, // emerald
+  { key: "ppm" as const, label: "PPM", color: "#fbbf24" },            // amber
+];
+
+function TrendChart({ data }: { data: PerformanceTrendItem[] }) {
+  const [hover, setHover] = useState<number | null>(null);
+  const [visibleSeries, setVisibleSeries] = useState<Set<string>>(
+    new Set(SERIES_CONFIG.map((s) => s.key))
+  );
+
+  const toggleSeries = (key: string) => {
+    setVisibleSeries((prev) => {
+      const next = new Set(prev);
+      if (next.has(key)) {
+        if (next.size > 1) next.delete(key); // keep at least one
+      } else {
+        next.add(key);
+      }
+      return next;
+    });
+  };
+
+  const W = 800;
+  const H = 260;
+  const PL = 50; // padding left
+  const PR = 20;
+  const PT = 20;
+  const PB = 40;
+  const chartW = W - PL - PR;
+  const chartH = H - PT - PB;
+
+  // Compute per-series min/max for normalization (each series gets 0-1 range).
+  const seriesData = SERIES_CONFIG.filter((s) => visibleSeries.has(s.key)).map(
+    (s) => {
+      const vals = data.map((d) => d[s.key] as number);
+      const min = Math.min(...vals);
+      const max = Math.max(...vals);
+      const range = max - min || 1;
+      return {
+        ...s,
+        vals,
+        min,
+        max,
+        range,
+        points: vals.map((v, i) => ({
+          x: PL + (i / Math.max(data.length - 1, 1)) * chartW,
+          y: PT + chartH - ((v - min) / range) * chartH,
+        })),
+      };
+    }
+  );
+
+  // X-axis labels (dates).
+  const labelStep = Math.max(1, Math.floor(data.length / 6));
+  const xLabels = data
+    .map((d, i) => ({ i, label: new Date(d.date).toLocaleDateString(undefined, { month: "short", day: "numeric" }) }))
+    .filter((_, i) => i % labelStep === 0 || i === data.length - 1);
+
+  return (
+    <div className="space-y-2">
+      {/* Legend / toggles */}
+      <div className="flex flex-wrap gap-3">
+        {SERIES_CONFIG.map((s) => (
+          <button
+            key={s.key}
+            onClick={() => toggleSeries(s.key)}
+            className={`flex items-center gap-1.5 rounded-full px-2.5 py-1 text-[11px] font-medium transition-opacity ${
+              visibleSeries.has(s.key) ? "opacity-100" : "opacity-40"
+            }`}
+            style={{ borderColor: s.color, border: "1px solid" }}
+          >
+            <span
+              className="inline-block h-2 w-2 rounded-full"
+              style={{ backgroundColor: s.color }}
+            />
+            {s.label}
+          </button>
+        ))}
+      </div>
+
+      {/* SVG chart */}
+      <svg
+        viewBox={`0 0 ${W} ${H}`}
+        className="w-full"
+        onMouseLeave={() => setHover(null)}
+      >
+        {/* Grid lines */}
+        {[0, 0.25, 0.5, 0.75, 1].map((f) => (
+          <line
+            key={f}
+            x1={PL}
+            y1={PT + chartH * (1 - f)}
+            x2={W - PR}
+            y2={PT + chartH * (1 - f)}
+            stroke="rgba(255,255,255,0.06)"
+          />
+        ))}
+
+        {/* Lines */}
+        {seriesData.map((s) => (
+          <polyline
+            key={s.key}
+            fill="none"
+            stroke={s.color}
+            strokeWidth={2}
+            strokeLinejoin="round"
+            strokeLinecap="round"
+            points={s.points.map((p) => `${p.x},${p.y}`).join(" ")}
+          />
+        ))}
+
+        {/* Dots */}
+        {seriesData.map((s) =>
+          s.points.map((p, i) => (
+            <circle
+              key={`${s.key}-${i}`}
+              cx={p.x}
+              cy={p.y}
+              r={hover === i ? 5 : 2.5}
+              fill={s.color}
+              opacity={hover === i ? 1 : 0.7}
+            />
+          ))
+        )}
+
+        {/* Hover columns (invisible rects for mouse detection) */}
+        {data.map((_, i) => {
+          const x = PL + (i / Math.max(data.length - 1, 1)) * chartW;
+          const colW = chartW / Math.max(data.length - 1, 1);
+          return (
+            <rect
+              key={i}
+              x={x - colW / 2}
+              y={PT}
+              width={colW}
+              height={chartH}
+              fill="transparent"
+              onMouseEnter={() => setHover(i)}
+            />
+          );
+        })}
+
+        {/* Hover line */}
+        {hover !== null && (
+          <line
+            x1={PL + (hover / Math.max(data.length - 1, 1)) * chartW}
+            y1={PT}
+            x2={PL + (hover / Math.max(data.length - 1, 1)) * chartW}
+            y2={PT + chartH}
+            stroke="rgba(255,255,255,0.2)"
+            strokeDasharray="4 4"
+          />
+        )}
+
+        {/* X-axis labels */}
+        {xLabels.map(({ i, label }) => (
+          <text
+            key={i}
+            x={PL + (i / Math.max(data.length - 1, 1)) * chartW}
+            y={H - 8}
+            textAnchor="middle"
+            fill="rgba(255,255,255,0.35)"
+            fontSize={10}
+          >
+            {label}
+          </text>
+        ))}
+
+        {/* Y-axis labels per visible series */}
+        {seriesData.map((s, si) => (
+          <g key={s.key}>
+            <text
+              x={PL - 6}
+              y={PT + 4}
+              textAnchor="end"
+              fill={s.color}
+              fontSize={9}
+              opacity={0.7}
+              dy={si * 11}
+            >
+              {s.max.toFixed(s.key === "ppm" ? 0 : 1)}
+            </text>
+            <text
+              x={PL - 6}
+              y={PT + chartH + 4}
+              textAnchor="end"
+              fill={s.color}
+              fontSize={9}
+              opacity={0.7}
+              dy={si * 11}
+            >
+              {s.min.toFixed(s.key === "ppm" ? 0 : 1)}
+            </text>
+          </g>
+        ))}
+      </svg>
+
+      {/* Hover tooltip */}
+      {hover !== null && data[hover] && (
+        <div className="flex flex-wrap gap-4 rounded-lg border border-white/5 bg-black/50 px-3 py-2 text-xs">
+          <span className="text-neutral-400">
+            {new Date(data[hover].date).toLocaleDateString()}
+          </span>
+          <span>
+            Score: <span className="font-semibold text-violet-300">{data[hover].score}</span>
+          </span>
+          <span>
+            Velocity: <span className="font-semibold text-emerald-300">{data[hover].peak_velocity_ms} m/s</span>
+          </span>
+          <span>
+            PPM: <span className="font-semibold text-amber-300">{data[hover].ppm}</span>
+          </span>
+          <span>
+            Punches: <span className="font-semibold">{data[hover].punch_count}</span>
+          </span>
+          <span>
+            Duration: <span className="font-semibold">{data[hover].duration_min} min</span>
+          </span>
+        </div>
+      )}
     </div>
   );
 }

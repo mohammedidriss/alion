@@ -724,6 +724,71 @@ class FighterObservationResponse(BaseModel):
     summary: str
 
 
+class PerformanceTrendItem(BaseModel):
+    date: str
+    punch_count: int
+    peak_velocity_ms: float
+    ppm: float
+    score: float
+    duration_min: float
+    baseline_rmssd_ms: float | None = None
+
+
+class PerformanceTrendResponse(BaseModel):
+    months: int
+    sessions_count: int
+    items: list[PerformanceTrendItem]
+
+
+@router.get(
+    "/{fighter_id}/performance-trend",
+    response_model=PerformanceTrendResponse,
+)
+def get_performance_trend(
+    fighter_id: UUID,
+    months: int = 3,
+    repo: FighterRepo = Depends(fighter_repo),
+    session_repo_dep: SessionRepo = Depends(session_repo),
+    event_repo: PunchEventRepo = Depends(punch_event_repo),
+) -> PerformanceTrendResponse:
+    """Return per-session performance metrics for the last N months."""
+    fighter = repo.get(fighter_id)
+    if fighter is None:
+        raise HTTPException(status_code=404, detail="fighter not found")
+
+    cutoff = datetime.utcnow() - timedelta(days=months * 30)
+    all_sessions = session_repo_dep.list_for_fighter(fighter_id)
+    completed = [
+        s for s in all_sessions
+        if s.status.value == "completed" and s.started_at >= cutoff
+    ]
+    completed.sort(key=lambda s: s.started_at)
+
+    items: list[PerformanceTrendItem] = []
+    for s in completed:
+        events = event_repo.list_for_session(s.id)
+        velocities = [e.velocity_ms for e in events]
+        duration_min = (s.duration_ms / 1000.0) / 60.0 if s.duration_ms > 0 else 0.0
+        ppm = len(events) / max(duration_min, 1e-6) if events else 0.0
+        p90 = _percentile_90(sorted(velocities)) if velocities else 0.0
+        score = p90 * (ppm / 60.0) * duration_min
+        items.append(PerformanceTrendItem(
+            date=s.started_at.strftime("%Y-%m-%d"),
+            punch_count=len(events),
+            peak_velocity_ms=round(p90, 2),
+            ppm=round(ppm, 1),
+            score=round(score, 2),
+            duration_min=round(duration_min, 2),
+            baseline_rmssd_ms=s.baseline_rmssd_ms,
+        ))
+
+    return PerformanceTrendResponse(
+        months=months,
+        sessions_count=len(items),
+        items=items,
+    )
+
+
 @router.post(
     "/{fighter_id}/observations/generate",
     response_model=FighterObservationResponse,

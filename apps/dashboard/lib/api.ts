@@ -324,6 +324,22 @@ export interface FighterObservationResponse {
   summary: string;
 }
 
+export interface PerformanceTrendItem {
+  date: string;
+  punch_count: number;
+  peak_velocity_ms: number;
+  ppm: number;
+  score: number;
+  duration_min: number;
+  baseline_rmssd_ms: number | null;
+}
+
+export interface PerformanceTrendResponse {
+  months: number;
+  sessions_count: number;
+  items: PerformanceTrendItem[];
+}
+
 export interface RoundPlan {
   id: number;
   name: string;
@@ -535,6 +551,10 @@ export const api = {
     req<FighterObservationResponse>(
       `/fighters/${fighterId}/observations/generate`,
       { method: "POST" },
+    ),
+  performanceTrend: (fighterId: string, months: number = 3) =>
+    req<PerformanceTrendResponse>(
+      `/fighters/${fighterId}/performance-trend?months=${months}`,
     ),
   createFighter: (name: string, stance: Stance = "orthodox") =>
     req<Fighter>("/fighters", {
