@@ -7,6 +7,7 @@ import {
   api,
   type CheckIn,
   type Coach,
+  type CoachAssignment,
   type Fighter,
   type FighterPatch,
   type GymMembership,
@@ -67,6 +68,7 @@ export default function MembersPage() {
 
   const [memberships, setMemberships] = useState<GymMembership[]>([]);
   const [todaysCheckins, setTodaysCheckins] = useState<CheckIn[]>([]);
+  const [coachAssignments, setCoachAssignments] = useState<Record<string, CoachAssignment[]>>({});
 
   // Panel state: "none" | "add-fighter" | "import" | "create-account"
   const [activePanel, setActivePanel] = useState<"none" | "add-fighter" | "import" | "create-account">("none");
@@ -143,6 +145,18 @@ export default function MembersPage() {
       setCoaches(cs);
       setMemberships(ms);
       setTodaysCheckins(cis);
+      // Fetch coach assignments for all fighters
+      const assignMap: Record<string, CoachAssignment[]> = {};
+      await Promise.all(
+        fs.map(async (f) => {
+          try {
+            assignMap[f.id] = await api.listCoachAssignments(f.id);
+          } catch {
+            assignMap[f.id] = [];
+          }
+        }),
+      );
+      setCoachAssignments(assignMap);
     } finally {
       setLoading(false);
     }
@@ -289,6 +303,31 @@ export default function MembersPage() {
       load();
     } catch (err) {
       alert(err instanceof Error ? err.message : "Failed to update status");
+    }
+  };
+
+  const getCurrentCoach = (fighterId: string): CoachAssignment | undefined => {
+    const assigns = coachAssignments[fighterId] ?? [];
+    return assigns.find((a) => !a.ended_on);
+  };
+
+  const handleCoachChange = async (fighterId: string, newCoachId: string) => {
+    const current = getCurrentCoach(fighterId);
+    try {
+      // Remove existing assignment if any
+      if (current) {
+        await api.deleteCoachAssignment(fighterId, current.id);
+      }
+      // Add new assignment if not "none"
+      if (newCoachId) {
+        await api.addCoachAssignment(fighterId, {
+          coach_id: newCoachId,
+          role: "head_coach",
+        });
+      }
+      load();
+    } catch (err) {
+      alert(err instanceof Error ? err.message : "Failed to update coach");
     }
   };
 
@@ -712,6 +751,7 @@ export default function MembersPage() {
           <thead>
             <tr className="border-b border-white/5 text-left text-xs uppercase tracking-wider text-neutral-500">
               <th className="pb-2 pr-4">Name</th>
+              <th className="pb-2 pr-4">Coach</th>
               <th className="pb-2 pr-4">Status</th>
               <th className="pb-2 pr-4">Stance</th>
               <th className="pb-2 pr-4">Skill Level</th>
@@ -740,6 +780,18 @@ export default function MembersPage() {
                         {f.nickname && <span className="ml-1.5 text-xs text-neutral-500">&quot;{f.nickname}&quot;</span>}
                       </div>
                     </Link>
+                  </td>
+                  <td className="py-3 pr-4">
+                    <select
+                      value={getCurrentCoach(f.id)?.coach_id ?? ""}
+                      onChange={(e) => handleCoachChange(f.id, e.target.value)}
+                      className="rounded-lg border border-white/10 bg-transparent px-1 py-1 text-[11px] text-neutral-400 focus:outline-none max-w-[120px]"
+                    >
+                      <option value="">— None —</option>
+                      {coaches.map((c) => (
+                        <option key={c.id} value={c.id}>{c.name}</option>
+                      ))}
+                    </select>
                   </td>
                   <td className="py-3 pr-4">
                     <div className="flex flex-col gap-1">
@@ -797,7 +849,7 @@ export default function MembersPage() {
             })}
             {filtered.length === 0 && (
               <tr>
-                <td colSpan={8} className="py-8 text-center text-neutral-500">
+                <td colSpan={9} className="py-8 text-center text-neutral-500">
                   {fighters.length === 0 ? "No fighters yet. Add your first member above." : "No fighters match your filters."}
                 </td>
               </tr>

@@ -13,6 +13,7 @@ import {
   type FighterTitle,
   type TitleStatus,
 } from "@/lib/api";
+import { useAuth } from "@/lib/auth";
 
 const ROLE_LABELS: Record<CoachRole, string> = {
   head_coach: "Head coach",
@@ -34,6 +35,8 @@ const STATUS_TINT: Record<TitleStatus, string> = {
 
 export default function TeamTab({ params }: { params: { id: string } }) {
   const fighterId = params.id;
+  const { user } = useAuth();
+  const readOnly = user?.role === "gym_manager";
   const [fighter, setFighter] = useState<Fighter | null>(null);
   const [titles, setTitles] = useState<FighterTitle[]>([]);
   const [sponsors, setSponsors] = useState<FighterSponsor[]>([]);
@@ -102,7 +105,7 @@ export default function TeamTab({ params }: { params: { id: string } }) {
       <section className="card">
         <div className="flex items-baseline justify-between">
           <h2 className="text-base font-semibold">Bio</h2>
-          {!editingBio && (
+          {!editingBio && !readOnly && (
             <button
               onClick={() => setEditingBio(true)}
               className="text-xs text-emerald-400 hover:underline"
@@ -178,6 +181,7 @@ export default function TeamTab({ params }: { params: { id: string } }) {
         fighter={fighter}
         coaches={coaches}
         allCoaches={allCoaches}
+        readOnly={readOnly}
         onAdd={async (data) => {
           await api.addCoachAssignment(fighterId, data);
           refresh();
@@ -191,6 +195,7 @@ export default function TeamTab({ params }: { params: { id: string } }) {
       {/* TITLES */}
       <TitlesSection
         items={titles}
+        readOnly={readOnly}
         onAdd={async (data) => {
           await api.addTitle(fighterId, data);
           refresh();
@@ -204,6 +209,7 @@ export default function TeamTab({ params }: { params: { id: string } }) {
       {/* SPONSORS */}
       <SponsorsSection
         items={sponsors}
+        readOnly={readOnly}
         onAdd={async (data) => {
           await api.addSponsor(fighterId, data);
           refresh();
@@ -223,12 +229,14 @@ function CoachesSection({
   fighter,
   coaches,
   allCoaches,
+  readOnly,
   onAdd,
   onDelete,
 }: {
   fighter: Fighter;
   coaches: CoachAssignment[];
   allCoaches: Coach[];
+  readOnly?: boolean;
   onAdd: (data: {
     coach_id: string;
     role?: CoachRole;
@@ -260,12 +268,14 @@ function CoachesSection({
     <section className="card">
       <div className="flex items-baseline justify-between">
         <h2 className="text-base font-semibold">Gym &amp; coaches</h2>
-        <button
-          onClick={() => setAdding(!adding)}
-          className="text-xs text-emerald-400 hover:underline"
-        >
-          {adding ? "cancel" : "+ assign coach"}
-        </button>
+        {!readOnly && (
+          <button
+            onClick={() => setAdding(!adding)}
+            className="text-xs text-emerald-400 hover:underline"
+          >
+            {adding ? "cancel" : "+ assign coach"}
+          </button>
+        )}
       </div>
 
       <div className="mt-3 grid grid-cols-1 gap-3 text-sm sm:grid-cols-2">
@@ -369,12 +379,14 @@ function CoachesSection({
                     : ""}
                 </div>
               </div>
-              <button
-                onClick={() => onDelete(a.id)}
-                className="text-xs text-neutral-500 hover:text-red-400"
-              >
-                remove
-              </button>
+              {!readOnly && (
+                <button
+                  onClick={() => onDelete(a.id)}
+                  className="text-xs text-neutral-500 hover:text-red-400"
+                >
+                  remove
+                </button>
+              )}
             </li>
           ))}
         </ul>
@@ -387,10 +399,12 @@ function CoachesSection({
 
 function TitlesSection({
   items,
+  readOnly,
   onAdd,
   onDelete,
 }: {
   items: FighterTitle[];
+  readOnly?: boolean;
   onAdd: (data: {
     name: string;
     organization?: string;
@@ -430,12 +444,14 @@ function TitlesSection({
     <section className="card">
       <div className="flex items-baseline justify-between">
         <h2 className="text-base font-semibold">Titles</h2>
-        <button
-          onClick={() => setAdding(!adding)}
-          className="text-xs text-emerald-400 hover:underline"
-        >
-          {adding ? "cancel" : "+ add title"}
-        </button>
+        {!readOnly && (
+          <button
+            onClick={() => setAdding(!adding)}
+            className="text-xs text-emerald-400 hover:underline"
+          >
+            {adding ? "cancel" : "+ add title"}
+          </button>
+        )}
       </div>
 
       {adding && (
@@ -515,12 +531,14 @@ function TitlesSection({
                     .join(" · ") || "—"}
                 </div>
               </div>
-              <button
-                onClick={() => onDelete(t.id)}
-                className="text-xs text-neutral-500 hover:text-red-400"
-              >
-                remove
-              </button>
+              {!readOnly && (
+                <button
+                  onClick={() => onDelete(t.id)}
+                  className="text-xs text-neutral-500 hover:text-red-400"
+                >
+                  remove
+                </button>
+              )}
             </li>
           ))}
         </ul>
@@ -533,10 +551,12 @@ function TitlesSection({
 
 function SponsorsSection({
   items,
+  readOnly,
   onAdd,
   onDelete,
 }: {
   items: FighterSponsor[];
+  readOnly?: boolean;
   onAdd: (data: {
     name: string;
     started_on?: string;
@@ -571,12 +591,14 @@ function SponsorsSection({
     <section className="card">
       <div className="flex items-baseline justify-between">
         <h2 className="text-base font-semibold">Sponsors</h2>
-        <button
-          onClick={() => setAdding(!adding)}
-          className="text-xs text-emerald-400 hover:underline"
-        >
-          {adding ? "cancel" : "+ add sponsor"}
-        </button>
+        {!readOnly && (
+          <button
+            onClick={() => setAdding(!adding)}
+            className="text-xs text-emerald-400 hover:underline"
+          >
+            {adding ? "cancel" : "+ add sponsor"}
+          </button>
+        )}
       </div>
 
       {adding && (
@@ -647,12 +669,14 @@ function SponsorsSection({
                     .join(" · ") || "—"}
                 </div>
               </div>
-              <button
-                onClick={() => onDelete(s.id)}
-                className="text-xs text-neutral-500 hover:text-red-400"
-              >
-                remove
-              </button>
+              {!readOnly && (
+                <button
+                  onClick={() => onDelete(s.id)}
+                  className="text-xs text-neutral-500 hover:text-red-400"
+                >
+                  remove
+                </button>
+              )}
             </li>
           ))}
         </ul>
