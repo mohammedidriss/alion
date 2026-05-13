@@ -22,6 +22,7 @@ from store.models import (
     CoachRead,
     Fighter,
     FighterRead,
+    Gym,
 )
 
 router = APIRouter(
@@ -69,15 +70,32 @@ def list_coaches(
         if scoped_gym:
             gym_id = scoped_gym
     rows = repo.list_for_gym(gym_id) if gym_id else repo.list_all()
-    return [CoachRead.model_validate(c, from_attributes=True) for c in rows]
+    # Resolve gym names for coaches that have gym_id but no gym text
+    gym_ids = {c.gym_id for c in rows if c.gym_id and not c.gym}
+    gym_names: dict[UUID, str] = {}
+    if gym_ids:
+        gyms = session.exec(select(Gym).where(Gym.id.in_(gym_ids))).all()  # type: ignore[attr-defined]
+        gym_names = {g.id: g.name for g in gyms}
+    result = []
+    for c in rows:
+        cr = CoachRead.model_validate(c, from_attributes=True)
+        if not cr.gym and c.gym_id and c.gym_id in gym_names:
+            cr.gym = gym_names[c.gym_id]
+        result.append(cr)
+    return result
 
 
 @router.get("/{coach_id}", response_model=CoachRead)
-def get_coach(coach_id: UUID, repo: CoachRepo = Depends(coach_repo)) -> CoachRead:
+def get_coach(coach_id: UUID, repo: CoachRepo = Depends(coach_repo), session: DBSession = Depends(db_session)) -> CoachRead:
     row = repo.get(coach_id)
     if row is None:
         raise HTTPException(status_code=404, detail="coach not found")
-    return CoachRead.model_validate(row, from_attributes=True)
+    cr = CoachRead.model_validate(row, from_attributes=True)
+    if not cr.gym and row.gym_id:
+        gym = session.get(Gym, row.gym_id)
+        if gym:
+            cr.gym = gym.name
+    return cr
 
 
 @router.patch("/{coach_id}", response_model=CoachRead)

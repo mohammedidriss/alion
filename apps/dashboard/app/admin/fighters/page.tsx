@@ -30,7 +30,7 @@ export default function AdminFightersPage() {
 
   const q = search.toLowerCase().trim();
   const filtered = useMemo(
-    () => fighters.filter((f) => !q || f.name.toLowerCase().includes(q) || (f.nickname ?? "").toLowerCase().includes(q)),
+    () => fighters.filter((f) => !q || f.name.toLowerCase().includes(q) || (f.nickname ?? "").toLowerCase().includes(q) || (f.gym ?? "").toLowerCase().includes(q)),
     [fighters, q],
   );
 
@@ -66,30 +66,57 @@ export default function AdminFightersPage() {
         <div className="card py-8 text-center text-neutral-500">No fighters found.</div>
       ) : (
         <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3">
-          {filtered.map((f) => (
-            <Link
-              key={f.id}
-              href={`/fighters/${f.id}`}
-              className="card flex gap-3 hover:border-white/15 hover:bg-white/[0.04] transition-colors"
-            >
-              <ProfileAvatar name={f.name} photo_path={f.photo_path} size={48} />
-              <div className="min-w-0 flex-1">
-                <p className="font-medium">{f.name}</p>
-                {f.nickname && <p className="text-xs text-neutral-500">&ldquo;{f.nickname}&rdquo;</p>}
-                <div className="mt-2 flex flex-wrap gap-1.5">
-                  {f.stance && (
-                    <span className="rounded-full bg-white/[0.06] px-2 py-0.5 text-[10px] text-neutral-400">{f.stance}</span>
+          {filtered.map((f) => {
+            const age = f.dob ? Math.floor((Date.now() - new Date(f.dob).getTime()) / 31557600000) : null;
+            const record = `${f.record_wins}-${f.record_losses}-${f.record_draws}`;
+            const hasRecord = f.record_wins + f.record_losses + f.record_draws > 0;
+            return (
+              <Link
+                key={f.id}
+                href={`/fighters/${f.id}`}
+                className="card flex gap-3 hover:border-white/15 hover:bg-white/[0.04] transition-colors"
+              >
+                <ProfileAvatar name={f.name} photo_path={f.photo_path} size={48} />
+                <div className="min-w-0 flex-1">
+                  <div className="flex items-baseline gap-2">
+                    <p className="font-medium">{f.name}</p>
+                    {age != null && (
+                      <span className="text-[10px] text-neutral-500">{age} yrs</span>
+                    )}
+                  </div>
+                  {f.nickname && <p className="text-xs text-neutral-500">&ldquo;{f.nickname}&rdquo;</p>}
+                  {f.gym && (
+                    <p className="mt-0.5 text-[11px] text-amber-300/80">
+                      <span className="mr-1">🏟</span>{f.gym}
+                    </p>
                   )}
-                  {f.skill_level && (
-                    <span className="rounded-full bg-emerald-500/15 px-2 py-0.5 text-[10px] text-emerald-300">{f.skill_level}</span>
-                  )}
-                  {f.weight_class && (
-                    <span className="rounded-full bg-blue-500/15 px-2 py-0.5 text-[10px] text-blue-300">{f.weight_class}</span>
-                  )}
+                  {/* Stats row */}
+                  <div className="mt-1.5 flex items-center gap-3 text-[11px] text-neutral-400">
+                    {hasRecord && (
+                      <span title="Record (W-L-D)">
+                        <span className="font-semibold text-neutral-200">{record}</span>
+                        {f.record_kos > 0 && <span className="ml-0.5 text-neutral-500">({f.record_kos} KO)</span>}
+                      </span>
+                    )}
+                    {f.weight_kg && <span>{f.weight_kg} kg</span>}
+                    {f.nationality && <span>{f.nationality}</span>}
+                  </div>
+                  {/* Tags */}
+                  <div className="mt-1.5 flex flex-wrap gap-1.5">
+                    {f.stance && (
+                      <span className="rounded-full bg-white/[0.06] px-2 py-0.5 text-[10px] text-neutral-400">{f.stance}</span>
+                    )}
+                    {f.skill_level && (
+                      <span className="rounded-full bg-emerald-500/15 px-2 py-0.5 text-[10px] text-emerald-300">{f.skill_level.replace(/_/g, " ")}</span>
+                    )}
+                    {f.weight_class && (
+                      <span className="rounded-full bg-blue-500/15 px-2 py-0.5 text-[10px] text-blue-300">{f.weight_class.replace(/_/g, " ")}</span>
+                    )}
+                  </div>
                 </div>
-              </div>
-            </Link>
-          ))}
+              </Link>
+            );
+          })}
         </div>
       )}
     </div>

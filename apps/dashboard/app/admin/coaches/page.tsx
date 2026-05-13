@@ -30,7 +30,7 @@ export default function AdminCoachesPage() {
 
   const q = search.toLowerCase().trim();
   const filtered = useMemo(
-    () => coaches.filter((c) => !q || c.name.toLowerCase().includes(q)),
+    () => coaches.filter((c) => !q || c.name.toLowerCase().includes(q) || (c.gym ?? "").toLowerCase().includes(q)),
     [coaches, q],
   );
 
@@ -75,18 +75,43 @@ export default function AdminCoachesPage() {
               <ProfileAvatar name={c.name} photo_path={c.photo_path} size={48} />
               <div className="min-w-0 flex-1">
                 <p className="font-medium">{c.name}</p>
+                {c.gym && (
+                  <p className="mt-0.5 text-[11px] text-amber-300/80">
+                    <span className="mr-1">🏟</span>{c.gym}
+                  </p>
+                )}
                 {c.specialties && <p className="mt-0.5 text-xs text-neutral-400">{c.specialties}</p>}
-                <div className="mt-2 flex flex-wrap gap-1.5">
+                {/* Tags */}
+                <div className="mt-1.5 flex flex-wrap gap-1.5">
                   {c.coaching_level && (
                     <span className="rounded-full bg-blue-500/15 px-2 py-0.5 text-[10px] font-medium text-blue-300">{c.coaching_level}</span>
                   )}
                   {c.years_experience != null && (
-                    <span className="rounded-full bg-white/[0.06] px-2 py-0.5 text-[10px] text-neutral-400">{c.years_experience} yrs</span>
+                    <span className="rounded-full bg-white/[0.06] px-2 py-0.5 text-[10px] text-neutral-400">{c.years_experience} yrs exp</span>
+                  )}
+                  {c.certifications && (
+                    <span className="rounded-full bg-violet-500/15 px-2 py-0.5 text-[10px] text-violet-300" title={c.certifications}>
+                      {c.certifications.length > 25 ? c.certifications.slice(0, 25) + "..." : c.certifications}
+                    </span>
                   )}
                 </div>
-                {(c.email || c.phone) && (
-                  <p className="mt-2 text-[11px] text-neutral-500">{[c.email, c.phone].filter(Boolean).join(" · ")}</p>
-                )}
+                {/* Contact + license */}
+                <div className="mt-1.5 space-y-0.5">
+                  {(c.email || c.phone) && (
+                    <p className="text-[11px] text-neutral-500">{[c.email, c.phone].filter(Boolean).join(" · ")}</p>
+                  )}
+                  {c.license_number && (
+                    <p className="text-[10px] text-neutral-500">
+                      License: {c.license_number}
+                      {c.license_expiry && <span className="ml-1">(exp {new Date(c.license_expiry).toLocaleDateString()})</span>}
+                    </p>
+                  )}
+                  {c.notable_fighters && (
+                    <p className="text-[10px] text-neutral-500" title={c.notable_fighters}>
+                      Trained: {c.notable_fighters.length > 40 ? c.notable_fighters.slice(0, 40) + "..." : c.notable_fighters}
+                    </p>
+                  )}
+                </div>
               </div>
             </Link>
           ))}
