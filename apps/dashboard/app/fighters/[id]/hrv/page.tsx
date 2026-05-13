@@ -10,8 +10,22 @@ import {
   type MatrixResponse,
   type Session,
 } from "@/lib/api";
+import { useAuth } from "@/lib/auth";
 
 export default function HrvTab({ params }: { params: { id: string } }) {
+  const { user } = useAuth();
+  if (user?.role === "admin") {
+    return (
+      <div className="space-y-4 px-8 py-12">
+        <div className="text-4xl">🔒</div>
+        <h1 className="text-xl font-semibold">Access Restricted</h1>
+        <p className="max-w-md text-sm text-neutral-400">
+          HRV and biometric data is confidential. System administrators manage
+          accounts and general information only.
+        </p>
+      </div>
+    );
+  }
   const [sessions, setSessions] = useState<Session[]>([]);
   const [matrix, setMatrix] = useState<MatrixResponse | null>(null);
   const [readiness, setReadiness] = useState<FighterReadiness | null>(null);

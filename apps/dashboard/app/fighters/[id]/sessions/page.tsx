@@ -10,6 +10,7 @@ import {
   type SessionSource,
   type SessionStatus,
 } from "@/lib/api";
+import { useAuth } from "@/lib/auth";
 
 const STATUS_TINT: Record<SessionStatus, string> = {
   completed: "bg-emerald-500/15 text-emerald-300",
@@ -35,7 +36,22 @@ interface Row {
 
 export default function SessionsTab({ params }: { params: { id: string } }) {
   const router = useRouter();
+  const { user } = useAuth();
   const [rows, setRows] = useState<Row[]>([]);
+
+  // Admin cannot view session data — admin manages accounts, not training data
+  if (user?.role === "admin") {
+    return (
+      <div className="space-y-4 px-8 py-12">
+        <div className="text-4xl">🔒</div>
+        <h1 className="text-xl font-semibold">Access Restricted</h1>
+        <p className="max-w-md text-sm text-neutral-400">
+          Training session data is confidential. System administrators manage
+          accounts and general information only.
+        </p>
+      </div>
+    );
+  }
   const [err, setErr] = useState<string | null>(null);
   const [filter, setFilter] = useState<"all" | SessionStatus>("all");
 

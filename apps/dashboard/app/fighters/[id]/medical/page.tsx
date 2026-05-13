@@ -11,6 +11,7 @@ import {
   type MedicalRecordPatch,
   type Medication,
 } from "@/lib/api";
+import { useAuth } from "@/lib/auth";
 
 const SEVERITY_TINT: Record<AllergySeverity, string> = {
   mild: "bg-yellow-500/15 text-yellow-300",
@@ -27,6 +28,7 @@ const STATUS_TINT: Record<ConditionStatus, string> = {
 
 export default function MedicalTab({ params }: { params: { id: string } }) {
   const fighterId = params.id;
+  const { user } = useAuth();
   const [record, setRecord] = useState<MedicalRecord | null>(null);
   const [allergies, setAllergies] = useState<Allergy[]>([]);
   const [medications, setMedications] = useState<Medication[]>([]);
@@ -67,6 +69,25 @@ export default function MedicalTab({ params }: { params: { id: string } }) {
       setErr(String(e));
     }
   };
+
+  // HIPAA compliance: gym managers and admins cannot view medical records without fighter consent
+  if (user?.role === "gym_manager" || user?.role === "admin") {
+    return (
+      <div className="space-y-4 px-8 py-12">
+        <div className="text-4xl">🔒</div>
+        <h1 className="text-xl font-semibold">Access Restricted</h1>
+        <p className="max-w-md text-sm text-neutral-400">
+          Medical records are protected health information. Gym managers cannot
+          view fighter medical data without explicit consent, in accordance with
+          HIPAA privacy regulations.
+        </p>
+        <p className="max-w-md text-xs text-neutral-500">
+          If you need access for safety reasons (e.g. ringside emergencies),
+          request the fighter or their coach to share relevant medical alerts.
+        </p>
+      </div>
+    );
+  }
 
   return (
     <div className="space-y-6 px-8 py-6">

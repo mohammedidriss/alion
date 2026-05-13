@@ -46,7 +46,8 @@ export default function FighterPage({ params }: { params: { id: string } }) {
   const router = useRouter();
   const { user } = useAuth();
   const canEdit = !!user && user.role !== "fighter";
-  const canCreateSession = canEdit && user?.role !== "gym_manager";
+  const isAdmin = user?.role === "admin";
+  const canCreateSession = canEdit && user?.role !== "gym_manager" && !isAdmin;
   const [fighter, setFighter] = useState<Fighter | null>(null);
   const [options, setOptions] = useState<FighterOptions | null>(null);
   const [sessions, setSessions] = useState<SessionWithStats[]>([]);
@@ -63,15 +64,18 @@ export default function FighterPage({ params }: { params: { id: string } }) {
 
   const load = useCallback(async () => {
     try {
+      // Admin only loads general fighter info — no sessions, no medical data
+      const isAdminRole = user?.role === "admin";
       const [f, sList, wList, opts] = await Promise.all([
         api.getFighter(id),
-        api.listSessions(id),
-        api.listWeighIns(id),
+        isAdminRole ? Promise.resolve([]) : api.listSessions(id),
+        isAdminRole ? Promise.resolve([]) : api.listWeighIns(id),
         api.fighterOptions().catch(() => null),
       ]);
       setFighter(f);
       setOptions(opts);
       setWeighIns(wList);
+      if (!isAdminRole) {
       const withStats = await Promise.all(
         sList
           .slice()
@@ -89,19 +93,22 @@ export default function FighterPage({ params }: { params: { id: string } }) {
           }),
       );
       setSessions(withStats);
-      // Medical alerts for the dashboard banner
-      const [allergies, meds, conds] = await Promise.all([
-        api.listAllergies(id).catch(() => [] as Allergy[]),
-        api.listMedications(id).catch(() => [] as Medication[]),
-        api.listConditions(id).catch(() => [] as MedicalCondition[]),
-      ]);
-      setSevereAllergies(
-        allergies.filter(
-          (a) => a.severity === "severe" || a.severity === "anaphylactic",
-        ),
-      );
-      setActiveConds(conds.filter((c) => c.status === "active"));
-      setActiveMeds(meds.filter((m) => m.is_active));
+      }
+      // Medical alerts for the dashboard banner (HIPAA: skip for gym managers and admins)
+      if (user?.role !== "gym_manager" && user?.role !== "admin") {
+        const [allergies, meds, conds] = await Promise.all([
+          api.listAllergies(id).catch(() => [] as Allergy[]),
+          api.listMedications(id).catch(() => [] as Medication[]),
+          api.listConditions(id).catch(() => [] as MedicalCondition[]),
+        ]);
+        setSevereAllergies(
+          allergies.filter(
+            (a) => a.severity === "severe" || a.severity === "anaphylactic",
+          ),
+        );
+        setActiveConds(conds.filter((c) => c.status === "active"));
+        setActiveMeds(meds.filter((m) => m.is_active));
+      }
     } catch (e) {
       setErr(String(e));
     }
@@ -255,8 +262,9 @@ export default function FighterPage({ params }: { params: { id: string } }) {
         </p>
       )}
 
-      {/* Medical alert banner — surfaces ringside-critical info immediately */}
-      {(severeAllergies.length > 0 ||
+      {/* Medical alert banner — surfaces ringside-critical info (HIPAA: hidden from gym managers & admins) */}
+      {user?.role !== "gym_manager" && user?.role !== "admin" &&
+       (severeAllergies.length > 0 ||
         activeConds.length > 0 ||
         activeMeds.length > 0) && (
         <div className="rounded-xl border border-red-500/30 bg-red-500/5 p-4">
@@ -304,13 +312,14 @@ export default function FighterPage({ params }: { params: { id: string } }) {
         </div>
       )}
 
-      <FighterDashboard
+      {/* Session/performance data hidden from admin — admin manages accounts, not training data */}
+      {!isAdmin && <FighterDashboard
         fighterId={fighter.id}
         sessionsWithEvents={sessions.map((s) => ({
           session: s.session,
           events: s.events,
         }))}
-      />
+      />}
 
       {/* RECORD */}
       <section className="grid grid-cols-1 gap-4 md:grid-cols-3">
@@ -386,8 +395,8 @@ export default function FighterPage({ params }: { params: { id: string } }) {
         </div>
       </section>
 
-      {/* WEIGHT TRACKER */}
-      <section className="rounded-lg border border-neutral-800 p-4">
+      {/* WEIGHT TRACKER — hidden from admin */}
+      {!isAdmin && <section className="rounded-lg border border-neutral-800 p-4">
         <div className="flex items-baseline justify-between">
           <h2 className="font-medium">Weight tracker</h2>
           <span className="text-xs text-neutral-500">
@@ -454,9 +463,10 @@ export default function FighterPage({ params }: { params: { id: string } }) {
               ))}
           </ul>
         )}
-      </section>
+      </section>}
 
-      {/* PERFORMANCE */}
+      {/* PERFORMANCE — hidden from admin */}
+      {!isAdmin && <>
       <section className="rounded-lg border border-neutral-800 p-4">
         <h2 className="font-medium">Performance — career totals</h2>
         <dl className="mt-3 grid grid-cols-2 gap-3 text-sm sm:grid-cols-3 md:grid-cols-6">
@@ -506,6 +516,7 @@ export default function FighterPage({ params }: { params: { id: string } }) {
           metricLabel="peak"
         />
       </section>
+      </>}
 
       {editing && (
         <EditModal

@@ -29,10 +29,26 @@ import {
   type Session,
   type SessionSource,
 } from "@/lib/api";
+import { useAuth } from "@/lib/auth";
 
 export default function SessionPage({ params }: { params: { id: string } }) {
   const { id } = params;
   const router = useRouter();
+  const { user: authUser } = useAuth();
+
+  // Admin cannot view session data — manages accounts only
+  if (authUser?.role === "admin") {
+    return (
+      <div className="space-y-4 px-8 py-12">
+        <div className="text-4xl">🔒</div>
+        <h1 className="text-xl font-semibold">Access Restricted</h1>
+        <p className="max-w-md text-sm text-neutral-400">
+          Training session data is confidential. System administrators manage
+          accounts and general information only.
+        </p>
+      </div>
+    );
+  }
   const [session, setSession] = useState<Session | null>(null);
   const [status, setStatus] = useState<CaptureStatus | null>(null);
   const [events, setEvents] = useState<PunchEvent[]>([]);

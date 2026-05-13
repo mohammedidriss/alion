@@ -47,7 +47,7 @@ export function Sidebar({ onNavigate }: { onNavigate?: () => void } = {}) {
     if (user.role === "coach" && user.profile_id) return `/coaches/${user.profile_id}`;
     if (user.role === "referee" && user.profile_id) return `/referees/${user.profile_id}`;
     if (user.role === "gym_manager") return "/gym-dashboard";
-    if (user.role === "admin") return "/compare";
+    if (user.role === "admin") return "/admin";
     return "/";
   })();
 
@@ -59,6 +59,11 @@ export function Sidebar({ onNavigate }: { onNavigate?: () => void } = {}) {
 
   // Role-specific global items
   if (activeRole === "admin") {
+    navItems.push({ label: "Admin Dashboard", href: "/admin", icon: "⚙" });
+    navItems.push({ label: "Users", href: "/admin/users", icon: "◉" });
+    navItems.push({ label: "All Fighters", href: "/admin/fighters", icon: "⊕" });
+    navItems.push({ label: "All Coaches", href: "/admin/coaches", icon: "◈" });
+    navItems.push({ label: "All Gyms", href: "/admin/gyms", icon: "⌂" });
     navItems.push({ label: "Compare Backends", href: "/compare", icon: "C" });
   }
   if (activeRole === "gym_manager") {
@@ -69,8 +74,15 @@ export function Sidebar({ onNavigate }: { onNavigate?: () => void } = {}) {
   }
 
   // Fighter context tabs (when viewing any fighter page)
+  // Privacy: admin only sees general info (Dashboard + Team); gym_manager can't see Medical
+  const CONFIDENTIAL_SLUGS = ["sessions", "hrv", "observations", "medical", "imu"];
+  const visibleTabs = activeRole === "admin"
+    ? FIGHTER_TABS.filter((t) => !CONFIDENTIAL_SLUGS.includes(t.slug))
+    : activeRole === "gym_manager"
+      ? FIGHTER_TABS.filter((t) => t.slug !== "medical")
+      : FIGHTER_TABS;
   const fighterTabs: NavItem[] = fighterId
-    ? FIGHTER_TABS.map((t) => ({
+    ? visibleTabs.map((t) => ({
         label: t.label,
         href: t.slug ? `/fighters/${fighterId}/${t.slug}` : `/fighters/${fighterId}`,
         icon: t.icon,
@@ -147,8 +159,8 @@ export function Sidebar({ onNavigate }: { onNavigate?: () => void } = {}) {
               );
             })}
 
-            {/* New session button (coaches/admins only) */}
-            {activeRole !== "fighter" && activeRole !== "gym_manager" && (
+            {/* New session button (coaches only — admin manages accounts, not sessions) */}
+            {activeRole !== "fighter" && activeRole !== "gym_manager" && activeRole !== "admin" && (
               <button
                 onClick={async (e) => {
                   const btn = e.currentTarget;

@@ -12,7 +12,7 @@ from fastapi import APIRouter, Depends, HTTPException, status
 from fastapi.security import OAuth2PasswordBearer, OAuth2PasswordRequestForm
 from jose import JWTError, jwt
 from pydantic import BaseModel, field_validator
-from sqlmodel import Session as DBSession
+from sqlmodel import Session as DBSession, select
 
 from api.deps import db_session
 from store import (
@@ -217,3 +217,153 @@ def login(
 def get_me(user: User = Depends(require_current_user)) -> UserRead:
     """Return the current authenticated user."""
     return UserRead.model_validate(user, from_attributes=True)
+
+
+# --- Admin-only helpers ---
+
+def _require_admin(user: User = Depends(require_current_user)) -> User:
+    """Dependency that enforces admin role."""
+    if user.role != UserRole.ADMIN and user.role != "admin":
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Admin access required")
+    return user
+
+
+# --- Admin endpoints ---
+
+@router.get("/admin/users", response_model=list[UserRead])
+def admin_list_users(
+    _admin: User = Depends(_require_admin),
+    repo: UserRepo = Depends(_user_repo),
+) -> list[UserRead]:
+    """List all users in the system (admin only)."""
+    return [UserRead.model_validate(u, from_attributes=True) for u in repo.list_all()]
+
+
+class AdminResetPasswordRequest(BaseModel):
+    new_password: str
+
+    @field_validator("new_password")
+    @classmethod
+    def validate_password(cls, v: str) -> str:
+        if len(v) < 6:
+            raise ValueError("Password must be at least 6 characters")
+        return v
+
+
+@router.post("/admin/users/{user_id}/reset-password")
+def admin_reset_password(
+    user_id: UUID,
+    data: AdminResetPasswordRequest,
+    _admin: User = Depends(_require_admin),
+    repo: UserRepo = Depends(_user_repo),
+) -> dict[str, str]:
+    """Reset any user's password (admin only)."""
+    target = repo.get(user_id)
+    if target is None:
+        raise HTTPException(status_code=404, detail="User not found")
+    new_hash = _hash_password(data.new_password)
+    repo.update(user_id, {"password_hash": new_hash})
+    return {"status": "ok", "message": f"Password reset for {target.email}"}
+
+
+class AdminUpdateUserRequest(BaseModel):
+    name: str | None = None
+    email: str | None = None
+    role: UserRole | None = None
+    is_active: bool | None = None
+    profile_id: UUID | None = None
+
+
+@router.patch("/admin/users/{user_id}", response_model=UserRead)
+def admin_update_user(
+    user_id: UUID,
+    data: AdminUpdateUserRequest,
+    _admin: User = Depends(_require_admin),
+    repo: UserRepo = Depends(_user_repo),
+) -> UserRead:
+    """Update any user's fields (admin only)."""
+    target = repo.get(user_id)
+    if target is None:
+        raise HTTPException(status_code=404, detail="User not found")
+    fields = {k: v for k, v in data.model_dump().items() if v is not None}
+    if not fields:
+        raise HTTPException(status_code=400, detail="No fields to update")
+    updated = repo.update(user_id, fields)
+    return UserRead.model_validate(updated, from_attributes=True)
+
+
+@router.delete("/admin/users/{user_id}")
+def admin_delete_user(
+    user_id: UUID,
+    _admin: User = Depends(_require_admin),
+    repo: UserRepo = Depends(_user_repo),
+) -> dict[str, str]:
+    """Delete a user account (admin only). Cannot delete yourself."""
+    if user_id == _admin.id:
+        raise HTTPException(status_code=400, detail="Cannot delete your own admin account")
+    target = repo.get(user_id)
+    if target is None:
+        raise HTTPException(status_code=404, detail="User not found")
+    repo.delete(user_id)
+    return {"status": "ok", "message": f"Deleted user {target.email}"}
+
+
+@router.post("/admin/users/{user_id}/deactivate")
+def admin_deactivate_user(
+    user_id: UUID,
+    _admin: User = Depends(_require_admin),
+    repo: UserRepo = Depends(_user_repo),
+) -> dict[str, str]:
+    """Deactivate a user (soft disable, preserves data)."""
+    if user_id == _admin.id:
+        raise HTTPException(status_code=400, detail="Cannot deactivate your own account")
+    target = repo.get(user_id)
+    if target is None:
+        raise HTTPException(status_code=404, detail="User not found")
+    repo.update(user_id, {"is_active": False})
+    return {"status": "ok", "message": f"Deactivated {target.email}"}
+
+
+@router.post("/admin/users/{user_id}/activate")
+def admin_activate_user(
+    user_id: UUID,
+    _admin: User = Depends(_require_admin),
+    repo: UserRepo = Depends(_user_repo),
+) -> dict[str, str]:
+    """Re-activate a previously deactivated user."""
+    target = repo.get(user_id)
+    if target is None:
+        raise HTTPException(status_code=404, detail="User not found")
+    repo.update(user_id, {"is_active": True})
+    return {"status": "ok", "message": f"Activated {target.email}"}
+
+
+class AdminSystemStats(BaseModel):
+    total_users: int
+    active_users: int
+    fighters: int
+    coaches: int
+    gym_managers: int
+    admins: int
+    gyms: int
+    sessions: int
+
+
+@router.get("/admin/stats", response_model=AdminSystemStats)
+def admin_system_stats(
+    _admin: User = Depends(_require_admin),
+    session: DBSession = Depends(db_session),
+) -> AdminSystemStats:
+    """System-wide statistics (admin only)."""
+    from store.models import Fighter, Coach, Gym, Session as TrainingSession
+    users = list(session.exec(select(User)).all())
+    return AdminSystemStats(
+        total_users=len(users),
+        active_users=sum(1 for u in users if u.is_active),
+        fighters=sum(1 for u in users if u.role in (UserRole.FIGHTER, "fighter")),
+        coaches=sum(1 for u in users if u.role in (UserRole.COACH, "coach")),
+        gym_managers=sum(1 for u in users if u.role in (UserRole.GYM_MANAGER, "gym_manager")),
+        admins=sum(1 for u in users if u.role in (UserRole.ADMIN, "admin")),
+        gyms=len(list(session.exec(select(Gym)).all())),
+        sessions=len(list(session.exec(select(TrainingSession)).all())),
+    )

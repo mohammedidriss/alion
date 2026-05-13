@@ -1179,6 +1179,28 @@ export const api = {
       if (!r.ok) throw new Error("Not authenticated");
       return r.json() as Promise<AuthUser>;
     }),
+
+  // Admin endpoints
+  adminListUsers: () => req<AuthUser[]>("/auth/admin/users"),
+  adminResetPassword: (userId: string, newPassword: string) =>
+    req<{ status: string; message: string }>(`/auth/admin/users/${userId}/reset-password`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ new_password: newPassword }),
+    }),
+  adminUpdateUser: (userId: string, fields: Partial<Pick<AuthUser, "name" | "email" | "role" | "is_active">>) =>
+    req<AuthUser>(`/auth/admin/users/${userId}`, {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(fields),
+    }),
+  adminDeleteUser: (userId: string) =>
+    req<{ status: string; message: string }>(`/auth/admin/users/${userId}`, { method: "DELETE" }),
+  adminDeactivateUser: (userId: string) =>
+    req<{ status: string; message: string }>(`/auth/admin/users/${userId}/deactivate`, { method: "POST" }),
+  adminActivateUser: (userId: string) =>
+    req<{ status: string; message: string }>(`/auth/admin/users/${userId}/activate`, { method: "POST" }),
+  adminStats: () => req<AdminSystemStats>("/auth/admin/stats"),
 };
 
 // ---- Evaluation types ----
@@ -1191,6 +1213,17 @@ export interface GroundTruthPunch {
 
 export interface LabelsPayload {
   labels: GroundTruthPunch[];
+}
+
+export interface AdminSystemStats {
+  total_users: number;
+  active_users: number;
+  fighters: number;
+  coaches: number;
+  gym_managers: number;
+  admins: number;
+  gyms: number;
+  sessions: number;
 }
 
 export interface EvaluationResponse {

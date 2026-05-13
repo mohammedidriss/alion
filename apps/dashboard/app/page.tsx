@@ -6,15 +6,16 @@ import { AlionWordmark } from "@/components/AlionLogo";
 import { useAuth } from "@/lib/auth";
 import { type AuthUser, type UserRole } from "@/lib/api";
 
-/** Compute the profile URL a user should land on after login */
-function profileUrlFor(u: AuthUser): string {
+/** Compute the profile URL a user should land on after login.
+ *  Returns null if no suitable destination exists (e.g. profile_id missing). */
+function profileUrlFor(u: AuthUser): string | null {
   if (u.role === "fighter" && u.profile_id) return `/fighters/${u.profile_id}`;
   if (u.role === "coach" && u.profile_id) return `/coaches/${u.profile_id}`;
   if (u.role === "referee" && u.profile_id) return `/referees/${u.profile_id}`;
   if (u.role === "gym_manager") return "/gym-dashboard";
-  if (u.role === "admin") return "/compare";
-  // fallback – shouldn't happen if profile is linked
-  return "/";
+  if (u.role === "admin") return "/admin";
+  // No linked profile — cannot redirect (avoids infinite loop on "/")
+  return null;
 }
 
 export default function Home() {
@@ -33,7 +34,8 @@ export default function Home() {
   // Auto-redirect authenticated users to their profile page
   useEffect(() => {
     if (!loading && user) {
-      router.replace(profileUrlFor(user));
+      const dest = profileUrlFor(user);
+      if (dest) router.replace(dest);
     }
   }, [user, loading, router]);
 
@@ -49,7 +51,12 @@ export default function Home() {
         loggedInUser = await register(email, password, name, role, stayLoggedIn);
       }
       // Redirect immediately to profile
-      router.replace(profileUrlFor(loggedInUser));
+      const dest = profileUrlFor(loggedInUser);
+      if (dest) {
+        router.replace(dest);
+      } else {
+        setError("Your account has no linked profile. Please contact an admin.");
+      }
     } catch (err) {
       setError(err instanceof Error ? err.message : "Something went wrong");
     } finally {
@@ -57,7 +64,9 @@ export default function Home() {
     }
   };
 
-  if (loading || user) {
+  // Show loading spinner while auth is resolving or user is being redirected
+  const destination = user ? profileUrlFor(user) : null;
+  if (loading || (user && destination)) {
     return (
       <div className="flex min-h-screen items-center justify-center">
         <p className="text-neutral-500">Loading...</p>

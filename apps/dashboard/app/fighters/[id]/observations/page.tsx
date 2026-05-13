@@ -9,6 +9,7 @@ import {
   type PerformanceTrendItem,
   type Session,
 } from "@/lib/api";
+import { useAuth } from "@/lib/auth";
 
 const PERIOD_OPTIONS = [
   { label: "3 months", value: 3 },
@@ -22,6 +23,19 @@ export default function ObservationsTab({
 }: {
   params: { id: string };
 }) {
+  const { user } = useAuth();
+  if (user?.role === "admin") {
+    return (
+      <div className="space-y-4 px-8 py-12">
+        <div className="text-4xl">🔒</div>
+        <h1 className="text-xl font-semibold">Access Restricted</h1>
+        <p className="max-w-md text-sm text-neutral-400">
+          Coach observations and performance trends are confidential. System
+          administrators manage accounts and general information only.
+        </p>
+      </div>
+    );
+  }
   const [sessions, setSessions] = useState<Session[]>([]);
   const [err, setErr] = useState<string | null>(null);
   const [aiData, setAiData] = useState<FighterObservationResponse | null>(null);
