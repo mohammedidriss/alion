@@ -225,7 +225,9 @@ export default function FighterPage({ params }: { params: { id: string } }) {
             {fighter.nationality ? ` · ${fighter.nationality}` : ""}
             {age != null ? ` · ${age} yrs` : ""}
           </p>
-          {/* UUID hidden from UI — available in URL */}
+          <p className="mt-1 text-xs text-neutral-600">
+            System ID: <code className="rounded bg-white/[0.05] px-1.5 py-0.5 font-mono text-neutral-500 select-all">{fighter.id}</code>
+          </p>
           {canCreateSession && (
             <div className="mt-3 flex flex-wrap gap-2">
               <button

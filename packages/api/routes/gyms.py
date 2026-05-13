@@ -11,8 +11,16 @@ from sqlmodel import Session as DBSession
 
 from api.deps import db_session, gym_repo, resolve_gym_id
 from api.routes.auth import get_current_user, require_current_user
-from store import GymRepo, User
-from store.models import GymCreate, GymMembershipRead, GymRead
+from store import GymRepo, User, UserCreate, UserRepo, FighterRepo, CoachRepo
+from store.models import (
+    GymCreate,
+    GymMembershipRead,
+    GymRead,
+    FighterCreate,
+    CoachCreate,
+    Fighter,
+    Coach,
+)
 
 router = APIRouter(
     prefix="/gyms",
@@ -35,6 +43,17 @@ class GymUpdate(BaseModel):
 class AddMemberBody(BaseModel):
     member_id: UUID
     member_type: str  # "fighter" or "coach"
+
+
+class ImportMemberBody(BaseModel):
+    system_id: str  # UUID of the fighter or coach profile
+
+
+class CreateMemberAccountBody(BaseModel):
+    name: str
+    email: str
+    password: str
+    role: str  # "fighter" or "coach"
 
 
 @router.post("", response_model=GymRead, status_code=status.HTTP_201_CREATED)
@@ -153,3 +172,162 @@ def remove_member(
 ) -> None:
     if not repo.remove_member(gym_id, membership_id):
         raise HTTPException(status_code=404, detail="membership not found")
+
+
+# ------------------------------------------------------------------
+# Import existing user by System ID
+# ------------------------------------------------------------------
+
+
+@router.post(
+    "/{gym_id}/members/import",
+    response_model=GymMembershipRead,
+    status_code=status.HTTP_201_CREATED,
+)
+def import_member(
+    gym_id: UUID,
+    data: ImportMemberBody,
+    repo: GymRepo = Depends(gym_repo),
+    session: DBSession = Depends(db_session),
+    current_user: User = Depends(require_current_user),
+) -> GymMembershipRead:
+    """Import an existing fighter or coach into a gym by their System ID."""
+    if repo.get(gym_id) is None:
+        raise HTTPException(status_code=404, detail="gym not found")
+
+    # Verify the manager owns this gym
+    if current_user.role == "gym_manager":
+        allowed = resolve_gym_id(current_user, session)
+        if allowed != gym_id and str(allowed).replace("-", "") != str(gym_id).replace("-", ""):
+            raise HTTPException(status_code=403, detail="You can only manage your own gym")
+
+    system_id = data.system_id.strip().replace("-", "")
+    if len(system_id) != 32:
+        raise HTTPException(status_code=422, detail="Invalid System ID format")
+
+    system_uuid = UUID(system_id)
+
+    # Try to find as fighter first, then coach
+    fighter_repo = FighterRepo(session)
+    coach_repo = CoachRepo(session)
+    member_type: str | None = None
+    member_name = ""
+
+    fighter = fighter_repo.get(system_uuid)
+    if fighter:
+        member_type = "fighter"
+        member_name = fighter.name
+    else:
+        coach = coach_repo.get(system_uuid)
+        if coach:
+            member_type = "coach"
+            member_name = coach.name
+
+    if member_type is None:
+        raise HTTPException(
+            status_code=404,
+            detail="No fighter or coach found with that System ID",
+        )
+
+    # Check for duplicate membership
+    existing = repo.list_members(gym_id)
+    for m, _name in existing:
+        if str(m.member_id).replace("-", "") == system_id:
+            raise HTTPException(
+                status_code=409,
+                detail=f"{member_name} is already a member of this gym",
+            )
+
+    m = repo.add_member(gym_id, system_uuid, member_type)
+    return GymMembershipRead(
+        id=m.id,  # type: ignore[arg-type]
+        gym_id=m.gym_id,
+        member_id=m.member_id,
+        member_type=m.member_type,
+        member_name=member_name,
+        joined_on=m.joined_on,
+        left_on=m.left_on,
+        created_at=m.created_at,
+    )
+
+
+# ------------------------------------------------------------------
+# Create a brand-new user account + link to gym
+# ------------------------------------------------------------------
+
+
+@router.post(
+    "/{gym_id}/members/create-account",
+    response_model=GymMembershipRead,
+    status_code=status.HTTP_201_CREATED,
+)
+def create_member_account(
+    gym_id: UUID,
+    data: CreateMemberAccountBody,
+    repo: GymRepo = Depends(gym_repo),
+    session: DBSession = Depends(db_session),
+    current_user: User = Depends(require_current_user),
+) -> GymMembershipRead:
+    """Create a new user account (fighter/coach) and add them to the gym."""
+    import bcrypt as _bcrypt
+
+    if repo.get(gym_id) is None:
+        raise HTTPException(status_code=404, detail="gym not found")
+
+    # Verify the manager owns this gym
+    if current_user.role == "gym_manager":
+        allowed = resolve_gym_id(current_user, session)
+        if allowed != gym_id and str(allowed).replace("-", "") != str(gym_id).replace("-", ""):
+            raise HTTPException(status_code=403, detail="You can only manage your own gym")
+
+    if data.role not in ("fighter", "coach"):
+        raise HTTPException(status_code=422, detail="role must be 'fighter' or 'coach'")
+
+    email = data.email.strip().lower()
+    if not email or "@" not in email:
+        raise HTTPException(status_code=422, detail="Invalid email")
+    if len(data.password) < 6:
+        raise HTTPException(status_code=422, detail="Password must be at least 6 characters")
+    if not data.name.strip():
+        raise HTTPException(status_code=422, detail="Name is required")
+
+    # Check email uniqueness
+    user_repo = UserRepo(session)
+    if user_repo.get_by_email(email):
+        raise HTTPException(status_code=409, detail="Email already registered")
+
+    # Create user account
+    hashed = _bcrypt.hashpw(data.password.encode(), _bcrypt.gensalt()).decode()
+    user_create = UserCreate(
+        email=email,
+        password=data.password,
+        name=data.name.strip(),
+        role=data.role,
+    )
+    new_user = user_repo.create(user_create, hashed)
+
+    # Create profile
+    if data.role == "fighter":
+        f_repo = FighterRepo(session)
+        profile = f_repo.create(FighterCreate(name=data.name.strip(), stance="orthodox"))
+        member_type = "fighter"
+    else:
+        c_repo = CoachRepo(session)
+        profile = c_repo.create(CoachCreate(name=data.name.strip()))
+        member_type = "coach"
+
+    profile_id = profile.id  # type: ignore[union-attr]
+    user_repo.set_profile_id(new_user.id, profile_id)
+
+    # Link to gym
+    m = repo.add_member(gym_id, profile_id, member_type)
+    return GymMembershipRead(
+        id=m.id,  # type: ignore[arg-type]
+        gym_id=m.gym_id,
+        member_id=m.member_id,
+        member_type=m.member_type,
+        member_name=data.name.strip(),
+        joined_on=m.joined_on,
+        left_on=m.left_on,
+        created_at=m.created_at,
+    )

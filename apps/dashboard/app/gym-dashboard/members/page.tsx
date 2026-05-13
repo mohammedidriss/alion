@@ -62,12 +62,27 @@ export default function MembersPage() {
   const [filterSkill, setFilterSkill] = useState("");
   const [filterStance, setFilterStance] = useState("");
 
-  // Create form state
-  const [showForm, setShowForm] = useState(false);
+  // Panel state: "none" | "add-fighter" | "import" | "create-account"
+  const [activePanel, setActivePanel] = useState<"none" | "add-fighter" | "import" | "create-account">("none");
   const [creating, setCreating] = useState(false);
   const [createError, setCreateError] = useState("");
   const [photoFile, setPhotoFile] = useState<File | null>(null);
   const [photoPreview, setPhotoPreview] = useState<string | null>(null);
+
+  // Import by System ID
+  const [importId, setImportId] = useState("");
+  const [importing, setImporting] = useState(false);
+  const [importError, setImportError] = useState("");
+  const [importSuccess, setImportSuccess] = useState("");
+
+  // Create new account
+  const [accName, setAccName] = useState("");
+  const [accEmail, setAccEmail] = useState("");
+  const [accPassword, setAccPassword] = useState("");
+  const [accRole, setAccRole] = useState<"fighter" | "coach">("fighter");
+  const [accCreating, setAccCreating] = useState(false);
+  const [accError, setAccError] = useState("");
+  const [accSuccess, setAccSuccess] = useState("");
 
   // Identity
   const [fName, setFName] = useState("");
@@ -213,7 +228,7 @@ export default function MembersPage() {
       }
 
       resetForm();
-      setShowForm(false);
+      setActivePanel("none");
       load();
     } catch (err: unknown) {
       const msg = err instanceof Error ? err.message : "Failed to create fighter";
@@ -249,23 +264,163 @@ export default function MembersPage() {
 
   return (
     <div className="space-y-6 px-8 py-8">
-      <header className="flex items-center justify-between">
+      <header className="flex flex-wrap items-center justify-between gap-3">
         <div>
           <h1 className="text-2xl font-bold">Members</h1>
           <p className="text-sm text-neutral-500">
-            {fighters.length} fighter{fighters.length !== 1 ? "s" : ""} registered
+            {fighters.length} fighter{fighters.length !== 1 ? "s" : ""}, {coaches.length} coach{coaches.length !== 1 ? "es" : ""} registered
           </p>
         </div>
-        <button
-          onClick={() => { setShowForm(!showForm); if (showForm) resetForm(); }}
-          className="rounded-xl bg-emerald-500 px-4 py-2 text-sm font-medium text-black hover:bg-emerald-400"
-        >
-          {showForm ? "Cancel" : "+ Add Fighter"}
-        </button>
+        <div className="flex gap-2">
+          <button
+            onClick={() => { setActivePanel(activePanel === "import" ? "none" : "import"); setImportError(""); setImportSuccess(""); setImportId(""); }}
+            className={`rounded-xl px-4 py-2 text-sm font-medium ${activePanel === "import" ? "bg-amber-500 text-black" : "border border-amber-500/30 text-amber-300 hover:bg-amber-500/10"}`}
+          >
+            {activePanel === "import" ? "Cancel" : "Import by ID"}
+          </button>
+          <button
+            onClick={() => { setActivePanel(activePanel === "create-account" ? "none" : "create-account"); setAccError(""); setAccSuccess(""); setAccName(""); setAccEmail(""); setAccPassword(""); setAccRole("fighter"); }}
+            className={`rounded-xl px-4 py-2 text-sm font-medium ${activePanel === "create-account" ? "bg-violet-500 text-black" : "border border-violet-500/30 text-violet-300 hover:bg-violet-500/10"}`}
+          >
+            {activePanel === "create-account" ? "Cancel" : "Create Account"}
+          </button>
+          <button
+            onClick={() => { setActivePanel(activePanel === "add-fighter" ? "none" : "add-fighter"); if (activePanel === "add-fighter") resetForm(); }}
+            className="rounded-xl bg-emerald-500 px-4 py-2 text-sm font-medium text-black hover:bg-emerald-400"
+          >
+            {activePanel === "add-fighter" ? "Cancel" : "+ Add Fighter"}
+          </button>
+        </div>
       </header>
 
-      {/* ─── Create form ─────────────────────────────────────────── */}
-      {showForm && (
+      {/* ─── Import by System ID ────────────────────────────────── */}
+      {activePanel === "import" && (
+        <div className="card space-y-4">
+          <div>
+            <h3 className="text-lg font-semibold text-amber-200">Import Existing Member</h3>
+            <p className="mt-1 text-xs text-neutral-400">
+              Ask the fighter or coach for their System ID, then enter it below to add them to your gym.
+            </p>
+          </div>
+          <div className="flex gap-3">
+            <input
+              type="text"
+              value={importId}
+              onChange={(e) => setImportId(e.target.value)}
+              placeholder="Paste System ID (e.g. dbf52390-2d23-49b8-b119-82618ea7b4d7)"
+              className={`${inputCls} flex-1 font-mono text-xs`}
+            />
+            <button
+              disabled={importing || !importId.trim()}
+              onClick={async () => {
+                if (!gymId) return;
+                setImporting(true);
+                setImportError("");
+                setImportSuccess("");
+                try {
+                  const result = await api.importGymMember(gymId, importId.trim());
+                  setImportSuccess(`Successfully added ${result.member_name || "member"} (${result.member_type}) to your gym!`);
+                  setImportId("");
+                  load();
+                } catch (err: unknown) {
+                  const msg = err instanceof Error ? err.message : "Import failed";
+                  setImportError(msg);
+                } finally {
+                  setImporting(false);
+                }
+              }}
+              className="rounded-xl bg-amber-500 px-6 py-2.5 text-sm font-semibold text-black hover:bg-amber-400 disabled:opacity-50"
+            >
+              {importing ? "Importing..." : "Import"}
+            </button>
+          </div>
+          {importError && (
+            <div className="rounded-xl border border-red-500/30 bg-red-500/10 px-4 py-2.5 text-sm text-red-400">{importError}</div>
+          )}
+          {importSuccess && (
+            <div className="rounded-xl border border-emerald-500/30 bg-emerald-500/10 px-4 py-2.5 text-sm text-emerald-400">{importSuccess}</div>
+          )}
+        </div>
+      )}
+
+      {/* ─── Create New Account ─────────────────────────────────── */}
+      {activePanel === "create-account" && (
+        <div className="card space-y-4">
+          <div>
+            <h3 className="text-lg font-semibold text-violet-200">Create New Member Account</h3>
+            <p className="mt-1 text-xs text-neutral-400">
+              Create a system account for a new fighter or coach. They&apos;ll be added to your gym automatically.
+            </p>
+          </div>
+          <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
+            <div>
+              <label className={labelCls}>Name *</label>
+              <input type="text" value={accName} onChange={(e) => setAccName(e.target.value)} placeholder="Full name" className={inputCls} />
+            </div>
+            <div>
+              <label className={labelCls}>Role *</label>
+              <select value={accRole} onChange={(e) => setAccRole(e.target.value as "fighter" | "coach")} className={inputCls}>
+                <option value="fighter">Fighter</option>
+                <option value="coach">Coach</option>
+              </select>
+            </div>
+            <div>
+              <label className={labelCls}>Email *</label>
+              <input type="email" value={accEmail} onChange={(e) => setAccEmail(e.target.value)} placeholder="user@example.com" className={inputCls} />
+            </div>
+            <div>
+              <label className={labelCls}>Password *</label>
+              <input type="text" value={accPassword} onChange={(e) => setAccPassword(e.target.value)} placeholder="Min 6 characters" className={inputCls} />
+            </div>
+          </div>
+          {accError && (
+            <div className="rounded-xl border border-red-500/30 bg-red-500/10 px-4 py-2.5 text-sm text-red-400">{accError}</div>
+          )}
+          {accSuccess && (
+            <div className="rounded-xl border border-emerald-500/30 bg-emerald-500/10 px-4 py-2.5 text-sm text-emerald-400">{accSuccess}</div>
+          )}
+          <div className="flex items-center gap-3">
+            <button
+              disabled={accCreating || !accName.trim() || !accEmail.trim() || !accPassword}
+              onClick={async () => {
+                if (!gymId) return;
+                setAccCreating(true);
+                setAccError("");
+                setAccSuccess("");
+                try {
+                  const result = await api.createGymMemberAccount(gymId, {
+                    name: accName.trim(),
+                    email: accEmail.trim(),
+                    password: accPassword,
+                    role: accRole,
+                  });
+                  setAccSuccess(`Account created for ${result.member_name || accName} (${accRole}). They can now sign in with their email and password.`);
+                  setAccName(""); setAccEmail(""); setAccPassword(""); setAccRole("fighter");
+                  load();
+                } catch (err: unknown) {
+                  const msg = err instanceof Error ? err.message : "Account creation failed";
+                  setAccError(msg);
+                } finally {
+                  setAccCreating(false);
+                }
+              }}
+              className="rounded-xl bg-violet-500 px-6 py-2.5 text-sm font-semibold text-white hover:bg-violet-400 disabled:opacity-50"
+            >
+              {accCreating ? "Creating..." : "Create Account & Add to Gym"}
+            </button>
+            <button
+              type="button"
+              onClick={() => { setActivePanel("none"); setAccName(""); setAccEmail(""); setAccPassword(""); setAccError(""); setAccSuccess(""); }}
+              className="rounded-xl border border-white/10 px-4 py-2.5 text-sm text-neutral-400 hover:bg-white/[0.04]"
+            >
+              Cancel
+            </button>
+          </div>
+        </div>
+      )}
+
+      {/* ─── Create fighter profile form ────────────────────────── */}
+      {activePanel === "add-fighter" && (
         <form onSubmit={handleCreate} className="card space-y-5">
           <h3 className="text-lg font-semibold">New Fighter</h3>
 
@@ -462,7 +617,7 @@ export default function MembersPage() {
             </button>
             <button
               type="button"
-              onClick={() => { setShowForm(false); resetForm(); }}
+              onClick={() => { setActivePanel("none"); resetForm(); }}
               className="rounded-xl border border-white/10 px-4 py-2.5 text-sm text-neutral-400 hover:bg-white/[0.04]"
             >
               Cancel
@@ -494,12 +649,14 @@ export default function MembersPage() {
         <span className="text-xs text-neutral-500">{filtered.length} of {fighters.length}</span>
       </div>
 
-      {/* ─── Members table ───────────────────────────────────────── */}
+      {/* ─── Fighters table ──────────────────────────────────────── */}
       <div className="card overflow-x-auto">
+        <h3 className="mb-3 text-sm font-semibold text-neutral-300 uppercase tracking-wider">Fighters</h3>
         <table className="w-full text-sm">
           <thead>
             <tr className="border-b border-white/5 text-left text-xs uppercase tracking-wider text-neutral-500">
               <th className="pb-2 pr-4">Name</th>
+              <th className="pb-2 pr-4">System ID</th>
               <th className="pb-2 pr-4">Stance</th>
               <th className="pb-2 pr-4">Skill Level</th>
               <th className="pb-2 pr-4">Weight</th>
@@ -519,6 +676,9 @@ export default function MembersPage() {
                     </div>
                   </Link>
                 </td>
+                <td className="py-3 pr-4">
+                  <code className="rounded bg-white/[0.05] px-1.5 py-0.5 text-[10px] font-mono text-neutral-500 select-all">{f.id}</code>
+                </td>
                 <td className="py-3 pr-4 capitalize text-neutral-400">{f.stance ?? "—"}</td>
                 <td className="py-3 pr-4 capitalize text-neutral-400">{f.skill_level ? labelFor(f.skill_level) : "—"}</td>
                 <td className="py-3 pr-4 text-neutral-400">{f.weight_kg ? `${f.weight_kg} kg` : "—"}</td>
@@ -531,14 +691,50 @@ export default function MembersPage() {
             ))}
             {filtered.length === 0 && (
               <tr>
-                <td colSpan={6} className="py-8 text-center text-neutral-500">
-                  {fighters.length === 0 ? "No fighters yet. Add your first fighter above." : "No fighters match your filters."}
+                <td colSpan={7} className="py-8 text-center text-neutral-500">
+                  {fighters.length === 0 ? "No fighters yet. Add your first member above." : "No fighters match your filters."}
                 </td>
               </tr>
             )}
           </tbody>
         </table>
       </div>
+
+      {/* ─── Coaches table ──────────────────────────────────────── */}
+      {coaches.length > 0 && (
+        <div className="card overflow-x-auto">
+          <h3 className="mb-3 text-sm font-semibold text-neutral-300 uppercase tracking-wider">Coaches</h3>
+          <table className="w-full text-sm">
+            <thead>
+              <tr className="border-b border-white/5 text-left text-xs uppercase tracking-wider text-neutral-500">
+                <th className="pb-2 pr-4">Name</th>
+                <th className="pb-2 pr-4">System ID</th>
+                <th className="pb-2 pr-4">Specialties</th>
+                <th className="pb-2">Created</th>
+              </tr>
+            </thead>
+            <tbody>
+              {coaches.map((c) => (
+                <tr key={c.id} className="border-b border-white/[0.03] hover:bg-white/[0.02]">
+                  <td className="py-3 pr-4">
+                    <div className="flex items-center gap-2">
+                      <div className="flex h-8 w-8 items-center justify-center rounded-full bg-violet-500/20 text-xs font-bold text-violet-300">
+                        {c.name[0]?.toUpperCase() ?? "?"}
+                      </div>
+                      <span className="font-medium">{c.name}</span>
+                    </div>
+                  </td>
+                  <td className="py-3 pr-4">
+                    <code className="rounded bg-white/[0.05] px-1.5 py-0.5 text-[10px] font-mono text-neutral-500 select-all">{c.id}</code>
+                  </td>
+                  <td className="py-3 pr-4 text-neutral-400">{c.specialties || "—"}</td>
+                  <td className="py-3 text-neutral-500 text-xs">{new Date(c.created_at).toLocaleDateString()}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      )}
     </div>
   );
 }

@@ -976,6 +976,18 @@ export const api = {
     }),
   removeGymMember: (gymId: string, membershipId: number) =>
     req<void>(`/gyms/${gymId}/members/${membershipId}`, { method: "DELETE" }),
+  importGymMember: (gymId: string, systemId: string) =>
+    req<GymMembership>(`/gyms/${gymId}/members/import`, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ system_id: systemId }),
+    }),
+  createGymMemberAccount: (gymId: string, data: { name: string; email: string; password: string; role: "fighter" | "coach" }) =>
+    req<GymMembership>(`/gyms/${gymId}/members/create-account`, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify(data),
+    }),
 
   // ---- Gym Managers ----
   listGymManagers: () => req<GymManager[]>("/gym-managers"),
