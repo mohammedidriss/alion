@@ -18,6 +18,7 @@ from api.deps import db_session
 from store import (
     CoachRepo,
     FighterRepo,
+    GymManagerRepo,
     RefereeRepo,
     User,
     UserCreate,
@@ -217,6 +218,84 @@ def login(
 def get_me(user: User = Depends(require_current_user)) -> UserRead:
     """Return the current authenticated user."""
     return UserRead.model_validate(user, from_attributes=True)
+
+
+class UpdateProfileRequest(BaseModel):
+    name: str | None = None
+    email: str | None = None
+    current_password: str | None = None
+    new_password: str | None = None
+
+
+@router.patch("/me", response_model=UserRead)
+def update_me(
+    data: UpdateProfileRequest,
+    user: User = Depends(require_current_user),
+    repo: UserRepo = Depends(_user_repo),
+    session: DBSession = Depends(db_session),
+) -> UserRead:
+    """Update the current user's profile (name, email, password)."""
+    fields: dict = {}
+
+    if data.name is not None:
+        name = data.name.strip()
+        if len(name) < 1:
+            raise HTTPException(status_code=422, detail="Name cannot be empty")
+        fields["name"] = name
+        # Also sync name on linked profile
+        if user.profile_id:
+            _sync_profile_name(user, name, session)
+
+    if data.email is not None:
+        email = data.email.strip().lower()
+        if not _EMAIL_RE.match(email):
+            raise HTTPException(status_code=422, detail="Invalid email format")
+        if email != user.email:
+            existing = repo.get_by_email(email)
+            if existing:
+                raise HTTPException(status_code=409, detail="Email already in use")
+            fields["email"] = email
+
+    if data.new_password is not None:
+        if not data.current_password:
+            raise HTTPException(status_code=422, detail="Current password is required to set a new one")
+        if not _verify_password(data.current_password, user.password_hash):
+            raise HTTPException(status_code=403, detail="Current password is incorrect")
+        if len(data.new_password) < 6:
+            raise HTTPException(status_code=422, detail="New password must be at least 6 characters")
+        fields["password_hash"] = _hash_password(data.new_password)
+
+    if not fields:
+        return UserRead.model_validate(user, from_attributes=True)
+
+    updated = repo.update(user.id, fields)
+    return UserRead.model_validate(updated, from_attributes=True)
+
+
+def _sync_profile_name(user: User, new_name: str, session: DBSession) -> None:
+    """Keep the linked profile's name in sync with the user account name."""
+    role = str(user.role).lower()
+    if role == "fighter":
+        f_repo = FighterRepo(session)
+        f = f_repo.get(user.profile_id)  # type: ignore[arg-type]
+        if f:
+            f.name = new_name
+            session.add(f)
+            session.commit()
+    elif role == "coach":
+        c_repo = CoachRepo(session)
+        c = c_repo.get(user.profile_id)  # type: ignore[arg-type]
+        if c:
+            c.name = new_name
+            session.add(c)
+            session.commit()
+    elif role == "gym_manager":
+        gm_repo = GymManagerRepo(session)
+        gm = gm_repo.get(user.profile_id)  # type: ignore[arg-type]
+        if gm:
+            gm.name = new_name
+            session.add(gm)
+            session.commit()
 
 
 # --- Admin-only helpers ---

@@ -5,10 +5,13 @@ import { useCallback, useEffect, useMemo, useState } from "react";
 import { ProfileAvatar } from "@/components/ProfileAvatar";
 import {
   api,
+  type CheckIn,
   type Coach,
   type Fighter,
   type FighterPatch,
+  type GymMembership,
   type Hand,
+  type MembershipStatus,
   type SkillLevel,
   type Stance,
 } from "@/lib/api";
@@ -61,6 +64,9 @@ export default function MembersPage() {
   const [search, setSearch] = useState("");
   const [filterSkill, setFilterSkill] = useState("");
   const [filterStance, setFilterStance] = useState("");
+
+  const [memberships, setMemberships] = useState<GymMembership[]>([]);
+  const [todaysCheckins, setTodaysCheckins] = useState<CheckIn[]>([]);
 
   // Panel state: "none" | "add-fighter" | "import" | "create-account"
   const [activePanel, setActivePanel] = useState<"none" | "add-fighter" | "import" | "create-account">("none");
@@ -127,12 +133,16 @@ export default function MembersPage() {
       const me = gms.find((gm) => gm.id === user.profile_id);
       if (!me) return;
       setGymId(me.gym_id);
-      const [fs, cs] = await Promise.all([
+      const [fs, cs, ms, cis] = await Promise.all([
         api.listFighters(me.gym_id),
         api.listCoaches(me.gym_id),
+        api.listGymMembers(me.gym_id),
+        api.listTodaysCheckins(me.gym_id).catch(() => [] as CheckIn[]),
       ]);
       setFighters(fs);
       setCoaches(cs);
+      setMemberships(ms);
+      setTodaysCheckins(cis);
     } finally {
       setLoading(false);
     }
@@ -243,6 +253,52 @@ export default function MembersPage() {
     if (file) {
       setPhotoFile(file);
       setPhotoPreview(URL.createObjectURL(file));
+    }
+  };
+
+  // Helpers for membership status
+  const getMembership = (memberId: string) =>
+    memberships.find((m) => m.member_id === memberId);
+
+  const isCheckedInToday = (memberId: string) =>
+    todaysCheckins.some((ci) => ci.member_id === memberId && !ci.checked_out_at);
+
+  const statusBadge = (status: MembershipStatus) => {
+    const styles: Record<MembershipStatus, string> = {
+      active: "bg-emerald-500/15 text-emerald-300",
+      frozen: "bg-blue-500/15 text-blue-300",
+      suspended: "bg-red-500/15 text-red-300",
+      trial: "bg-amber-500/15 text-amber-300",
+      left: "bg-neutral-500/15 text-neutral-400",
+    };
+    return (
+      <span className={`rounded-full px-2 py-0.5 text-[10px] font-medium ${styles[status] ?? styles.active}`}>
+        {status}
+      </span>
+    );
+  };
+
+  const handleStatusChange = async (membershipId: number, newStatus: MembershipStatus, memberId: string) => {
+    if (!gymId) return;
+    let note: string | null = null;
+    if (newStatus === "frozen" || newStatus === "suspended") {
+      note = prompt(`Reason for ${newStatus}:`) ?? "";
+    }
+    try {
+      await api.updateMembershipStatus(gymId, membershipId, newStatus, note ?? undefined);
+      load();
+    } catch (err) {
+      alert(err instanceof Error ? err.message : "Failed to update status");
+    }
+  };
+
+  const handleCheckIn = async (memberId: string, memberType: "fighter" | "coach") => {
+    if (!gymId) return;
+    try {
+      await api.checkIn(gymId, memberId, memberType);
+      load();
+    } catch (err) {
+      alert(err instanceof Error ? err.message : "Check-in failed");
     }
   };
 
@@ -656,42 +712,92 @@ export default function MembersPage() {
           <thead>
             <tr className="border-b border-white/5 text-left text-xs uppercase tracking-wider text-neutral-500">
               <th className="pb-2 pr-4">Name</th>
-              <th className="pb-2 pr-4">System ID</th>
+              <th className="pb-2 pr-4">Status</th>
               <th className="pb-2 pr-4">Stance</th>
               <th className="pb-2 pr-4">Skill Level</th>
               <th className="pb-2 pr-4">Weight</th>
               <th className="pb-2 pr-4">Record</th>
-              <th className="pb-2">Created</th>
+              <th className="pb-2 pr-4">Joined</th>
+              <th className="pb-2">Actions</th>
             </tr>
           </thead>
           <tbody>
-            {filtered.map((f) => (
-              <tr key={f.id} className="border-b border-white/[0.03] hover:bg-white/[0.02]">
-                <td className="py-3 pr-4">
-                  <Link href={`/fighters/${f.id}`} className="flex items-center gap-2 hover:text-emerald-300">
-                    <ProfileAvatar name={f.name} photo_path={f.photo_path} size={32} />
-                    <div>
-                      <span className="font-medium">{f.name}</span>
-                      {f.nickname && <span className="ml-1.5 text-xs text-neutral-500">"{f.nickname}"</span>}
+            {filtered.map((f) => {
+              const ms = getMembership(f.id);
+              const checkedIn = isCheckedInToday(f.id);
+              return (
+                <tr key={f.id} className="border-b border-white/[0.03] hover:bg-white/[0.02]">
+                  <td className="py-3 pr-4">
+                    <Link href={`/fighters/${f.id}`} className="flex items-center gap-2 hover:text-emerald-300">
+                      <div className="relative">
+                        <ProfileAvatar name={f.name} photo_path={f.photo_path} size={32} />
+                        {checkedIn && (
+                          <span className="absolute -bottom-0.5 -right-0.5 h-2.5 w-2.5 rounded-full border-2 border-[#0d0d12] bg-emerald-500" title="In gym now" />
+                        )}
+                      </div>
+                      <div>
+                        <span className="font-medium">{f.name}</span>
+                        {f.nickname && <span className="ml-1.5 text-xs text-neutral-500">&quot;{f.nickname}&quot;</span>}
+                      </div>
+                    </Link>
+                  </td>
+                  <td className="py-3 pr-4">
+                    <div className="flex flex-col gap-1">
+                      {statusBadge((ms?.status ?? "active") as MembershipStatus)}
+                      {ms?.status_note && (
+                        <span className="text-[10px] text-neutral-500 max-w-[120px] truncate" title={ms.status_note}>
+                          {ms.status_note}
+                        </span>
+                      )}
                     </div>
-                  </Link>
-                </td>
-                <td className="py-3 pr-4">
-                  <code className="rounded bg-white/[0.05] px-1.5 py-0.5 text-[10px] font-mono text-neutral-500 select-all">{f.id}</code>
-                </td>
-                <td className="py-3 pr-4 capitalize text-neutral-400">{f.stance ?? "—"}</td>
-                <td className="py-3 pr-4 capitalize text-neutral-400">{f.skill_level ? labelFor(f.skill_level) : "—"}</td>
-                <td className="py-3 pr-4 text-neutral-400">{f.weight_kg ? `${f.weight_kg} kg` : "—"}</td>
-                <td className="py-3 pr-4 text-neutral-400">
-                  {f.record_wins}-{f.record_losses}-{f.record_draws}
-                  {f.record_kos > 0 && <span className="ml-1 text-xs text-neutral-500">({f.record_kos} KO)</span>}
-                </td>
-                <td className="py-3 text-neutral-500 text-xs">{new Date(f.created_at).toLocaleDateString()}</td>
-              </tr>
-            ))}
+                  </td>
+                  <td className="py-3 pr-4 capitalize text-neutral-400">{f.stance ?? "—"}</td>
+                  <td className="py-3 pr-4 capitalize text-neutral-400">{f.skill_level ? labelFor(f.skill_level) : "—"}</td>
+                  <td className="py-3 pr-4 text-neutral-400">{f.weight_kg ? `${f.weight_kg} kg` : "—"}</td>
+                  <td className="py-3 pr-4 text-neutral-400">
+                    {f.record_wins}-{f.record_losses}-{f.record_draws}
+                    {f.record_kos > 0 && <span className="ml-1 text-xs text-neutral-500">({f.record_kos} KO)</span>}
+                  </td>
+                  <td className="py-3 pr-4 text-neutral-500 text-xs">
+                    {ms?.joined_on ? new Date(ms.joined_on).toLocaleDateString() : "—"}
+                  </td>
+                  <td className="py-3">
+                    <div className="flex items-center gap-1.5">
+                      {!checkedIn && ms?.status === "active" && (
+                        <button
+                          onClick={() => handleCheckIn(f.id, "fighter")}
+                          className="rounded-lg bg-emerald-500/15 px-2 py-1 text-[10px] font-medium text-emerald-300 hover:bg-emerald-500/25"
+                          title="Check in"
+                        >
+                          Check in
+                        </button>
+                      )}
+                      {checkedIn && (
+                        <span className="rounded-lg bg-emerald-500/10 px-2 py-1 text-[10px] text-emerald-400">
+                          In gym
+                        </span>
+                      )}
+                      {ms && (
+                        <select
+                          value={ms.status}
+                          onChange={(e) => handleStatusChange(ms.id, e.target.value as MembershipStatus, f.id)}
+                          className="rounded-lg border border-white/10 bg-transparent px-1 py-1 text-[10px] text-neutral-400 focus:outline-none"
+                        >
+                          <option value="active">Active</option>
+                          <option value="frozen">Frozen</option>
+                          <option value="suspended">Suspended</option>
+                          <option value="trial">Trial</option>
+                          <option value="left">Remove</option>
+                        </select>
+                      )}
+                    </div>
+                  </td>
+                </tr>
+              );
+            })}
             {filtered.length === 0 && (
               <tr>
-                <td colSpan={7} className="py-8 text-center text-neutral-500">
+                <td colSpan={8} className="py-8 text-center text-neutral-500">
                   {fighters.length === 0 ? "No fighters yet. Add your first member above." : "No fighters match your filters."}
                 </td>
               </tr>

@@ -6,6 +6,7 @@ import { useRouter } from "next/navigation";
 import { ProfileAvatar } from "@/components/ProfileAvatar";
 import {
   api,
+  type CheckIn,
   type Coach,
   type Fighter,
   type FighterReadiness,
@@ -28,6 +29,7 @@ export default function GymDashboardPage() {
   const [titles, setTitles] = useState<FighterTitle[]>([]);
   const [readinessMap, setReadinessMap] = useState<Map<string, FighterReadiness | null>>(new Map());
   const [allGyms, setAllGyms] = useState<Gym[]>([]);
+  const [todaysCheckins, setTodaysCheckins] = useState<CheckIn[]>([]);
   const [loading, setLoading] = useState(true);
 
   const load = useCallback(async () => {
@@ -51,6 +53,12 @@ export default function GymDashboardPage() {
       setCoaches(cs);
       setSessions(ss);
       setAllGyms(gyms);
+
+      // Today's attendance
+      try {
+        const checkins = await api.listTodaysCheckins(gymId);
+        setTodaysCheckins(checkins);
+      } catch { /* ok if no checkins */ }
 
       // Fetch titles for all fighters
       const titleResults = await Promise.allSettled(
@@ -193,6 +201,45 @@ export default function GymDashboardPage() {
             </p>
           )}
         </div>
+      </div>
+
+      {/* Today's Attendance */}
+      <div className="card">
+        <div className="flex items-center justify-between">
+          <h3 className="font-semibold">Today&apos;s Attendance</h3>
+          <span className="rounded-full bg-emerald-500/15 px-2 py-0.5 text-[10px] font-medium text-emerald-300">
+            {todaysCheckins.length} check-in{todaysCheckins.length !== 1 ? "s" : ""}
+          </span>
+        </div>
+        {todaysCheckins.length === 0 ? (
+          <p className="mt-4 text-sm text-neutral-500">No one has checked in today yet.</p>
+        ) : (
+          <div className="mt-3 grid grid-cols-2 gap-2 sm:grid-cols-3 lg:grid-cols-4">
+            {todaysCheckins.map((ci) => {
+              const f = fighters.find((f) => f.id === ci.member_id);
+              return (
+                <div
+                  key={ci.id}
+                  className="flex items-center gap-2 rounded-lg border border-white/5 bg-white/[0.02] p-2.5"
+                >
+                  <ProfileAvatar name={ci.member_name} photo_path={f?.photo_path ?? null} size={28} />
+                  <div className="min-w-0 flex-1">
+                    <p className="truncate text-xs font-medium">{ci.member_name}</p>
+                    <p className="text-[10px] text-neutral-500">
+                      {new Date(ci.checked_in_at).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}
+                      {ci.checked_out_at
+                        ? ` – ${new Date(ci.checked_out_at).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}`
+                        : " · in gym"}
+                    </p>
+                  </div>
+                  {!ci.checked_out_at && (
+                    <span className="h-2 w-2 rounded-full bg-emerald-500 animate-pulse" title="Currently in gym" />
+                  )}
+                </div>
+              );
+            })}
+          </div>
+        )}
       </div>
 
       {/* Second row: Titles + Quick links */}

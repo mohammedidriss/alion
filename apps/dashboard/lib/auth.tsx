@@ -10,6 +10,7 @@ interface AuthState {
   login: (email: string, password: string, persist?: boolean) => Promise<AuthUser>;
   register: (email: string, password: string, name: string, role: UserRole, persist?: boolean) => Promise<AuthUser>;
   logout: () => void;
+  refreshUser: () => Promise<void>;
 }
 
 const AuthContext = createContext<AuthState>({
@@ -19,6 +20,7 @@ const AuthContext = createContext<AuthState>({
   login: async () => ({} as AuthUser),
   register: async () => ({} as AuthUser),
   logout: () => {},
+  refreshUser: async () => {},
 });
 
 const TOKEN_KEY = "alion.token";
@@ -96,8 +98,17 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     setUser(null);
   }, []);
 
+  const refreshUser = useCallback(async () => {
+    const t = readToken();
+    if (!t) return;
+    try {
+      const u = await api.me(t);
+      setUser(u);
+    } catch { /* token may be invalid */ }
+  }, []);
+
   return (
-    <AuthContext.Provider value={{ user, token, loading, login, register, logout }}>
+    <AuthContext.Provider value={{ user, token, loading, login, register, logout, refreshUser }}>
       {children}
     </AuthContext.Provider>
   );

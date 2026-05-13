@@ -11,6 +11,7 @@ from sqlmodel import select
 from store.models import (
     Allergy,
     AllergyCreate,
+    CheckIn,
     Coach,
     CoachAssignment,
     CoachAssignmentCreate,
@@ -374,8 +375,12 @@ class GymRepo:
     def add_member(
         self, gym_id: UUID, member_id: UUID, member_type: str
     ) -> GymMembership:
+        from store.models import MembershipStatus
         row = GymMembership(
-            gym_id=gym_id, member_id=member_id, member_type=member_type
+            gym_id=gym_id,
+            member_id=member_id,
+            member_type=member_type,
+            status=MembershipStatus.ACTIVE,
         )
         self._session.add(row)
         self._session.commit()
@@ -383,9 +388,15 @@ class GymRepo:
         return row
 
     def list_members(
-        self, gym_id: UUID
+        self, gym_id: UUID, *, include_left: bool = False,
     ) -> list[tuple[GymMembership, str]]:
-        """Returns (membership, member_name) tuples."""
+        """Returns (membership, member_name) tuples.
+
+        By default only active/frozen/suspended/trial members are returned.
+        Pass include_left=True to include departed members.
+        """
+        from store.models import MembershipStatus
+
         # Fighters
         fighter_stmt = (
             select(GymMembership, Fighter.name)
@@ -404,19 +415,43 @@ class GymRepo:
                 GymMembership.member_type == "coach",
             )
         )
+
+        if not include_left:
+            fighter_stmt = fighter_stmt.where(GymMembership.status != MembershipStatus.LEFT)
+            coach_stmt = coach_stmt.where(GymMembership.status != MembershipStatus.LEFT)
+
         rows = list(self._session.exec(fighter_stmt).all()) + list(
             self._session.exec(coach_stmt).all()
         )
         rows.sort(key=lambda r: (r[0].member_type, r[1]))
         return rows
 
-    def remove_member(self, gym_id: UUID, membership_id: int) -> bool:
+    def update_membership_status(
+        self, gym_id: UUID, membership_id: int, status: str, note: str | None = None,
+    ) -> GymMembership | None:
+        """Change membership status (active, frozen, suspended, trial, left)."""
+        from datetime import date as _date
+        from store.models import MembershipStatus
+
         row = self._session.get(GymMembership, membership_id)
         if row is None or row.gym_id != gym_id:
-            return False
-        self._session.delete(row)
+            return None
+        row.status = MembershipStatus(status)
+        row.status_note = note
+        if status == "left":
+            row.left_on = _date.today()
+        elif row.left_on is not None and status != "left":
+            # Reactivating — clear departure date
+            row.left_on = None
+        self._session.add(row)
         self._session.commit()
-        return True
+        self._session.refresh(row)
+        return row
+
+    def remove_member(self, gym_id: UUID, membership_id: int) -> bool:
+        """Soft-remove: sets status to 'left' and records departure date."""
+        result = self.update_membership_status(gym_id, membership_id, "left")
+        return result is not None
 
 
 class RefereeRepo:
@@ -888,3 +923,95 @@ class UserRepo:
         self._session.delete(row)
         self._session.commit()
         return True
+
+
+# ----------------------------------------------------------------------
+# Check-in / attendance
+# ----------------------------------------------------------------------
+
+
+class CheckInRepo:
+    """Daily gym attendance tracking."""
+
+    def __init__(self, session: DBSession) -> None:
+        self._session = session
+
+    def check_in(
+        self, gym_id: UUID, member_id: UUID, member_type: str, notes: str | None = None,
+    ) -> CheckIn:
+        row = CheckIn(
+            gym_id=gym_id,
+            member_id=member_id,
+            member_type=member_type,
+            notes=notes,
+        )
+        self._session.add(row)
+        self._session.commit()
+        self._session.refresh(row)
+        return row
+
+    def check_out(self, checkin_id: int) -> CheckIn | None:
+        row = self._session.get(CheckIn, checkin_id)
+        if row is None:
+            return None
+        row.checked_out_at = datetime.now(UTC)
+        self._session.add(row)
+        self._session.commit()
+        self._session.refresh(row)
+        return row
+
+    def list_today(self, gym_id: UUID) -> list[tuple[CheckIn, str]]:
+        """Return today's check-ins with member name."""
+        from datetime import date as _date
+
+        today_start = datetime(
+            _date.today().year, _date.today().month, _date.today().day, tzinfo=UTC
+        )
+        # Fighters
+        f_stmt = (
+            select(CheckIn, Fighter.name)
+            .join(Fighter, Fighter.id == CheckIn.member_id)  # type: ignore[arg-type]
+            .where(
+                CheckIn.gym_id == gym_id,
+                CheckIn.member_type == "fighter",
+                CheckIn.checked_in_at >= today_start,
+            )
+        )
+        # Coaches
+        c_stmt = (
+            select(CheckIn, Coach.name)
+            .join(Coach, Coach.id == CheckIn.member_id)  # type: ignore[arg-type]
+            .where(
+                CheckIn.gym_id == gym_id,
+                CheckIn.member_type == "coach",
+                CheckIn.checked_in_at >= today_start,
+            )
+        )
+        rows = list(self._session.exec(f_stmt).all()) + list(
+            self._session.exec(c_stmt).all()
+        )
+        rows.sort(key=lambda r: r[0].checked_in_at, reverse=True)
+        return rows
+
+    def list_for_member(
+        self, member_id: UUID, *, limit: int = 30,
+    ) -> list[CheckIn]:
+        stmt = (
+            select(CheckIn)
+            .where(CheckIn.member_id == member_id)
+            .order_by(CheckIn.checked_in_at.desc())  # type: ignore[attr-defined]
+            .limit(limit)
+        )
+        return list(self._session.exec(stmt).all())
+
+    def count_for_member_this_month(self, member_id: UUID) -> int:
+        from datetime import date as _date
+
+        first_of_month = datetime(
+            _date.today().year, _date.today().month, 1, tzinfo=UTC
+        )
+        stmt = select(CheckIn).where(
+            CheckIn.member_id == member_id,
+            CheckIn.checked_in_at >= first_of_month,
+        )
+        return len(list(self._session.exec(stmt).all()))

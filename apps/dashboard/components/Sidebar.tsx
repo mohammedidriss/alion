@@ -210,13 +210,15 @@ export function Sidebar({ onNavigate }: { onNavigate?: () => void } = {}) {
       <div className="border-t border-white/5 p-3">
         {user ? (
           <div className="flex items-center gap-2">
-            <ProfileAvatar name={user.name} photo_path={user.photo_path} size={32} />
-            <div className="min-w-0 flex-1">
-              <p className="truncate text-xs font-medium">{user.name}</p>
-              <p className="truncate text-[10px] capitalize text-neutral-500">
-                {user.role === "gym_manager" ? "gym manager" : user.role}
-              </p>
-            </div>
+            <Link href="/profile" className="flex items-center gap-2 min-w-0 flex-1 rounded-lg px-1 py-0.5 -ml-1 hover:bg-white/[0.05] transition-colors" title="Edit profile">
+              <ProfileAvatar name={user.name} photo_path={user.photo_path} size={32} />
+              <div className="min-w-0 flex-1">
+                <p className="truncate text-xs font-medium">{user.name}</p>
+                <p className="truncate text-[10px] capitalize text-neutral-500">
+                  {user.role === "gym_manager" ? "gym manager" : user.role}
+                </p>
+              </div>
+            </Link>
             <button
               onClick={() => { logout(); router.push("/"); }}
               className="text-[10px] text-neutral-600 hover:text-neutral-300"

@@ -36,6 +36,9 @@ from store.models import (
     GymMembership,
     GymMembershipRead,
     GymRead,
+    CheckIn,
+    CheckInRead,
+    MembershipStatus,
     FighterRead,
     FighterSponsor,
     FighterSponsorCreate,
@@ -91,6 +94,7 @@ from store.models import (
     WeighInRead,
 )
 from store.repo import (
+    CheckInRepo,
     CoachNoteRepo,
     CoachRepo,
     GymManagerRepo,
@@ -147,6 +151,10 @@ __all__ = [
     "GymMembershipRead",
     "GymRead",
     "GymRepo",
+    "CheckIn",
+    "CheckInRead",
+    "CheckInRepo",
+    "MembershipStatus",
     "FighterRead",
     "FighterRepo",
     "FighterSponsor",

@@ -101,19 +101,21 @@ export default function SessionsTab({ params }: { params: { id: string } }) {
             Capture history, uploaded videos, and per-session metrics.
           </p>
         </div>
-        <button
-          onClick={async (e) => {
-            const btn = e.currentTarget;
-            btn.disabled = true;
-            try {
-              const s = await api.createSession(params.id, "live_webcam", "mediapipe");
-              router.push(`/sessions/${s.id}`);
-            } catch { btn.disabled = false; }
-          }}
-          className="rounded-xl bg-emerald-500 px-4 py-2 text-sm font-medium text-black hover:bg-emerald-400 disabled:opacity-50"
-        >
-          + New session
-        </button>
+        {user?.role !== "gym_manager" && (
+          <button
+            onClick={async (e) => {
+              const btn = e.currentTarget;
+              btn.disabled = true;
+              try {
+                const s = await api.createSession(params.id, "live_webcam", "mediapipe");
+                router.push(`/sessions/${s.id}`);
+              } catch { btn.disabled = false; }
+            }}
+            className="rounded-xl bg-emerald-500 px-4 py-2 text-sm font-medium text-black hover:bg-emerald-400 disabled:opacity-50"
+          >
+            + New session
+          </button>
+        )}
       </header>
 
       {err && (

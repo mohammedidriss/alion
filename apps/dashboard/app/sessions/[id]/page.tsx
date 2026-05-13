@@ -468,18 +468,20 @@ export default function SessionPage({ params }: { params: { id: string } }) {
             <span aria-hidden>←</span> Back home
           </Link>
         )}
-        <button
-          onClick={() => setConfirmDelete(true)}
-          disabled={session.status === "capturing" || session.status === "processing"}
-          title={
-            session.status === "capturing" || session.status === "processing"
-              ? "Stop the capture before deleting."
-              : undefined
-          }
-          className="text-sm text-red-400 hover:text-red-300 disabled:cursor-not-allowed disabled:text-neutral-600"
-        >
-          Delete session
-        </button>
+        {authUser?.role !== "gym_manager" && (
+          <button
+            onClick={() => setConfirmDelete(true)}
+            disabled={session.status === "capturing" || session.status === "processing"}
+            title={
+              session.status === "capturing" || session.status === "processing"
+                ? "Stop the capture before deleting."
+                : undefined
+            }
+            className="text-sm text-red-400 hover:text-red-300 disabled:cursor-not-allowed disabled:text-neutral-600"
+          >
+            Delete session
+          </button>
+        )}
       </div>
 
       <header className="flex items-center justify-between">

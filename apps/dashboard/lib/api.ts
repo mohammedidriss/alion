@@ -166,15 +166,30 @@ export interface Gym {
 
 export type GymPatch = Partial<Omit<Gym, "id" | "created_at">>;
 
+export type MembershipStatus = "active" | "frozen" | "suspended" | "trial" | "left";
+
 export interface GymMembership {
   id: number;
   gym_id: string;
   member_id: string;
   member_type: "fighter" | "coach";
   member_name: string;
+  status: MembershipStatus;
   joined_on: string | null;
   left_on: string | null;
+  status_note: string | null;
   created_at: string;
+}
+
+export interface CheckIn {
+  id: number;
+  gym_id: string;
+  member_id: string;
+  member_type: "fighter" | "coach";
+  member_name: string;
+  checked_in_at: string;
+  checked_out_at: string | null;
+  notes: string | null;
 }
 
 export interface GymManager {
@@ -988,6 +1003,23 @@ export const api = {
       headers: { "content-type": "application/json" },
       body: JSON.stringify(data),
     }),
+  updateMembershipStatus: (gymId: string, membershipId: number, status: MembershipStatus, note?: string) =>
+    req<GymMembership>(`/gyms/${gymId}/members/${membershipId}/status`, {
+      method: "PATCH",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ status, note: note ?? null }),
+    }),
+  // Check-in / attendance
+  checkIn: (gymId: string, memberId: string, memberType: "fighter" | "coach", notes?: string) =>
+    req<CheckIn>(`/gyms/${gymId}/checkins`, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ member_id: memberId, member_type: memberType, notes: notes ?? null }),
+    }),
+  checkOut: (gymId: string, checkinId: number) =>
+    req<CheckIn>(`/gyms/${gymId}/checkins/${checkinId}/checkout`, { method: "POST" }),
+  listTodaysCheckins: (gymId: string) =>
+    req<CheckIn[]>(`/gyms/${gymId}/checkins/today`),
 
   // ---- Gym Managers ----
   listGymManagers: () => req<GymManager[]>("/gym-managers"),
@@ -1207,6 +1239,13 @@ export const api = {
     }).then(async (r) => {
       if (!r.ok) throw new Error("Not authenticated");
       return r.json() as Promise<AuthUser>;
+    }),
+
+  updateProfile: (data: { name?: string; email?: string; current_password?: string; new_password?: string }) =>
+    req<AuthUser>("/auth/me", {
+      method: "PATCH",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify(data),
     }),
 
   // Admin endpoints

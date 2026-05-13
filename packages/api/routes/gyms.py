@@ -11,8 +11,9 @@ from sqlmodel import Session as DBSession
 
 from api.deps import db_session, gym_repo, resolve_gym_id
 from api.routes.auth import get_current_user, require_current_user
-from store import GymRepo, User, UserCreate, UserRepo, FighterRepo, CoachRepo
+from store import GymRepo, CheckInRepo, User, UserCreate, UserRepo, FighterRepo, CoachRepo
 from store.models import (
+    CheckInRead,
     GymCreate,
     GymMembershipRead,
     GymRead,
@@ -20,6 +21,7 @@ from store.models import (
     CoachCreate,
     Fighter,
     Coach,
+    MembershipStatus,
 )
 
 router = APIRouter(
@@ -54,6 +56,17 @@ class CreateMemberAccountBody(BaseModel):
     email: str
     password: str
     role: str  # "fighter" or "coach"
+
+
+class UpdateMembershipStatusBody(BaseModel):
+    status: str  # active, frozen, suspended, trial, left
+    note: str | None = None
+
+
+class CheckInBody(BaseModel):
+    member_id: UUID
+    member_type: str  # "fighter" or "coach"
+    notes: str | None = None
 
 
 @router.post("", response_model=GymRead, status_code=status.HTTP_201_CREATED)
@@ -110,11 +123,12 @@ def delete_gym(gym_id: UUID, repo: GymRepo = Depends(gym_repo)) -> None:
 @router.get("/{gym_id}/members", response_model=list[GymMembershipRead])
 def list_members(
     gym_id: UUID,
+    include_left: bool = False,
     repo: GymRepo = Depends(gym_repo),
 ) -> list[GymMembershipRead]:
     if repo.get(gym_id) is None:
         raise HTTPException(status_code=404, detail="gym not found")
-    rows = repo.list_members(gym_id)
+    rows = repo.list_members(gym_id, include_left=include_left)
     return [
         GymMembershipRead(
             id=m.id,  # type: ignore[arg-type]
@@ -122,8 +136,10 @@ def list_members(
             member_id=m.member_id,
             member_type=m.member_type,
             member_name=name,
+            status=m.status,
             joined_on=m.joined_on,
             left_on=m.left_on,
+            status_note=m.status_note,
             created_at=m.created_at,
         )
         for m, name in rows
@@ -145,9 +161,6 @@ def add_member(
     if data.member_type not in ("fighter", "coach"):
         raise HTTPException(status_code=422, detail="member_type must be 'fighter' or 'coach'")
     m = repo.add_member(gym_id, data.member_id, data.member_type)
-    # Resolve name
-    from sqlmodel import Session as DBSession
-
     name = ""
     return GymMembershipRead(
         id=m.id,  # type: ignore[arg-type]
@@ -155,8 +168,10 @@ def add_member(
         member_id=m.member_id,
         member_type=m.member_type,
         member_name=name,
+        status=m.status,
         joined_on=m.joined_on,
         left_on=m.left_on,
+        status_note=m.status_note,
         created_at=m.created_at,
     )
 
@@ -238,6 +253,22 @@ def import_member(
                 detail=f"{member_name} is already a member of this gym",
             )
 
+    # Set gym_id on the fighter/coach record so they show in gym-filtered lists
+    gym = repo.get(gym_id)
+    gym_name = gym.name if gym else None
+    if member_type == "fighter" and fighter:
+        fighter.gym_id = gym_id
+        fighter.gym = gym_name
+        session.add(fighter)
+        session.commit()
+        session.refresh(fighter)
+    elif member_type == "coach" and coach:
+        coach.gym_id = gym_id
+        coach.gym = gym_name
+        session.add(coach)
+        session.commit()
+        session.refresh(coach)
+
     m = repo.add_member(gym_id, system_uuid, member_type)
     return GymMembershipRead(
         id=m.id,  # type: ignore[arg-type]
@@ -245,8 +276,10 @@ def import_member(
         member_id=m.member_id,
         member_type=m.member_type,
         member_name=member_name,
+        status=m.status,
         joined_on=m.joined_on,
         left_on=m.left_on,
+        status_note=m.status_note,
         created_at=m.created_at,
     )
 
@@ -306,14 +339,26 @@ def create_member_account(
     )
     new_user = user_repo.create(user_create, hashed)
 
-    # Create profile
+    # Create profile with gym linkage
+    gym = repo.get(gym_id)
+    gym_name = gym.name if gym else None
     if data.role == "fighter":
         f_repo = FighterRepo(session)
         profile = f_repo.create(FighterCreate(name=data.name.strip(), stance="orthodox"))
+        profile.gym_id = gym_id  # type: ignore[union-attr]
+        profile.gym = gym_name  # type: ignore[union-attr]
+        session.add(profile)
+        session.commit()
+        session.refresh(profile)
         member_type = "fighter"
     else:
         c_repo = CoachRepo(session)
         profile = c_repo.create(CoachCreate(name=data.name.strip()))
+        profile.gym_id = gym_id  # type: ignore[union-attr]
+        profile.gym = gym_name  # type: ignore[union-attr]
+        session.add(profile)
+        session.commit()
+        session.refresh(profile)
         member_type = "coach"
 
     profile_id = profile.id  # type: ignore[union-attr]
@@ -327,7 +372,178 @@ def create_member_account(
         member_id=m.member_id,
         member_type=m.member_type,
         member_name=data.name.strip(),
+        status=m.status,
         joined_on=m.joined_on,
         left_on=m.left_on,
+        status_note=m.status_note,
         created_at=m.created_at,
     )
+
+
+# ------------------------------------------------------------------
+# Membership status management
+# ------------------------------------------------------------------
+
+
+@router.patch(
+    "/{gym_id}/members/{membership_id}/status",
+    response_model=GymMembershipRead,
+)
+def update_membership_status(
+    gym_id: UUID,
+    membership_id: int,
+    data: UpdateMembershipStatusBody,
+    repo: GymRepo = Depends(gym_repo),
+    session: DBSession = Depends(db_session),
+    current_user: User = Depends(require_current_user),
+) -> GymMembershipRead:
+    """Change a member's status (active, frozen, suspended, trial, left)."""
+    if repo.get(gym_id) is None:
+        raise HTTPException(status_code=404, detail="gym not found")
+
+    valid = {"active", "frozen", "suspended", "trial", "left"}
+    if data.status not in valid:
+        raise HTTPException(status_code=422, detail=f"status must be one of {valid}")
+
+    # Verify gym manager owns this gym
+    if current_user.role == "gym_manager":
+        allowed = resolve_gym_id(current_user, session)
+        if allowed != gym_id and str(allowed).replace("-", "") != str(gym_id).replace("-", ""):
+            raise HTTPException(status_code=403, detail="You can only manage your own gym")
+
+    m = repo.update_membership_status(gym_id, membership_id, data.status, data.note)
+    if m is None:
+        raise HTTPException(status_code=404, detail="membership not found")
+
+    # Resolve name
+    name = ""
+    if m.member_type == "fighter":
+        f = FighterRepo(session).get(m.member_id)
+        if f:
+            name = f.name
+    else:
+        c = CoachRepo(session).get(m.member_id)
+        if c:
+            name = c.name
+
+    return GymMembershipRead(
+        id=m.id,  # type: ignore[arg-type]
+        gym_id=m.gym_id,
+        member_id=m.member_id,
+        member_type=m.member_type,
+        member_name=name,
+        status=m.status,
+        joined_on=m.joined_on,
+        left_on=m.left_on,
+        status_note=m.status_note,
+        created_at=m.created_at,
+    )
+
+
+# ------------------------------------------------------------------
+# Check-in / Attendance
+# ------------------------------------------------------------------
+
+
+@router.post(
+    "/{gym_id}/checkins",
+    response_model=CheckInRead,
+    status_code=status.HTTP_201_CREATED,
+)
+def check_in(
+    gym_id: UUID,
+    data: CheckInBody,
+    repo: GymRepo = Depends(gym_repo),
+    session: DBSession = Depends(db_session),
+    current_user: User = Depends(require_current_user),
+) -> CheckInRead:
+    """Record a member checking in to the gym."""
+    if repo.get(gym_id) is None:
+        raise HTTPException(status_code=404, detail="gym not found")
+    if data.member_type not in ("fighter", "coach"):
+        raise HTTPException(status_code=422, detail="member_type must be 'fighter' or 'coach'")
+
+    ci_repo = CheckInRepo(session)
+    ci = ci_repo.check_in(gym_id, data.member_id, data.member_type, data.notes)
+
+    # Resolve name
+    name = ""
+    if data.member_type == "fighter":
+        f = FighterRepo(session).get(data.member_id)
+        if f:
+            name = f.name
+    else:
+        c = CoachRepo(session).get(data.member_id)
+        if c:
+            name = c.name
+
+    return CheckInRead(
+        id=ci.id,  # type: ignore[arg-type]
+        gym_id=ci.gym_id,
+        member_id=ci.member_id,
+        member_type=ci.member_type,
+        member_name=name,
+        checked_in_at=ci.checked_in_at,
+        checked_out_at=ci.checked_out_at,
+        notes=ci.notes,
+    )
+
+
+@router.post("/{gym_id}/checkins/{checkin_id}/checkout", response_model=CheckInRead)
+def check_out(
+    gym_id: UUID,
+    checkin_id: int,
+    session: DBSession = Depends(db_session),
+) -> CheckInRead:
+    """Record a member checking out of the gym."""
+    ci_repo = CheckInRepo(session)
+    ci = ci_repo.check_out(checkin_id)
+    if ci is None:
+        raise HTTPException(status_code=404, detail="check-in not found")
+
+    name = ""
+    if ci.member_type == "fighter":
+        f = FighterRepo(session).get(ci.member_id)
+        if f:
+            name = f.name
+    else:
+        c = CoachRepo(session).get(ci.member_id)
+        if c:
+            name = c.name
+
+    return CheckInRead(
+        id=ci.id,  # type: ignore[arg-type]
+        gym_id=ci.gym_id,
+        member_id=ci.member_id,
+        member_type=ci.member_type,
+        member_name=name,
+        checked_in_at=ci.checked_in_at,
+        checked_out_at=ci.checked_out_at,
+        notes=ci.notes,
+    )
+
+
+@router.get("/{gym_id}/checkins/today", response_model=list[CheckInRead])
+def list_todays_checkins(
+    gym_id: UUID,
+    repo: GymRepo = Depends(gym_repo),
+    session: DBSession = Depends(db_session),
+) -> list[CheckInRead]:
+    """Get today's attendance for the gym."""
+    if repo.get(gym_id) is None:
+        raise HTTPException(status_code=404, detail="gym not found")
+    ci_repo = CheckInRepo(session)
+    rows = ci_repo.list_today(gym_id)
+    return [
+        CheckInRead(
+            id=ci.id,  # type: ignore[arg-type]
+            gym_id=ci.gym_id,
+            member_id=ci.member_id,
+            member_type=ci.member_type,
+            member_name=name,
+            checked_in_at=ci.checked_in_at,
+            checked_out_at=ci.checked_out_at,
+            notes=ci.notes,
+        )
+        for ci, name in rows
+    ]

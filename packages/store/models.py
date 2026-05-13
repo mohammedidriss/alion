@@ -183,6 +183,16 @@ class GymRead(SQLModel):
     created_at: datetime
 
 
+class MembershipStatus(StrEnum):
+    """Lifecycle status of a gym membership."""
+
+    ACTIVE = "active"
+    FROZEN = "frozen"  # injury, travel, financial hold
+    SUSPENDED = "suspended"  # disciplinary
+    TRIAL = "trial"  # trial period / drop-in
+    LEFT = "left"  # departed the gym
+
+
 class GymMembership(SQLModel, table=True):
     """Links fighters and coaches to a gym."""
 
@@ -191,8 +201,16 @@ class GymMembership(SQLModel, table=True):
     gym_id: UUID = Field(foreign_key="gym.id", index=True)
     member_id: UUID = Field(index=True)  # fighter.id or coach.id
     member_type: str = Field(max_length=10)  # "fighter" or "coach"
-    joined_on: date | None = None
-    left_on: date | None = None  # None = current member
+    status: MembershipStatus = Field(
+        default=MembershipStatus.ACTIVE,
+        sa_column=sa.Column(sa.String(20), nullable=False, server_default="active"),
+    )
+    joined_on: date = Field(default_factory=lambda: date.today())
+    left_on: date | None = None  # set when status → left
+    status_note: str | None = Field(
+        default=None, max_length=300,
+        description="Reason for freeze/suspension/departure",
+    )
     created_at: datetime = Field(default_factory=lambda: datetime.now(UTC))
 
 
@@ -202,9 +220,40 @@ class GymMembershipRead(SQLModel):
     member_id: UUID
     member_type: str
     member_name: str  # denormalised
+    status: str = "active"
     joined_on: date | None = None
     left_on: date | None = None
+    status_note: str | None = None
     created_at: datetime
+
+
+# ----------------------------------------------------------------------
+# Check-in — daily attendance tracking
+# ----------------------------------------------------------------------
+
+
+class CheckIn(SQLModel, table=True):
+    """One row per member per gym visit."""
+
+    __tablename__ = "check_in"
+    id: int | None = Field(default=None, primary_key=True)
+    gym_id: UUID = Field(foreign_key="gym.id", index=True)
+    member_id: UUID = Field(index=True)  # fighter.id or coach.id
+    member_type: str = Field(max_length=10)  # "fighter" or "coach"
+    checked_in_at: datetime = Field(default_factory=lambda: datetime.now(UTC))
+    checked_out_at: datetime | None = None
+    notes: str | None = Field(default=None, max_length=200)
+
+
+class CheckInRead(SQLModel):
+    id: int
+    gym_id: UUID
+    member_id: UUID
+    member_type: str
+    member_name: str = ""  # denormalised
+    checked_in_at: datetime
+    checked_out_at: datetime | None = None
+    notes: str | None = None
 
 
 class GymManager(SQLModel, table=True):
