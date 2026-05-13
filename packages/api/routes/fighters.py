@@ -200,6 +200,139 @@ def delete_weigh_in(
         raise HTTPException(status_code=404, detail="weigh-in not found")
 
 
+# ---- weight analysis ----
+
+
+class WeightAnalysis(BaseModel):
+    """AI-powered weight management analysis."""
+    total_entries: int
+    current_kg: float | None = None
+    min_kg: float | None = None
+    max_kg: float | None = None
+    range_kg: float | None = None
+    mean_kg: float | None = None
+    std_kg: float | None = None
+    cv_pct: float | None = None  # coefficient of variation %
+    trend_direction: str | None = None  # "gaining", "losing", "stable"
+    trend_kg_per_week: float | None = None
+    instability_flag: bool = False
+    ai_summary: str = ""
+    ai_recommendations: list[str] = []
+
+
+@router.get("/{fighter_id}/weight-analysis", response_model=WeightAnalysis)
+async def weight_analysis(
+    fighter_id: UUID,
+    repo: FighterRepo = Depends(fighter_repo),
+    db: DBSession = Depends(db_session),
+) -> WeightAnalysis:
+    """Analyse weight history for instability patterns and provide AI advice."""
+    fighter = repo.get(fighter_id)
+    if fighter is None:
+        raise HTTPException(status_code=404, detail="fighter not found")
+    rows = WeighInRepo(db).list_for_fighter(fighter_id)
+    if len(rows) < 2:
+        return WeightAnalysis(
+            total_entries=len(rows),
+            current_kg=rows[0].weight_kg if rows else None,
+            ai_summary="Not enough weigh-in data to analyse. Log at least 2 weigh-ins.",
+        )
+
+    # Sort by date
+    entries = sorted(rows, key=lambda w: w.recorded_at)
+    weights = [w.weight_kg for w in entries]
+    n = len(weights)
+
+    # Basic stats
+    mean_w = sum(weights) / n
+    var_w = sum((w - mean_w) ** 2 for w in weights) / n
+    std_w = var_w ** 0.5
+    cv_pct = (std_w / mean_w * 100) if mean_w else 0.0
+
+    # Trend via simple linear regression (days since first entry)
+    t0 = entries[0].recorded_at
+    days = [(w.recorded_at - t0).total_seconds() / 86400 for w in entries]
+    mean_d = sum(days) / n
+    cov_dw = sum((d - mean_d) * (w - mean_w) for d, w in zip(days, weights)) / n
+    var_d = sum((d - mean_d) ** 2 for d in days) / n
+    slope_per_day = cov_dw / var_d if var_d > 0 else 0.0
+    trend_per_week = slope_per_day * 7
+
+    if abs(trend_per_week) < 0.15:
+        direction = "stable"
+    elif trend_per_week > 0:
+        direction = "gaining"
+    else:
+        direction = "losing"
+
+    # Instability detection: flag if CV > 2% or large swings between consecutive entries
+    consecutive_swings = [abs(weights[i + 1] - weights[i]) for i in range(n - 1)]
+    max_swing = max(consecutive_swings)
+    avg_swing = sum(consecutive_swings) / len(consecutive_swings)
+    big_swings = sum(1 for s in consecutive_swings if s > mean_w * 0.02)  # >2% of mean
+    instability = cv_pct > 2.0 or big_swings >= 2 or max_swing > mean_w * 0.04
+
+    # Build data payload for AI
+    data_for_ai = {
+        "fighter_name": fighter.name,
+        "weight_class": fighter.weight_class,
+        "target_weight_kg": fighter.weight_kg,
+        "entries": [
+            {"date": w.recorded_at.isoformat()[:10], "kg": w.weight_kg, "notes": w.notes}
+            for w in entries
+        ],
+        "stats": {
+            "mean_kg": round(mean_w, 2),
+            "std_kg": round(std_w, 2),
+            "cv_pct": round(cv_pct, 2),
+            "min_kg": round(min(weights), 2),
+            "max_kg": round(max(weights), 2),
+            "range_kg": round(max(weights) - min(weights), 2),
+            "trend_direction": direction,
+            "trend_kg_per_week": round(trend_per_week, 3),
+            "max_consecutive_swing_kg": round(max_swing, 2),
+            "avg_consecutive_swing_kg": round(avg_swing, 2),
+            "big_swings_count": big_swings,
+            "instability_detected": instability,
+        },
+    }
+
+    # Generate AI advice
+    from coach import generate_corner_advice
+
+    system_prompt = (
+        "You are an elite boxing nutritionist and weight management specialist. "
+        "Analyse the fighter's weigh-in history and statistics below. "
+        "Focus on:\n"
+        "1. Weight stability — are there concerning fluctuations?\n"
+        "2. Trend analysis — is the fighter trending toward or away from their weight class?\n"
+        "3. Rate of change — is weight gain/loss too rapid (unhealthy) or on track?\n"
+        "4. Practical advice — nutrition timing, hydration, safe cutting strategies.\n"
+        "5. Red flags — yo-yo patterns, crash dieting signs, dehydration risk.\n\n"
+        "Return JSON: {\"summary\": \"2-3 sentence overview\", "
+        "\"action_items\": [\"advice 1\", \"advice 2\", ...]}\n"
+        "Be specific to the data. Reference actual numbers."
+    )
+    import json as json_mod
+    advice = await generate_corner_advice(system_prompt, json_mod.dumps(data_for_ai))
+
+    return WeightAnalysis(
+        total_entries=n,
+        current_kg=weights[-1],
+        min_kg=round(min(weights), 2),
+        max_kg=round(max(weights), 2),
+        range_kg=round(max(weights) - min(weights), 2),
+        mean_kg=round(mean_w, 2),
+        std_kg=round(std_w, 2),
+        cv_pct=round(cv_pct, 2),
+        trend_direction=direction,
+        trend_kg_per_week=round(trend_per_week, 3),
+        instability_flag=instability,
+        ai_summary=advice.summary,
+        ai_recommendations=advice.action_items,
+    )
+
+
 class MatrixPoint(BaseModel):
     session_id: UUID
     started_at: datetime

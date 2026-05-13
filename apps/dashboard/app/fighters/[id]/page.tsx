@@ -21,6 +21,7 @@ import {
   type SkillLevel,
   type Stance,
   type WeighIn,
+  type WeightAnalysis,
 } from "@/lib/api";
 
 interface SessionWithStats {
@@ -61,6 +62,9 @@ export default function FighterPage({ params }: { params: { id: string } }) {
   const [severeAllergies, setSevereAllergies] = useState<Allergy[]>([]);
   const [activeConds, setActiveConds] = useState<MedicalCondition[]>([]);
   const [activeMeds, setActiveMeds] = useState<Medication[]>([]);
+  const [weightAnalysis, setWeightAnalysis] = useState<WeightAnalysis | null>(null);
+  const [analysisLoading, setAnalysisLoading] = useState(false);
+  const [analysisErr, setAnalysisErr] = useState<string | null>(null);
 
   const load = useCallback(async () => {
     try {
@@ -463,6 +467,86 @@ export default function FighterPage({ params }: { params: { id: string } }) {
               ))}
           </ul>
         )}
+
+        {/* Weight Analysis */}
+        <div className="mt-4 border-t border-neutral-800 pt-4">
+          <div className="flex items-center justify-between">
+            <h3 className="text-sm font-medium text-neutral-300">AI Weight Analysis</h3>
+            <button
+              onClick={async () => {
+                setAnalysisLoading(true);
+                setAnalysisErr(null);
+                try {
+                  const result = await api.weightAnalysis(id);
+                  setWeightAnalysis(result);
+                } catch (e) {
+                  setAnalysisErr(e instanceof Error ? e.message : "Analysis failed");
+                } finally {
+                  setAnalysisLoading(false);
+                }
+              }}
+              disabled={analysisLoading || weighIns.length < 2}
+              className="rounded-lg bg-amber-500/15 px-3 py-1.5 text-xs font-medium text-amber-300 hover:bg-amber-500/25 disabled:opacity-40"
+            >
+              {analysisLoading ? "Analysing..." : weighIns.length < 2 ? "Need 2+ weigh-ins" : "Analyse weight"}
+            </button>
+          </div>
+
+          {analysisErr && (
+            <p className="mt-2 rounded-lg border border-red-500/30 bg-red-950/30 px-3 py-2 text-xs text-red-300">
+              {analysisErr}
+            </p>
+          )}
+
+          {weightAnalysis && (
+            <div className="mt-3 space-y-3">
+              {/* Stats grid */}
+              <div className="grid grid-cols-2 gap-2 sm:grid-cols-4">
+                <MiniStat label="Current" value={weightAnalysis.current_kg != null ? `${weightAnalysis.current_kg.toFixed(1)} kg` : "—"} />
+                <MiniStat label="Range" value={weightAnalysis.range_kg != null ? `${weightAnalysis.range_kg.toFixed(1)} kg` : "—"} />
+                <MiniStat label="Trend" value={
+                  weightAnalysis.trend_direction === "gaining" ? `↑ ${Math.abs(weightAnalysis.trend_kg_per_week ?? 0).toFixed(2)} kg/wk` :
+                  weightAnalysis.trend_direction === "losing" ? `↓ ${Math.abs(weightAnalysis.trend_kg_per_week ?? 0).toFixed(2)} kg/wk` :
+                  "Stable"
+                } />
+                <MiniStat label="Variability" value={weightAnalysis.cv_pct != null ? `${weightAnalysis.cv_pct.toFixed(1)}%` : "—"} />
+              </div>
+
+              {/* Instability warning */}
+              {weightAnalysis.instability_flag && (
+                <div className="rounded-lg border border-amber-500/30 bg-amber-500/5 px-3 py-2">
+                  <p className="text-xs font-medium text-amber-300">⚠ Weight instability detected</p>
+                  <p className="mt-0.5 text-[11px] text-amber-400/70">
+                    Significant fluctuations found in your weigh-in history. See AI recommendations below.
+                  </p>
+                </div>
+              )}
+
+              {/* AI Summary */}
+              <div className="rounded-lg border border-white/5 bg-white/[0.02] px-4 py-3">
+                <p className="text-xs font-medium text-neutral-300">Summary</p>
+                <p className="mt-1 text-sm text-neutral-400">{weightAnalysis.ai_summary}</p>
+              </div>
+
+              {/* AI Recommendations */}
+              {weightAnalysis.ai_recommendations.length > 0 && (
+                <div className="rounded-lg border border-white/5 bg-white/[0.02] px-4 py-3">
+                  <p className="text-xs font-medium text-neutral-300">Recommendations</p>
+                  <ul className="mt-2 space-y-1.5">
+                    {weightAnalysis.ai_recommendations.map((rec, i) => (
+                      <li key={i} className="flex gap-2 text-sm text-neutral-400">
+                        <span className="mt-0.5 flex h-4 w-4 shrink-0 items-center justify-center rounded-full bg-amber-500/20 text-[10px] font-bold text-amber-300">
+                          {i + 1}
+                        </span>
+                        {rec}
+                      </li>
+                    ))}
+                  </ul>
+                </div>
+              )}
+            </div>
+          )}
+        </div>
       </section>}
 
       {/* PERFORMANCE — hidden from admin */}
@@ -584,6 +668,15 @@ function Cell({ label, value }: { label: string; value: string | number }) {
     <div>
       <dt className="text-xs text-neutral-500">{label}</dt>
       <dd className="mt-0.5 text-lg font-semibold">{value}</dd>
+    </div>
+  );
+}
+
+function MiniStat({ label, value }: { label: string; value: string }) {
+  return (
+    <div className="rounded-lg bg-white/[0.03] px-3 py-2 text-center">
+      <p className="text-xs text-neutral-500">{label}</p>
+      <p className="mt-0.5 text-sm font-semibold text-neutral-200">{value}</p>
     </div>
   );
 }

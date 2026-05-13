@@ -279,6 +279,22 @@ export interface WeighIn {
   notes: string | null;
 }
 
+export interface WeightAnalysis {
+  total_entries: number;
+  current_kg: number | null;
+  min_kg: number | null;
+  max_kg: number | null;
+  range_kg: number | null;
+  mean_kg: number | null;
+  std_kg: number | null;
+  cv_pct: number | null;
+  trend_direction: string | null;
+  trend_kg_per_week: number | null;
+  instability_flag: boolean;
+  ai_summary: string;
+  ai_recommendations: string[];
+}
+
 export interface FighterOptions {
   stances: string[];
   hands: string[];
@@ -677,6 +693,7 @@ export const api = {
     req<void>(`/fighters/${fighter_id}/weigh-ins/${weigh_in_id}`, {
       method: "DELETE",
     }),
+  weightAnalysis: (id: string) => req<WeightAnalysis>(`/fighters/${id}/weight-analysis`),
   // HRV (Phase 2, /v2)
   uploadHrvCsv: async (id: string, file: File) => {
     const fd = new FormData();
