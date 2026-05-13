@@ -607,6 +607,7 @@ export interface CamerasResponse {
   cameras: Camera[];
   cv_available: boolean;
   reason: string | null;
+  permission_status?: string | null;
 }
 
 export interface CaptureStatus {

@@ -58,6 +58,7 @@ export default function SessionPage({ params }: { params: { id: string } }) {
   const [confirmDelete, setConfirmDelete] = useState(false);
   const [cameras, setCameras] = useState<Camera[]>([]);
   const [cameraIndex, setCameraIndex] = useState<number>(0);
+  const [cameraReason, setCameraReason] = useState<string | null>(null);
   const [notesDraft, setNotesDraft] = useState<string>("");
   const [notesDirty, setNotesDirty] = useState(false);
   const [baselineUploading, setBaselineUploading] = useState(false);
@@ -203,6 +204,7 @@ export default function SessionPage({ params }: { params: { id: string } }) {
       .listCameras()
       .then((r) => {
         setCameras(r.cameras);
+        setCameraReason(r.reason);
         if (r.cameras.length > 0) setCameraIndex(r.cameras[0].index);
       })
       .catch(() => setCameras([]));
@@ -572,6 +574,14 @@ export default function SessionPage({ params }: { params: { id: string } }) {
       {session.status === "pending" && (
         <section className="space-y-5 rounded-lg border border-neutral-800 bg-neutral-950/60 p-5">
           <h2 className="text-lg font-semibold">Session setup</h2>
+
+          {/* Camera permission warning */}
+          {setupSource === "live_webcam" && cameras.length === 0 && cameraReason && (
+            <div className="rounded-lg border border-amber-700/60 bg-amber-950/40 p-4 text-sm">
+              <p className="font-medium text-amber-200">⚠ Camera not available</p>
+              <p className="mt-1 text-amber-100/80">{cameraReason}</p>
+            </div>
+          )}
 
           {/* Source + Pose model on the same row */}
           <div className="flex flex-wrap items-start justify-between gap-4">

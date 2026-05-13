@@ -12,6 +12,7 @@ the dashboard surfaces.
 from __future__ import annotations
 
 import importlib.util
+import sys
 
 from fastapi import APIRouter
 from pydantic import BaseModel
@@ -34,6 +35,29 @@ class CamerasResponse(BaseModel):
     cameras: list[Camera]
     cv_available: bool
     reason: str | None = None
+    permission_status: str | None = None
+
+
+def _check_macos_camera_permission() -> str:
+    """Check macOS camera authorization status via AVFoundation.
+
+    Returns one of: "authorized", "denied", "not_determined", "restricted",
+    "unknown", or "not_macos".
+    """
+    if sys.platform != "darwin":
+        return "not_macos"
+    try:
+        import objc  # type: ignore[import-not-found]
+        from AVFoundation import AVCaptureDevice, AVMediaTypeVideo  # type: ignore[import-not-found]
+
+        status = AVCaptureDevice.authorizationStatusForMediaType_(AVMediaTypeVideo)
+        # 0 = notDetermined, 1 = restricted, 2 = denied, 3 = authorized
+        return {0: "not_determined", 1: "restricted", 2: "denied", 3: "authorized"}.get(
+            status, "unknown"
+        )
+    except ImportError:
+        # pyobjc not installed — fall back to probe-based detection
+        return "unknown"
 
 
 def _probe() -> list[Camera]:
@@ -61,8 +85,43 @@ def list_cameras() -> CamerasResponse:
             cv_available=False,
             reason="OpenCV is not installed in this environment.",
         )
+
+    perm = _check_macos_camera_permission()
+
+    if perm == "denied":
+        return CamerasResponse(
+            cameras=[],
+            cv_available=True,
+            permission_status=perm,
+            reason=(
+                "Camera permission denied. Open System Settings → Privacy & Security "
+                "→ Camera and enable access for the terminal app running the API server, "
+                "then restart the server."
+            ),
+        )
+    if perm == "restricted":
+        return CamerasResponse(
+            cameras=[],
+            cv_available=True,
+            permission_status=perm,
+            reason="Camera access is restricted by a device management profile.",
+        )
+
     try:
         cams = _probe()
     except Exception as e:
-        return CamerasResponse(cameras=[], cv_available=True, reason=str(e))
-    return CamerasResponse(cameras=cams, cv_available=True, reason=None)
+        return CamerasResponse(cameras=[], cv_available=True, permission_status=perm, reason=str(e))
+
+    if not cams and sys.platform == "darwin" and perm in ("not_determined", "unknown"):
+        return CamerasResponse(
+            cameras=[],
+            cv_available=True,
+            permission_status=perm,
+            reason=(
+                "No cameras found. This is usually a macOS camera permission issue. "
+                "Open System Settings → Privacy & Security → Camera and enable "
+                "access for the terminal app running the API server, then restart."
+            ),
+        )
+
+    return CamerasResponse(cameras=cams, cv_available=True, permission_status=perm, reason=None)
