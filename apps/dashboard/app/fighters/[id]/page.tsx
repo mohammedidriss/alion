@@ -48,7 +48,9 @@ export default function FighterPage({ params }: { params: { id: string } }) {
   const { user } = useAuth();
   const canEdit = !!user && user.role !== "fighter";
   const isAdmin = user?.role === "admin";
-  const canCreateSession = canEdit && user?.role !== "gym_manager" && !isAdmin;
+  const canCreateSession =
+    (canEdit && user?.role !== "gym_manager" && !isAdmin) ||
+    (user?.role === "fighter" && user?.profile_id === id);
   const [fighter, setFighter] = useState<Fighter | null>(null);
   const [options, setOptions] = useState<FighterOptions | null>(null);
   const [sessions, setSessions] = useState<SessionWithStats[]>([]);

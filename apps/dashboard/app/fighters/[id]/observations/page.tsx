@@ -8,6 +8,7 @@ import {
   type FighterObservationResponse,
   type PerformanceTrendItem,
   type Session,
+  type WeightAnalysis,
 } from "@/lib/api";
 import { useAuth } from "@/lib/auth";
 
@@ -45,6 +46,8 @@ export default function ObservationsTab({
   const [trendData, setTrendData] = useState<PerformanceTrendItem[]>([]);
   const [trendLoading, setTrendLoading] = useState(false);
   const [coachNotes, setCoachNotes] = useState<CoachNote[]>([]);
+  const [weightData, setWeightData] = useState<WeightAnalysis | null>(null);
+  const [weightLoading, setWeightLoading] = useState(true);
 
   useEffect(() => {
     api
@@ -55,6 +58,13 @@ export default function ObservationsTab({
       .listFighterCoachNotes(params.id)
       .then(setCoachNotes)
       .catch(() => setCoachNotes([]));
+    // Auto-load weight analysis so it reflects latest weigh-in
+    setWeightLoading(true);
+    api
+      .weightAnalysis(params.id)
+      .then(setWeightData)
+      .catch(() => setWeightData(null))
+      .finally(() => setWeightLoading(false));
   }, [params.id]);
 
   useEffect(() => {
@@ -168,6 +178,113 @@ export default function ObservationsTab({
           </div>
         </div>
       </div>
+
+      {/* ── Weight Management ── */}
+      {weightLoading ? (
+        <section className="rounded-lg border border-amber-500/20 bg-amber-500/5 p-5">
+          <div className="flex items-center gap-2 text-sm text-amber-300/80">
+            <span className="inline-block h-4 w-4 animate-spin rounded-full border-2 border-amber-300/30 border-t-amber-300" />
+            Loading weight analysis...
+          </div>
+        </section>
+      ) : weightData && weightData.total_entries >= 2 ? (
+        <section className="rounded-lg border border-amber-500/20 bg-amber-500/5 p-5 space-y-4">
+          <div>
+            <h2 className="text-lg font-semibold text-amber-200">Weight Management</h2>
+            <p className="mt-0.5 text-xs text-neutral-400">
+              Auto-analysed from {weightData.total_entries} weigh-ins. Updates when new weight is logged.
+            </p>
+          </div>
+
+          {/* Stats row */}
+          <div className="grid grid-cols-2 gap-2 sm:grid-cols-5">
+            <div className="rounded-lg bg-black/30 px-3 py-2 text-center">
+              <p className="text-[10px] uppercase tracking-wide text-neutral-500">Current</p>
+              <p className="mt-0.5 text-sm font-semibold text-neutral-200">
+                {weightData.current_kg?.toFixed(1) ?? "—"} kg
+              </p>
+            </div>
+            <div className="rounded-lg bg-black/30 px-3 py-2 text-center">
+              <p className="text-[10px] uppercase tracking-wide text-neutral-500">Mean</p>
+              <p className="mt-0.5 text-sm font-semibold text-neutral-200">
+                {weightData.mean_kg?.toFixed(1) ?? "—"} kg
+              </p>
+            </div>
+            <div className="rounded-lg bg-black/30 px-3 py-2 text-center">
+              <p className="text-[10px] uppercase tracking-wide text-neutral-500">Range</p>
+              <p className="mt-0.5 text-sm font-semibold text-neutral-200">
+                {weightData.range_kg?.toFixed(1) ?? "—"} kg
+              </p>
+            </div>
+            <div className="rounded-lg bg-black/30 px-3 py-2 text-center">
+              <p className="text-[10px] uppercase tracking-wide text-neutral-500">Trend</p>
+              <p className="mt-0.5 text-sm font-semibold text-neutral-200">
+                {weightData.trend_direction === "gaining"
+                  ? `↑ ${Math.abs(weightData.trend_kg_per_week ?? 0).toFixed(2)} kg/wk`
+                  : weightData.trend_direction === "losing"
+                    ? `↓ ${Math.abs(weightData.trend_kg_per_week ?? 0).toFixed(2)} kg/wk`
+                    : "Stable"}
+              </p>
+            </div>
+            <div className="rounded-lg bg-black/30 px-3 py-2 text-center">
+              <p className="text-[10px] uppercase tracking-wide text-neutral-500">Variability</p>
+              <p className={`mt-0.5 text-sm font-semibold ${
+                weightData.instability_flag ? "text-red-300" : "text-neutral-200"
+              }`}>
+                {weightData.cv_pct?.toFixed(1) ?? "—"}%
+              </p>
+            </div>
+          </div>
+
+          {/* Instability alert */}
+          {weightData.instability_flag && (
+            <div className="rounded-lg border border-red-500/30 bg-red-500/10 px-4 py-3">
+              <p className="text-sm font-medium text-red-300">⚠ Weight instability detected</p>
+              <p className="mt-0.5 text-xs text-red-400/70">
+                Weight fluctuations exceed safe thresholds. CV of {weightData.cv_pct?.toFixed(1)}% with a {weightData.range_kg?.toFixed(1)} kg range
+                suggest yo-yo patterns that may impair performance and health.
+              </p>
+            </div>
+          )}
+
+          {/* AI summary */}
+          {weightData.ai_summary && weightData.ai_summary !== "No summary provided." && (
+            <div className="rounded-lg border border-amber-500/15 bg-amber-500/5 p-4">
+              <p className="text-xs font-medium text-amber-200">AI Assessment</p>
+              <p className="mt-1 text-sm text-neutral-300 leading-relaxed">
+                {weightData.ai_summary}
+              </p>
+            </div>
+          )}
+
+          {/* AI recommendations */}
+          {weightData.ai_recommendations.length > 0 && (
+            <div className="space-y-2">
+              <h3 className="text-sm font-semibold text-amber-200">Recommendations</h3>
+              <ul className="space-y-1.5">
+                {weightData.ai_recommendations.map((rec, i) => (
+                  <li
+                    key={i}
+                    className="flex items-start gap-2 rounded-lg border border-amber-500/15 bg-amber-500/5 p-2.5 text-xs text-neutral-200"
+                  >
+                    <span className="mt-0.5 inline-flex h-5 w-5 shrink-0 items-center justify-center rounded-full bg-amber-500/20 text-[10px] font-bold text-amber-300">
+                      {i + 1}
+                    </span>
+                    <span>{rec}</span>
+                  </li>
+                ))}
+              </ul>
+            </div>
+          )}
+        </section>
+      ) : weightData && weightData.total_entries < 2 ? (
+        <section className="rounded-lg border border-amber-500/20 bg-amber-500/5 p-5">
+          <h2 className="text-lg font-semibold text-amber-200">Weight Management</h2>
+          <p className="mt-2 text-sm text-neutral-400">
+            Not enough weigh-in data yet. Log at least 2 weigh-ins on the fighter dashboard to see weight analysis here.
+          </p>
+        </section>
+      ) : null}
 
       {/* ── Part 1: AI Observations ── */}
       <section className="rounded-lg border border-violet-500/30 bg-violet-500/5 p-5 space-y-4">
