@@ -98,6 +98,10 @@ for router in (health.router, cameras.router, fighters.router, sessions.router):
     app.include_router(router)
     app.include_router(router, prefix="/v1")
 
+# MJPEG preview stream — no auth (session UUID is the access control, <img> can't send headers)
+app.include_router(sessions.preview_router)
+app.include_router(sessions.preview_router, prefix="/v1")
+
 # Phase 2 surface: HRV routes are NEW work, only mounted under /v2.
 # Phase 1 (/v1) sees nothing about HRV — preserves the lock from ADR 004.
 app.include_router(hrv.router, prefix="/v2")

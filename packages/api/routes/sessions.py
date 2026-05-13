@@ -50,6 +50,10 @@ router = APIRouter(
     dependencies=[Depends(require_current_user)],
 )
 
+# Separate router for endpoints that can't send auth headers (e.g. <img src>).
+# The unguessable session UUID serves as the access control.
+preview_router = APIRouter(prefix="/sessions", tags=["sessions"])
+
 _VIDEO_DIR = Path("data/raw/uploaded")
 
 
@@ -352,7 +356,7 @@ def capture_status(
     )
 
 
-@router.get("/{session_id}/preview")
+@preview_router.get("/{session_id}/preview")
 async def preview_stream(session_id: UUID) -> StreamingResponse:
     """MJPEG stream of the latest captured frame with skeleton overlay.
 
