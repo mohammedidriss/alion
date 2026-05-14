@@ -805,6 +805,12 @@ export const api = {
       headers: { "content-type": "application/json" },
       body: JSON.stringify(config),
     }),
+  patchStudyCondition: (id: string, condition: StudyCondition | null) =>
+    req<Session>(`/sessions/${id}`, {
+      method: "PATCH",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ study_condition: condition }),
+    }),
   listAttachments: (id: string) =>
     req<SessionAttachment[]>(`/sessions/${id}/attachments`),
   uploadAttachment: async (id: string, file: File) => {

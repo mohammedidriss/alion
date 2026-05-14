@@ -26,6 +26,25 @@ router = APIRouter(prefix="/sessions", tags=["hrv"])
 _HRV_DIR = Path("data/raw/hrv")
 
 
+def _check_hrv_condition(repo: SessionRepo, session_id: UUID) -> None:
+    """Block HRV data operations when the session's study condition excludes HRV."""
+    row = repo.get(session_id)
+    if row is None:
+        raise HTTPException(status_code=404, detail="session not found")
+    if row.study_condition is not None:
+        from store import StudyConditionEnum
+
+        cond = StudyConditionEnum(row.study_condition)
+        if not cond.allows_hrv:
+            raise HTTPException(
+                status_code=403,
+                detail=(
+                    f"HRV data is not allowed for study condition '{row.study_condition}'. "
+                    f"Allowed modalities: {', '.join(cond.allowed_modalities) or 'none'}."
+                ),
+            )
+
+
 class HrvStartRequest(BaseModel):
     realtime: bool = False
     window_ms: float = 60_000.0
@@ -50,6 +69,7 @@ def upload_hrv_csv(
     Session row's `notes` field so the runner can find it. Once we have a
     Session.hrv_csv_path column we'll move it there cleanly.
     """
+    _check_hrv_condition(repo, session_id)
     row = repo.get(session_id)
     if row is None:
         raise HTTPException(status_code=404, detail="session not found")
@@ -81,6 +101,8 @@ def load_hrv_csv_sync(
     rows. Intended for RQ1 study setup and offline analysis where the
     SSE stream isn't needed.
     """
+    _check_hrv_condition(repo, session_id)
+
     from sqlmodel import delete as sqlmodel_delete
 
     from capture.hrv import parse_rr_csv as _parse
@@ -116,6 +138,7 @@ def start_hrv_replay(
     repo: SessionRepo = Depends(session_repo),
     db: DBSession = Depends(db_session),
 ) -> HrvStatusResponse:
+    _check_hrv_condition(repo, session_id)
     row = repo.get(session_id)
     if row is None:
         raise HTTPException(status_code=404, detail="session not found")

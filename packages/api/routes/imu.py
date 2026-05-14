@@ -79,6 +79,25 @@ def _parse_imu_csv(text: str, session_id: UUID) -> list[IMUSampleRow]:
     return rows
 
 
+def _check_imu_condition(sessions: SessionRepo, session_id: UUID) -> None:
+    """Block IMU data operations when the session's study condition excludes IMU."""
+    row = sessions.get(session_id)
+    if row is None:
+        raise HTTPException(status_code=404, detail="session not found")
+    if row.study_condition is not None:
+        from store import StudyConditionEnum
+
+        cond = StudyConditionEnum(row.study_condition)
+        if not cond.allows_imu:
+            raise HTTPException(
+                status_code=403,
+                detail=(
+                    f"IMU data is not allowed for study condition '{row.study_condition}'. "
+                    f"Allowed modalities: {', '.join(cond.allowed_modalities) or 'none'}."
+                ),
+            )
+
+
 @router.post("/{session_id}/imu/upload", response_model=int)
 async def upload_imu_csv(
     session_id: UUID,
@@ -86,8 +105,7 @@ async def upload_imu_csv(
     sessions: SessionRepo = Depends(session_repo),
     imu: IMUSampleRepo = Depends(imu_sample_repo),
 ) -> int:
-    if sessions.get(session_id) is None:
-        raise HTTPException(status_code=404, detail="session not found")
+    _check_imu_condition(sessions, session_id)
     raw = (await file.read()).decode("utf-8", errors="ignore")
     rows = _parse_imu_csv(raw, session_id)
     return imu.replace_for_session(session_id, rows)
@@ -109,6 +127,7 @@ def synthesize_imu(
     Useful for dry-running RQ1 (fused-vs-single-modality advice) on
     existing sessions before real wrist sensors are attached.
     """
+    _check_imu_condition(sessions, session_id)
     row = sessions.get(session_id)
     if row is None:
         raise HTTPException(status_code=404, detail="session not found")

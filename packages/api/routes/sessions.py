@@ -224,6 +224,19 @@ def start_capture_route(
     row = repo.get(session_id)
     if row is None:
         raise HTTPException(status_code=404, detail="session not found")
+    # RQ2 condition gate — block CV capture for non-CV conditions.
+    if row.study_condition is not None:
+        from store import StudyConditionEnum
+
+        cond = StudyConditionEnum(row.study_condition)
+        if not cond.allows_cv:
+            raise HTTPException(
+                status_code=403,
+                detail=(
+                    f"CV capture is not allowed for study condition '{row.study_condition}'. "
+                    f"Allowed modalities: {', '.join(cond.allowed_modalities) or 'none'}."
+                ),
+            )
     if capture_runner.is_running(session_id):
         raise HTTPException(status_code=409, detail="capture already running")
 
@@ -632,6 +645,10 @@ async def get_session_advice(
     sliced view of the per-round fused export. Lets us measure marginal
     advice quality contributed by each modality.
 
+    When a session has a `study_condition` set (RQ2), the condition gates
+    which modalities the LLM may see.  ``coach_only`` sessions get no AI
+    advice at all — that's the control.
+
     Cached per `(session_id, payload_mode, prompt_version)` so every
     rater scores the same generation. Pass `force_regenerate=true` to
     bypass and overwrite the cache.
@@ -646,6 +663,20 @@ async def get_session_advice(
     row = sessions.get(session_id)
     if row is None:
         raise HTTPException(status_code=404, detail="session not found")
+
+    # RQ2 condition gate — coach_only sessions get no AI advice (control).
+    if row.study_condition is not None:
+        from store import StudyConditionEnum
+
+        cond = StudyConditionEnum(row.study_condition)
+        if not cond.allows_ai_advice:
+            raise HTTPException(
+                status_code=403,
+                detail=(
+                    f"AI advice is disabled for study condition '{row.study_condition}'. "
+                    "This session is in the coach-only control group."
+                ),
+            )
 
     mode_enum = PayloadModeEnum(payload_mode)
     cache_stmt = _select(CoachAdviceCacheRow).where(
@@ -773,6 +804,7 @@ class RoundsExportResponse(BaseModel):
     round_count: int
     round_duration_s: int
     rest_duration_s: int
+    study_condition: str | None = None
     rounds: list[RoundExportItem]
 
 
@@ -911,6 +943,7 @@ def rounds_export(
         round_count=rounds_n,
         round_duration_s=round_s,
         rest_duration_s=rest_s,
+        study_condition=row.study_condition,
         rounds=items,
     )
 

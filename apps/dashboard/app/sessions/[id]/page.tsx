@@ -28,6 +28,7 @@ import {
   type PunchEvent,
   type Session,
   type SessionSource,
+  type StudyCondition,
 } from "@/lib/api";
 import { useAuth } from "@/lib/auth";
 
@@ -67,6 +68,7 @@ export default function SessionPage({ params }: { params: { id: string } }) {
   const [setupBackend, setSetupBackend] = useState<PoseBackend>("mediapipe");
   const [setupVideoFile, setSetupVideoFile] = useState<File | null>(null);
   const [setupHrvFile, setSetupHrvFile] = useState<File | null>(null);
+  const [setupCondition, setSetupCondition] = useState<StudyCondition | null>(null);
   const [setupBusy, setSetupBusy] = useState(false);
   const [now, setNow] = useState(() => Date.now());
   // Manual-pause bookkeeping. Timer freezes only when the user hits the
@@ -221,6 +223,7 @@ export default function SessionPage({ params }: { params: { id: string } }) {
       if (cancelled || s.status !== "pending") return;
       setSetupSource(s.source);
       setSetupBackend(s.pose_backend);
+      setSetupCondition(s.study_condition ?? null);
       // Round config is seeded by RoundConfigCard internally.
     }).catch(() => {});
     return () => { cancelled = true; };
@@ -246,6 +249,10 @@ export default function SessionPage({ params }: { params: { id: string } }) {
     try {
       // Round config is auto-saved by RoundConfigCard (debounced 600 ms),
       // so no need to patch it here. Just handle source-specific uploads.
+      // Persist the RQ2 study condition before kicking off capture.
+      if (setupCondition !== null) {
+        await api.patchStudyCondition(id, setupCondition);
+      }
       // Side-channel uploads when the source needs them.
       if (setupSource === "uploaded_video" && setupVideoFile) {
         await api.uploadVideo(id, setupVideoFile);
@@ -539,6 +546,11 @@ export default function SessionPage({ params }: { params: { id: string } }) {
             }`}>
               {session.pose_backend === "yolov8" ? "YOLOv8" : "MediaPipe"}
             </span>
+            {session.study_condition && (
+              <span className="rounded-full bg-amber-900/60 px-3 py-1 text-xs font-medium text-amber-200">
+                RQ2: {session.study_condition.replace(/_/g, " ")}
+              </span>
+            )}
           </div>
         )}
       </header>
@@ -631,6 +643,37 @@ export default function SessionPage({ params }: { params: { id: string } }) {
                   </button>
                 ))}
               </div>
+            </div>
+          </div>
+
+          {/* RQ2 study condition */}
+          <div>
+            <label className="text-xs text-neutral-400">
+              Study condition <span className="text-neutral-600">(RQ2)</span>
+            </label>
+            <div className="mt-1 flex flex-wrap gap-2">
+              {(
+                [
+                  [null, "None"],
+                  ["cv_only", "CV only"],
+                  ["imu_only", "IMU only"],
+                  ["hrv_only", "HRV only"],
+                  ["fused", "Fused"],
+                  ["coach_only", "Coach only"],
+                ] as [StudyCondition | null, string][]
+              ).map(([val, lbl]) => (
+                <button
+                  key={String(val)}
+                  onClick={() => setSetupCondition(val)}
+                  className={`rounded-full px-3 py-1 text-xs ${
+                    setupCondition === val
+                      ? "bg-amber-600 text-white"
+                      : "bg-white/[0.04] text-neutral-400 hover:bg-white/[0.08]"
+                  }`}
+                >
+                  {lbl}
+                </button>
+              ))}
             </div>
           </div>
 
@@ -976,8 +1019,14 @@ export default function SessionPage({ params }: { params: { id: string } }) {
       {session.status === "completed" && events.length > 0 && (
         <EvaluationCard sessionId={id} />
       )}
-      <HrvPanel sessionId={session.id} />
-      <IMUPanel sessionId={session.id} punchEvents={events} />
+      {/* Gate HRV / IMU panels by study condition — only show when the
+          condition allows the modality (or no condition is set). */}
+      {(!session.study_condition || ["hrv_only", "fused"].includes(session.study_condition)) && (
+        <HrvPanel sessionId={session.id} />
+      )}
+      {(!session.study_condition || ["imu_only", "fused"].includes(session.study_condition)) && (
+        <IMUPanel sessionId={session.id} punchEvents={events} />
+      )}
       <RQ1RaterCard sessionId={session.id} />
 
       <PunchChart events={events} />
@@ -1165,11 +1214,13 @@ export default function SessionPage({ params }: { params: { id: string } }) {
       </section>
         </div>
         <aside className="space-y-4 xl:sticky xl:top-4 xl:self-start">
-          <LiveAdviceCard
-            sessionId={session.id}
-            status={session.status}
-            completedRounds={completedRounds}
-          />
+          {session.study_condition !== "coach_only" && (
+            <LiveAdviceCard
+              sessionId={session.id}
+              status={session.status}
+              completedRounds={completedRounds}
+            />
+          )}
           <DetectorComparisonCard
             sessionId={session.id}
             status={session.status}

@@ -55,6 +55,51 @@ class StudyConditionEnum(StrEnum):
     FUSED = "fused"
     COACH_ONLY = "coach_only"
 
+    # ---- condition → modality gate logic ----
+
+    @property
+    def allows_cv(self) -> bool:
+        return self in (self.CV_ONLY, self.FUSED)
+
+    @property
+    def allows_imu(self) -> bool:
+        return self in (self.IMU_ONLY, self.FUSED)
+
+    @property
+    def allows_hrv(self) -> bool:
+        return self in (self.HRV_ONLY, self.FUSED)
+
+    @property
+    def allows_ai_advice(self) -> bool:
+        """coach_only condition gets NO AI-generated advice."""
+        return self != self.COACH_ONLY
+
+    @property
+    def allowed_payload_mode(self) -> str:
+        """The payload_mode string to use when generating advice for this condition.
+
+        Maps each condition to the single payload slice the LLM should see.
+        FUSED → "fused", CV_ONLY → "cv", etc. COACH_ONLY raises because
+        advice is not allowed.
+        """
+        return {
+            self.CV_ONLY: "cv",
+            self.IMU_ONLY: "imu",
+            self.HRV_ONLY: "hrv",
+            self.FUSED: "fused",
+        }.get(self, "fused")
+
+    @property
+    def allowed_modalities(self) -> tuple[str, ...]:
+        """Human-readable list of active modalities for this condition."""
+        return {
+            self.CV_ONLY: ("cv",),
+            self.IMU_ONLY: ("imu",),
+            self.HRV_ONLY: ("hrv",),
+            self.FUSED: ("cv", "imu", "hrv"),
+            self.COACH_ONLY: (),
+        }.get(self, ("cv", "imu", "hrv"))
+
 
 class SessionStatus(StrEnum):
     PENDING = "pending"
