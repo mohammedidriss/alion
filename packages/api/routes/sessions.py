@@ -470,12 +470,13 @@ def export_events_csv(
 
 class SessionAnnotation(BaseModel):
     """Patch payload — every field optional. Send only the keys you want
-    to change. Used for both notes and round-structure configuration."""
+    to change. Used for notes, round-structure, and RQ2 study condition."""
 
     notes: str | None = None
     round_count: int | None = None
     round_duration_s: int | None = None
     rest_duration_s: int | None = None
+    study_condition: str | None = None  # one of StudyConditionEnum values
 
 
 @router.patch("/{session_id}", response_model=SessionRead)

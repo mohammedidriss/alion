@@ -19,6 +19,12 @@ export type PunchType = "jab" | "cross" | "hook" | "uppercut";
 export type DetectionSource = "heuristic" | "lstm_v1" | "custom_ml";
 export type VelocitySource = "world" | "image_heuristic";
 export type PoseBackend = "mediapipe" | "yolov8";
+export type StudyCondition =
+  | "cv_only"
+  | "imu_only"
+  | "hrv_only"
+  | "fused"
+  | "coach_only";
 export type SkillLevel =
   | "recreational"
   | "amateur_novice"
@@ -365,6 +371,7 @@ export interface Session {
   round_duration_s: number | null;
   rest_duration_s: number | null;
   pose_backend: PoseBackend;
+  study_condition: StudyCondition | null;
 }
 
 export type AttachmentKind = "video" | "image" | "audio" | "document" | "other";

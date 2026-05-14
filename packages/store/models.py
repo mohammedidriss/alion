@@ -34,6 +34,28 @@ class PoseBackendEnum(StrEnum):
     YOLOV8 = "yolov8"
 
 
+class StudyConditionEnum(StrEnum):
+    """RQ2 five-condition validation design.
+
+    Each session in the validation study is assigned one condition.
+    The condition determines which modalities are collected/analysed
+    and whether AI-generated advice is available.
+
+    - CV_ONLY:     Computer-vision punch detection only (no IMU, no HRV).
+    - IMU_ONLY:    Wrist-IMU (Hykso-style) data only (no CV, no HRV).
+    - HRV_ONLY:    Heart-rate variability (Polar H10) only (no CV, no IMU).
+    - FUSED:       All three modalities fused + AI coaching advice.
+    - COACH_ONLY:  Human coach observation only — no sensors, no AI.
+                   Acts as the control condition.
+    """
+
+    CV_ONLY = "cv_only"
+    IMU_ONLY = "imu_only"
+    HRV_ONLY = "hrv_only"
+    FUSED = "fused"
+    COACH_ONLY = "coach_only"
+
+
 class SessionStatus(StrEnum):
     PENDING = "pending"
     CAPTURING = "capturing"
@@ -427,6 +449,12 @@ class Session(SQLModel, table=True):
         default=PoseBackendEnum.MEDIAPIPE,
         sa_column=sa.Column(sa.String, nullable=False, server_default="mediapipe"),
     )
+    # RQ2 study condition — which modalities are active for this session.
+    # NULL means the session is not part of the RQ2 validation study.
+    study_condition: StudyConditionEnum | None = Field(
+        default=None,
+        sa_column=sa.Column(sa.String, nullable=True),
+    )
 
 
 class SessionCreate(SQLModel):
@@ -434,6 +462,7 @@ class SessionCreate(SQLModel):
     source: SessionSourceEnum
     notes: str | None = None
     pose_backend: PoseBackendEnum = PoseBackendEnum.MEDIAPIPE
+    study_condition: StudyConditionEnum | None = None
 
 
 class SessionRead(SQLModel):
@@ -457,6 +486,7 @@ class SessionRead(SQLModel):
     round_duration_s: int | None = None
     rest_duration_s: int | None = None
     pose_backend: PoseBackendEnum = PoseBackendEnum.MEDIAPIPE
+    study_condition: StudyConditionEnum | None = None
 
 
 class LeadOrRearEnum(StrEnum):
