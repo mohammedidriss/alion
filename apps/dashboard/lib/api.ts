@@ -736,6 +736,14 @@ export const api = {
     }),
   stopHrv: (id: string) =>
     req<HrvStatus>(`/v2/sessions/${id}/hrv/stop`, { method: "POST" }),
+  scanBleDevices: () =>
+    req<{ devices: { name: string; address: string }[] }>("/v2/ble/scan"),
+  startHrvBle: (id: string, address: string) =>
+    req<HrvStatus>(`/v2/sessions/${id}/hrv/ble/start`, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ address }),
+    }),
   hrvStatus: (id: string) => req<HrvStatus>(`/v2/sessions/${id}/hrv/status`),
   hrvSamples: (id: string, limit?: number) =>
     req<HRSample[]>(

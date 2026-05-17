@@ -42,6 +42,10 @@ ml = [
     "joblib>=1.3",
     "pandas>=2.0",
 ]
+# Polar H10 BLE — install with `uv sync --extra ble`.
+ble = [
+    "bleak>=3.0",
+]
 # YOLOv8 + DeepSORT — install with `uv sync --extra dev --extra yolo`.
 yolo = [
     "ultralytics>=8.2",

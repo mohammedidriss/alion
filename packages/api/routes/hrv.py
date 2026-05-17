@@ -1,4 +1,4 @@
-"""HRV stream endpoints — upload an RR CSV, start replay, list samples + metrics."""
+"""HRV stream endpoints — CSV replay, Polar H10 BLE, list samples + metrics."""
 
 from __future__ import annotations
 
@@ -301,4 +301,88 @@ async def hrv_live_stream(
         gen(),
         media_type="text/event-stream",
         headers={"Cache-Control": "no-store", "X-Accel-Buffering": "no"},
+    )
+
+
+# ── Polar H10 BLE endpoints ──────────────────────────────────────────
+
+ble_router = APIRouter(prefix="/ble", tags=["ble"])
+
+
+class BleDevice(BaseModel):
+    name: str
+    address: str
+
+
+class BleScanResponse(BaseModel):
+    devices: list[BleDevice]
+
+
+class BleStartRequest(BaseModel):
+    address: str
+    window_ms: float = 60_000.0
+
+
+@ble_router.get("/scan", response_model=BleScanResponse)
+async def scan_ble_hr_devices() -> BleScanResponse:
+    """Scan for BLE devices advertising the Heart Rate service (Polar H10, etc.)."""
+    try:
+        from capture.hrv.polar import scan_for_hr_devices
+
+        devices = await scan_for_hr_devices(timeout=8.0)
+        return BleScanResponse(
+            devices=[BleDevice(name=d["name"], address=d["address"]) for d in devices]
+        )
+    except ImportError:
+        raise HTTPException(
+            status_code=501,
+            detail="BLE support requires `bleak`. Install with: uv pip install bleak",
+        )
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"BLE scan failed: {e}")
+
+
+@router.post("/{session_id}/hrv/ble/start", response_model=HrvStatusResponse, tags=["ble"])
+def start_hrv_ble(
+    session_id: UUID,
+    body: BleStartRequest,
+    repo: SessionRepo = Depends(session_repo),
+    db: DBSession = Depends(db_session),
+) -> HrvStatusResponse:
+    """Start live Polar H10 BLE streaming for this session."""
+    _check_hrv_condition(repo, session_id)
+    row = repo.get(session_id)
+    if row is None:
+        raise HTTPException(status_code=404, detail="session not found")
+    if hrv_runner.is_running(session_id):
+        raise HTTPException(status_code=409, detail="hrv streaming already running")
+
+    @contextmanager
+    def factory() -> Iterator[DBSession]:
+        from store import get_session as _gs
+
+        gen = _gs()
+        s = next(gen)
+        try:
+            yield s
+        finally:
+            try:
+                next(gen)
+            except StopIteration:
+                pass
+
+    started = hrv_runner.start_ble(
+        session_id,
+        body.address,
+        factory,
+        window_ms=body.window_ms,
+    )
+    if not started:
+        raise HTTPException(status_code=409, detail="hrv streaming already running")
+
+    return HrvStatusResponse(
+        session_id=session_id,
+        is_running=True,
+        sample_count=_count_samples(db, session_id),
+        metrics=None,
     )

@@ -7,6 +7,7 @@ import { EvaluationCard } from "@/components/EvaluationCard";
 import { FighterBackLink } from "@/components/FighterBackLink";
 import { HrvPanel } from "@/components/HrvPanel";
 import { IMUPanel } from "@/components/IMUPanel";
+import { getPairedDevice } from "@/components/PolarH10Card";
 import { DetectorComparisonCard } from "@/components/DetectorComparisonCard";
 import { LiveAdviceCard } from "@/components/LiveAdviceCard";
 import { RoundBreakdownCard } from "@/components/RoundBreakdownCard";
@@ -336,7 +337,15 @@ export default function SessionPage({ params }: { params: { id: string } }) {
       (async () => {
         try {
           if (kind === "start") {
-            await api.startCapture(id, { camera_index: cameraIndex, pose_backend: setupBackend });
+            // Start capture AND BLE streaming simultaneously.
+            const captureP = api.startCapture(id, { camera_index: cameraIndex, pose_backend: setupBackend });
+            const polar = getPairedDevice();
+            const bleP = polar
+              ? api.startHrvBle(id, polar.address).catch((e) =>
+                  console.warn("BLE stream failed to start (capture continues):", e),
+                )
+              : Promise.resolve();
+            await Promise.all([captureP, bleP]);
             setCaptureEpoch(Date.now());
           } else {
             await api.resumeCapture(id);

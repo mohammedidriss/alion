@@ -4,6 +4,7 @@ import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { FighterDashboard } from "@/components/FighterDashboard";
+import { PolarH10Card } from "@/components/PolarH10Card";
 import { ProfileAvatar } from "@/components/ProfileAvatar";
 import { Sparkline } from "@/components/Sparkline";
 import { useAuth } from "@/lib/auth";
@@ -552,6 +553,9 @@ export default function FighterPage({ params }: { params: { id: string } }) {
           )}
         </div>
       </section>}
+
+      {/* POLAR H10 — pair BLE device from dashboard (hidden from admin) */}
+      {!isAdmin && <PolarH10Card />}
 
       {/* PERFORMANCE — hidden from admin */}
       {!isAdmin && <>

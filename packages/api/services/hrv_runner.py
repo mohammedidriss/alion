@@ -1,4 +1,4 @@
-"""HRV runner — orchestrates a CSV replay (for now) in a background thread.
+"""HRV runner — orchestrates CSV replay *or* live Polar H10 BLE streaming.
 
 Mirrors `capture_runner` for the CV path: a per-session thread that streams
 samples through `analyze.RollingHRMetrics`, persists them to SQLite, and
@@ -8,8 +8,8 @@ Lives in `api/services/` (the composition root) because it pulls together
 `capture/hrv`, `analyze.hrv_metrics`, and `store`. Feature modules don't
 cross-import.
 
-Phase 2 (Polar H10 BLE driver) drops in as another iterable source —
-the runner doesn't change.
+Both `start_replay` (CSV) and `start_ble` (Polar H10) produce the same
+`Iterable[HRSample]`; the inner `_run_stream` loop is shared.
 """
 
 from __future__ import annotations
@@ -58,18 +58,19 @@ def latest_metrics(session_id: UUID) -> HRMetricsWindow | None:
         return _latest_metrics.get(session_id)
 
 
-def _run_replay(
+def _run_stream(
     session_id: UUID,
-    csv_path: Path,
+    source: Iterable[HRSample],
     *,
+    source_label: str,
     db_factory: DBFactory,
-    realtime: bool,
     stop_event: threading.Event,
     window_ms: float = 60_000.0,
 ) -> None:
+    """Shared loop for CSV replay and live BLE — consumes any HRSample iterable."""
     log.info(
         "hrv.start",
-        extra={"_ctx_session_id": str(session_id), "_ctx_csv_path": str(csv_path)},
+        extra={"_ctx_session_id": str(session_id), "_ctx_source": source_label},
     )
     rolling = RollingHRMetrics(session_id=session_id, window_ms=window_ms)
     buffered: list[HRSampleRow] = []
@@ -82,12 +83,6 @@ def _run_replay(
         buffered.clear()
 
     try:
-        with db_factory() as db:
-            SessionRepo(db).update_status(session_id, SessionStatus.CAPTURING)
-
-        source: Iterable[HRSample] = CsvReplaySource(
-            session_id=session_id, path=csv_path, realtime=realtime
-        )
         for sample in source:
             if stop_event.is_set():
                 log.info("hrv.stopped", extra={"_ctx_session_id": str(session_id)})
@@ -109,27 +104,18 @@ def _run_replay(
                 with db_factory() as db:
                     commit_buffer(db)
 
-        # Final flush + status update.
+        # Final flush.
         with db_factory() as db:
             commit_buffer(db)
-            SessionRepo(db).update_status(session_id, SessionStatus.COMPLETED, end=True)
 
         log.info(
             "hrv.done",
             extra={
                 "_ctx_session_id": str(session_id),
                 "_ctx_samples": sample_count,
+                "_ctx_source": source_label,
             },
         )
-    except FileNotFoundError as e:
-        log.exception("hrv.failed (csv missing): %s", e, extra={"_ctx_session_id": str(session_id)})
-        with db_factory() as db:
-            SessionRepo(db).update_status(
-                session_id,
-                SessionStatus.FAILED,
-                end=True,
-                failure_reason=f"CSV not found: {csv_path}",
-            )
     except Exception as e:
         log.exception("hrv.failed: %s", e, extra={"_ctx_session_id": str(session_id)})
         with db_factory() as db:
@@ -150,23 +136,70 @@ def start_replay(
     realtime: bool = False,
     window_ms: float = 60_000.0,
 ) -> bool:
-    """Spawn the replay in a background thread. Returns False if already running."""
+    """Spawn the CSV replay in a background thread. Returns False if already running."""
     with _lock:
         if session_id in _active_jobs and _active_jobs[session_id].is_alive():
             return False
         stop_event = threading.Event()
         _stop_events[session_id] = stop_event
+
+    source: Iterable[HRSample] = CsvReplaySource(
+        session_id=session_id, path=csv_path, realtime=realtime
+    )
+    with _lock:
         t = threading.Thread(
-            target=_run_replay,
-            args=(session_id, csv_path),
+            target=_run_stream,
+            args=(session_id, source),
             kwargs={
+                "source_label": f"csv:{csv_path}",
                 "db_factory": db_factory,
-                "realtime": realtime,
                 "stop_event": stop_event,
                 "window_ms": window_ms,
             },
             daemon=True,
             name=f"hrv-replay-{session_id}",
+        )
+        _active_jobs[session_id] = t
+        t.start()
+    return True
+
+
+def start_ble(
+    session_id: UUID,
+    address: str,
+    db_factory: DBFactory,
+    *,
+    window_ms: float = 60_000.0,
+) -> bool:
+    """Spawn Polar H10 BLE streaming in a background thread.
+
+    Returns False if already running.
+    """
+    with _lock:
+        if session_id in _active_jobs and _active_jobs[session_id].is_alive():
+            return False
+        stop_event = threading.Event()
+        _stop_events[session_id] = stop_event
+
+    from capture.hrv.polar import PolarH10Source
+
+    source = PolarH10Source(
+        session_id=session_id,
+        address=address,
+        stop_event=stop_event,
+    )
+    with _lock:
+        t = threading.Thread(
+            target=_run_stream,
+            args=(session_id, source),
+            kwargs={
+                "source_label": f"ble:{address}",
+                "db_factory": db_factory,
+                "stop_event": stop_event,
+                "window_ms": window_ms,
+            },
+            daemon=True,
+            name=f"hrv-ble-{session_id}",
         )
         _active_jobs[session_id] = t
         t.start()

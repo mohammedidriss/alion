@@ -14,6 +14,13 @@ interface Props {
   sessionId: string;
 }
 
+/**
+ * Live HRV metrics panel shown on the session page.
+ *
+ * BLE streaming is started automatically when capture begins (the session page
+ * fires api.startHrvBle alongside api.startCapture). This panel just displays
+ * the incoming data and allows stopping / CSV-replay fallback.
+ */
 export function HrvPanel({ sessionId }: Props) {
   const [status, setStatus] = useState<HrvStatus | null>(null);
   const [samples, setSamples] = useState<HRSample[]>([]);
@@ -27,9 +34,6 @@ export function HrvPanel({ sessionId }: Props) {
     try {
       const s = await api.hrvStatus(sessionId);
       setStatus(s);
-      // The session's notes carry an `hrv_csv: ...` marker once a CSV is
-      // uploaded — but we can't see that from /hrv/status. As a proxy,
-      // sample_count > 0 OR is_running implies the CSV path exists.
       if (s.sample_count > 0 || s.is_running) setHasCsv(true);
     } catch (e) {
       setErr(String(e));
@@ -58,7 +62,6 @@ export function HrvPanel({ sessionId }: Props) {
       try {
         const payload = JSON.parse(e.data) as HrvStatus;
         setStatus(payload);
-        // When the runner pushes new samples, refresh the chart from the API.
         if (payload.sample_count !== samples.length) refreshSamples();
         if (!payload.is_running) {
           es.close();
@@ -117,7 +120,12 @@ export function HrvPanel({ sessionId }: Props) {
   return (
     <section className="rounded-lg border border-neutral-800 p-4">
       <div className="flex items-center justify-between">
-        <h2 className="font-medium">HRV (Phase 1 Week 2)</h2>
+        <div className="flex items-center gap-2">
+          <h2 className="font-medium">HRV</h2>
+          <span className="rounded-full bg-blue-900/50 px-2 py-0.5 text-[10px] font-medium text-blue-300">
+            Polar H10
+          </span>
+        </div>
         {status?.is_running && (
           <span className="flex items-center gap-2 text-xs text-neutral-400">
             <span className="inline-block h-2 w-2 animate-pulse rounded-full bg-red-500" />
@@ -153,33 +161,52 @@ export function HrvPanel({ sessionId }: Props) {
 
       {/* Controls */}
       <div className="mt-4 border-t border-neutral-800 pt-4">
-        {!hasCsv ? (
-          <div>
-            <label className="text-sm font-medium text-neutral-300">
-              Upload an RR-interval CSV
-            </label>
-            <p className="mt-1 text-xs text-neutral-500">
-              One column <code>rr_ms</code> (auto-derives time) or two columns{" "}
-              <code>t_ms,rr_ms</code>. Polar H10 BLE driver lands once the
-              strap arrives.
-            </p>
-            <input
-              type="file"
-              accept=".csv,text/csv"
-              disabled={uploading}
-              onChange={(e) => e.target.files?.[0] && upload(e.target.files[0])}
-              className="mt-2 w-full text-sm"
-            />
-          </div>
+        {status?.is_running ? (
+          <button
+            onClick={stop}
+            className="rounded bg-red-600 px-3 py-1.5 text-sm font-medium hover:bg-red-500"
+          >
+            Stop HRV stream
+          </button>
         ) : (
-          <div className="flex flex-wrap items-center gap-3">
-            {!status?.is_running ? (
-              <>
+          <div className="space-y-3">
+            {/* Status message when not streaming */}
+            {status && status.sample_count === 0 && !hasCsv && (
+              <p className="text-xs text-neutral-500">
+                BLE streaming starts automatically with capture when a Polar H10
+                is paired on the fighter dashboard. You can also replay from CSV below.
+              </p>
+            )}
+
+            {/* CSV replay fallback */}
+            {!hasCsv ? (
+              <div>
+                <p className="text-xs font-medium text-neutral-400">
+                  Replay from CSV
+                </p>
+                <p className="mt-1 text-xs text-neutral-500">
+                  Upload a single-column <code>rr_ms</code> or two-column{" "}
+                  <code>t_ms,rr_ms</code> CSV file.
+                </p>
+                <input
+                  type="file"
+                  accept=".csv,text/csv"
+                  disabled={uploading}
+                  onChange={(e) =>
+                    e.target.files?.[0] && upload(e.target.files[0])
+                  }
+                  className="mt-2 w-full text-sm"
+                />
+              </div>
+            ) : (
+              <div className="flex flex-wrap items-center gap-3">
                 <button
                   onClick={start}
-                  className="rounded bg-emerald-600 px-3 py-1.5 text-sm font-medium hover:bg-emerald-500"
+                  className="rounded bg-neutral-700 px-3 py-1.5 text-sm font-medium hover:bg-neutral-600"
                 >
-                  {status && status.sample_count > 0 ? "Re-run replay" : "Start replay"}
+                  {status && status.sample_count > 0
+                    ? "Re-run replay"
+                    : "Start replay"}
                 </button>
                 <label className="flex items-center gap-2 text-xs text-neutral-400">
                   <input
@@ -187,16 +214,9 @@ export function HrvPanel({ sessionId }: Props) {
                     checked={realtime}
                     onChange={(e) => setRealtime(e.target.checked)}
                   />
-                  realtime (stream at the source&apos;s natural pace)
+                  realtime
                 </label>
-              </>
-            ) : (
-              <button
-                onClick={stop}
-                className="rounded bg-red-600 px-3 py-1.5 text-sm font-medium hover:bg-red-500"
-              >
-                Stop replay
-              </button>
+              </div>
             )}
           </div>
         )}

@@ -324,9 +324,9 @@ export default function HrvTab({ params }: { params: { id: string } }) {
       </div>
 
       <div className="card text-xs text-neutral-500">
-        <p className="font-medium text-neutral-300">What this tab will track once Polar H10 is online (May 16):</p>
+        <p className="font-medium text-neutral-300">Polar H10 is connected</p>
         <ul className="mt-2 list-disc space-y-1 pl-5">
-          <li>Live in-session HR + RR streaming during capture</li>
+          <li>Live in-session HR + RR streaming via BLE during capture</li>
           <li>Inter-round HR recovery curves</li>
           <li>Day-over-day RMSSD drift to flag overtraining</li>
         </ul>
