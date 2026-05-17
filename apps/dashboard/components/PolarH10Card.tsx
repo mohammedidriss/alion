@@ -17,9 +17,9 @@ export function getPairedDevice(): BleDevice | null {
 }
 
 /**
- * Card shown on the fighter dashboard for scanning and pairing a Polar H10.
- * The selected device address is persisted in localStorage so the session page
- * can auto-start BLE streaming when capture begins.
+ * Compact inline card for the fighter dashboard header.
+ * Scans / pairs a Polar H10 and persists the address in localStorage
+ * so the session page can auto-start BLE streaming with capture.
  */
 export function PolarH10Card() {
   const [paired, setPaired] = useState<BleDevice | null>(null);
@@ -27,7 +27,6 @@ export function PolarH10Card() {
   const [scanning, setScanning] = useState(false);
   const [err, setErr] = useState<string | null>(null);
 
-  // Load persisted pairing on mount.
   useEffect(() => {
     setPaired(getPairedDevice());
   }, []);
@@ -38,7 +37,6 @@ export function PolarH10Card() {
     try {
       const res = await api.scanBleDevices();
       setDevices(res.devices);
-      // Auto-pair if exactly one device found.
       if (res.devices.length === 1) {
         pair(res.devices[0]);
       }
@@ -63,77 +61,50 @@ export function PolarH10Card() {
   };
 
   return (
-    <section className="rounded-lg border border-neutral-800 p-4">
-      <div className="flex items-center gap-2">
-        <h2 className="font-medium">Polar H10</h2>
-        <span className="rounded-full bg-blue-900/50 px-2 py-0.5 text-[10px] font-medium text-blue-300">
-          BLE
-        </span>
-        {paired && (
-          <span className="ml-auto flex items-center gap-1.5 text-xs text-emerald-400">
-            <span className="inline-block h-2 w-2 rounded-full bg-emerald-500" />
-            Paired
-          </span>
-        )}
-      </div>
+    <div className="flex items-center gap-2 rounded-xl border border-neutral-800 bg-neutral-950/60 px-3 py-1.5">
+      {/* Icon + label */}
+      <span className="text-xs font-medium text-neutral-300">Polar H10</span>
+      <span className="rounded-full bg-blue-900/50 px-1.5 py-0.5 text-[9px] font-medium text-blue-300">
+        BLE
+      </span>
 
-      <p className="mt-1 text-xs text-neutral-500">
-        Pair a Polar H10 chest strap here. It will automatically start streaming
-        live HR + RR intervals when you begin a session.
-      </p>
-
-      {err && <p className="mt-2 text-xs text-red-400">{err}</p>}
+      {err && <span className="text-[10px] text-red-400">error</span>}
 
       {paired ? (
-        <div className="mt-3 flex items-center gap-3">
-          <div className="rounded-lg border border-emerald-500/20 bg-emerald-500/5 px-3 py-2 text-sm">
-            <span className="font-medium text-emerald-300">{paired.name}</span>
-            <span className="ml-2 text-xs text-neutral-500">
-              {paired.address.slice(-8)}
-            </span>
-          </div>
+        <>
+          <span className="flex items-center gap-1 text-xs text-emerald-400">
+            <span className="inline-block h-1.5 w-1.5 rounded-full bg-emerald-500" />
+            {paired.name.replace("Polar H10 ", "")}
+          </span>
           <button
             onClick={unpair}
-            className="text-xs text-neutral-500 hover:text-red-400"
+            className="text-[10px] text-neutral-600 hover:text-red-400"
+            title="Unpair device"
           >
-            Unpair
+            ×
           </button>
-          <button
-            onClick={scan}
-            disabled={scanning}
-            className="text-xs text-neutral-500 hover:text-neutral-300"
-          >
-            {scanning ? "Scanning..." : "Re-scan"}
-          </button>
-        </div>
+        </>
       ) : (
-        <div className="mt-3 space-y-2">
+        <>
           <button
             onClick={scan}
             disabled={scanning}
-            className="rounded bg-blue-600 px-3 py-1.5 text-sm font-medium hover:bg-blue-500 disabled:opacity-50"
+            className="rounded bg-blue-600 px-2 py-0.5 text-[11px] font-medium hover:bg-blue-500 disabled:opacity-50"
           >
-            {scanning ? "Scanning..." : "Scan for devices"}
+            {scanning ? "Scanning…" : "Scan"}
           </button>
-
-          {devices.length > 1 && (
-            <div className="flex flex-wrap gap-2">
-              {devices.map((d) => (
-                <button
-                  key={d.address}
-                  onClick={() => pair(d)}
-                  className="rounded border border-neutral-700 bg-neutral-900 px-3 py-1.5 text-sm hover:border-blue-500 hover:bg-blue-500/10"
-                >
-                  {d.name}{" "}
-                  <span className="text-xs text-neutral-500">
-                    ({d.address.slice(-8)})
-                  </span>
-                </button>
-              ))}
-            </div>
-          )}
-        </div>
+          {devices.length > 1 &&
+            devices.map((d) => (
+              <button
+                key={d.address}
+                onClick={() => pair(d)}
+                className="rounded border border-neutral-700 px-2 py-0.5 text-[11px] hover:border-blue-500"
+              >
+                {d.name.replace("Polar H10 ", "")}
+              </button>
+            ))}
+        </>
       )}
-    </section>
+    </div>
   );
 }

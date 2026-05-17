@@ -7,7 +7,7 @@ import { EvaluationCard } from "@/components/EvaluationCard";
 import { FighterBackLink } from "@/components/FighterBackLink";
 import { HrvPanel } from "@/components/HrvPanel";
 import { IMUPanel } from "@/components/IMUPanel";
-import { getPairedDevice } from "@/components/PolarH10Card";
+import { getPairedDevice, PolarH10Card } from "@/components/PolarH10Card";
 import { DetectorComparisonCard } from "@/components/DetectorComparisonCard";
 import { LiveAdviceCard } from "@/components/LiveAdviceCard";
 import { RoundBreakdownCard } from "@/components/RoundBreakdownCard";
@@ -274,7 +274,11 @@ export default function SessionPage({ params }: { params: { id: string } }) {
 
   const stop = async () => {
     try {
-      await api.stopCapture(id);
+      // Stop capture and HRV stream simultaneously.
+      await Promise.all([
+        api.stopCapture(id),
+        api.stopHrv(id).catch(() => undefined),
+      ]);
       await refresh();
     } catch (e) {
       setErr(String(e));
@@ -514,6 +518,7 @@ export default function SessionPage({ params }: { params: { id: string } }) {
           >
             🥊 Gym Mode
           </Link>
+          <PolarH10Card />
         </div>
         {/* Status + backend badges — hidden for pending (the setup UI
             below already conveys both). */}
@@ -1020,6 +1025,11 @@ export default function SessionPage({ params }: { params: { id: string } }) {
           <RoundConfigCard session={session} onChange={setSession} />
         </aside>
         <div className="space-y-6">
+      {/* HRV panel — above per-round breakdown so live HR is immediately visible */}
+      {(!session.study_condition || ["hrv_only", "fused"].includes(session.study_condition)) && (
+        <HrvPanel sessionId={session.id} />
+      )}
+
       <RoundBreakdownCard sessionId={session.id} status={session.status} />
 
       {/* Detector evaluation — labels-vs-detections accuracy.
@@ -1027,11 +1037,6 @@ export default function SessionPage({ params }: { params: { id: string } }) {
           "no labels yet" empty state. */}
       {session.status === "completed" && events.length > 0 && (
         <EvaluationCard sessionId={id} />
-      )}
-      {/* Gate HRV / IMU panels by study condition — only show when the
-          condition allows the modality (or no condition is set). */}
-      {(!session.study_condition || ["hrv_only", "fused"].includes(session.study_condition)) && (
-        <HrvPanel sessionId={session.id} />
       )}
       {(!session.study_condition || ["imu_only", "fused"].includes(session.study_condition)) && (
         <IMUPanel sessionId={session.id} punchEvents={events} />

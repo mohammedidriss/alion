@@ -247,22 +247,25 @@ export default function FighterPage({ params }: { params: { id: string } }) {
             </div>
           )}
         </div>
-        {canEdit && (
-          <div className="flex shrink-0 items-center gap-2">
-            <button
-              onClick={() => setEditing(true)}
-              className="rounded-xl border border-white/5 bg-white/[0.03] px-3 py-1.5 text-sm hover:bg-white/[0.07]"
-            >
-              Edit profile
-            </button>
-            <button
-              onClick={() => setConfirmDeleteFighter(true)}
-              className="rounded-xl border border-red-500/30 bg-red-500/10 px-3 py-1.5 text-sm text-red-300 hover:bg-red-500/20"
-            >
-              Delete profile
-            </button>
-          </div>
-        )}
+        <div className="flex shrink-0 items-center gap-3">
+          {!isAdmin && <PolarH10Card />}
+          {canEdit && (
+            <>
+              <button
+                onClick={() => setEditing(true)}
+                className="rounded-xl border border-white/5 bg-white/[0.03] px-3 py-1.5 text-sm hover:bg-white/[0.07]"
+              >
+                Edit profile
+              </button>
+              <button
+                onClick={() => setConfirmDeleteFighter(true)}
+                className="rounded-xl border border-red-500/30 bg-red-500/10 px-3 py-1.5 text-sm text-red-300 hover:bg-red-500/20"
+              >
+                Delete profile
+              </button>
+            </>
+          )}
+        </div>
       </header>
 
       {err && (
@@ -553,9 +556,6 @@ export default function FighterPage({ params }: { params: { id: string } }) {
           )}
         </div>
       </section>}
-
-      {/* POLAR H10 — pair BLE device from dashboard (hidden from admin) */}
-      {!isAdmin && <PolarH10Card />}
 
       {/* PERFORMANCE — hidden from admin */}
       {!isAdmin && <>
