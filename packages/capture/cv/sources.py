@@ -64,11 +64,24 @@ class FileSource:
 
 
 class WebcamSource:
-    """Reads frames from a local webcam (cv2.VideoCapture index)."""
+    """Reads frames from a local webcam (cv2.VideoCapture index).
 
-    def __init__(self, index: int = 0, fps: float = 30.0) -> None:
+    Tolerates transient ``cap.read()`` failures (common on macOS when the
+    system momentarily withholds the camera).  Up to ``max_retries``
+    consecutive failures are absorbed with a short sleep between attempts
+    before the source gives up.
+    """
+
+    def __init__(
+        self,
+        index: int = 0,
+        fps: float = 30.0,
+        *,
+        max_consecutive_failures: int = 90,
+    ) -> None:
         self.index = index
         self.fps = fps
+        self.max_consecutive_failures = max_consecutive_failures
         self._cap: Any = None
 
     @contextmanager
@@ -86,10 +99,41 @@ class WebcamSource:
             self._cap = None
 
     def __iter__(self) -> Iterator[Frame]:
+        import logging
+        import time
+
+        log = logging.getLogger(__name__)
+
         if self._cap is None:
             raise RuntimeError("WebcamSource not opened — use `with source.open():`")
+        consecutive_failures = 0
+        frame_idx = 0
         while True:
             ok, frame = self._cap.read()
             if not ok:
-                break
+                consecutive_failures += 1
+                if consecutive_failures == 1:
+                    log.warning(
+                        "webcam: cap.read() returned False at frame %d — retrying (up to %d)",
+                        frame_idx,
+                        self.max_consecutive_failures,
+                    )
+                if consecutive_failures >= self.max_consecutive_failures:
+                    log.error(
+                        "webcam: %d consecutive read failures after %d good frames — giving up",
+                        consecutive_failures,
+                        frame_idx,
+                    )
+                    break
+                # Brief sleep to let the camera recover; avoids tight-spinning.
+                time.sleep(0.05)
+                continue
+            if consecutive_failures > 0:
+                log.info(
+                    "webcam: recovered after %d transient failures at frame %d",
+                    consecutive_failures,
+                    frame_idx,
+                )
+            consecutive_failures = 0
+            frame_idx += 1
             yield frame

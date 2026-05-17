@@ -72,9 +72,16 @@ class CapturePipeline:
         self._pose_backend = pose_backend
 
     def run(self) -> CapturePipelineResult:
+        import logging
+        import time
+
+        log = logging.getLogger(__name__)
+
         writer = PoseParquetWriter(self.parquet_path)
         frame_count = 0
         last_t_ms = 0.0
+        exit_reason = "source_exhausted"
+        wall_t0 = time.monotonic()
         # Sources expose `open()` as a context manager but the protocol can't
         # express it; we duck-type here.
         src_ctx = self.source.open()  # type: ignore[attr-defined]
@@ -83,6 +90,7 @@ class CapturePipeline:
             with estimator.open() as est:
                 for raw in opened_source:
                     if self._should_stop is not None and self._should_stop():
+                        exit_reason = "stop_requested"
                         break
                     pose = est.process(raw)
                     if pose is not None:
@@ -94,10 +102,23 @@ class CapturePipeline:
                         self._on_raw_frame(raw, pose)
                     frame_count += 1
                     if self._max_frames is not None and frame_count >= self._max_frames:
+                        exit_reason = "max_frames"
                         break
         path = writer.close()
+        wall_ms = (time.monotonic() - wall_t0) * 1000.0
+        # Use pose-derived duration when available; fall back to wall-clock
+        # so the session always records a meaningful duration even when no
+        # person was detected in the frame.
+        effective_duration = last_t_ms if last_t_ms > 0 else wall_ms
+        log.info(
+            "pipeline.exit: reason=%s frames=%d pose_duration_ms=%.1f wall_ms=%.1f",
+            exit_reason,
+            frame_count,
+            last_t_ms,
+            wall_ms,
+        )
         return CapturePipelineResult(
-            parquet_path=path, frame_count=frame_count, duration_ms=last_t_ms
+            parquet_path=path, frame_count=frame_count, duration_ms=effective_duration
         )
 
 

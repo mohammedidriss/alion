@@ -25,15 +25,15 @@ export function RoundConfigCard({
   onChange: (s: Session) => void;
 }) {
   const [rounds, setRounds] = useState<number>(session.round_count ?? 3);
-  const [roundS, setRoundS] = useState<number>(session.round_duration_s ?? 3);
-  const [restS, setRestS] = useState<number>(session.rest_duration_s ?? 3);
+  const [roundS, setRoundS] = useState<number>(session.round_duration_s ?? 180);
+  const [restS, setRestS] = useState<number>(session.rest_duration_s ?? 60);
   const [saving, setSaving] = useState(false);
   const [err, setErr] = useState<string | null>(null);
 
   useEffect(() => {
     setRounds(session.round_count ?? 3);
-    setRoundS(session.round_duration_s ?? 3);
-    setRestS(session.rest_duration_s ?? 3);
+    setRoundS(session.round_duration_s ?? 180);
+    setRestS(session.rest_duration_s ?? 60);
   }, [session.round_count, session.round_duration_s, session.rest_duration_s]);
 
   // Auto-save the round plan ~600ms after the user stops adjusting,
@@ -43,8 +43,8 @@ export function RoundConfigCard({
   const editable = session.status === "pending";
   const persisted = {
     rounds: session.round_count ?? 3,
-    roundS: session.round_duration_s ?? 3,
-    restS: session.rest_duration_s ?? 3,
+    roundS: session.round_duration_s ?? 180,
+    restS: session.rest_duration_s ?? 60,
   };
   useEffect(() => {
     if (!editable) return;
@@ -404,8 +404,8 @@ export function RoundTimer({
   isPaused?: boolean;
 }) {
   const rounds = session.round_count ?? 3;
-  const roundS = session.round_duration_s ?? 3;
-  const restS = session.rest_duration_s ?? 3;
+  const roundS = session.round_duration_s ?? 180;
+  const restS = session.rest_duration_s ?? 60;
   const elapsedS = durationMs / 1000;
   // durationMs is contiguous active-capture time (pauses/rest/countdowns
   // already subtracted), so total = rounds × roundS with no rest gaps.

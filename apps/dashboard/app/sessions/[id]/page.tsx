@@ -120,8 +120,8 @@ export default function SessionPage({ params }: { params: { id: string } }) {
         breakResumeAccumMs - liveBreakMs) /
       1000;
     const rounds = session.round_count ?? 3;
-    const roundS = session.round_duration_s ?? 3;
-    const restS = session.rest_duration_s ?? 3;
+    const roundS = session.round_duration_s ?? 180;
+    const restS = session.rest_duration_s ?? 60;
     const totalS = rounds * roundS + Math.max(0, rounds - 1) * restS;
     let phase: "round" | "rest" | "done" = "done";
     if (elapsedS < totalS) {
