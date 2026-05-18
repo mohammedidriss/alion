@@ -125,6 +125,11 @@ export function HrvPanel({ sessionId, hasPairedDevice = false }: Props) {
   const hrSeries = samples.map((s) => s.hr_bpm);
   const m = status?.metrics;
 
+  // True once the BLE thread is running AND has received at least one sample.
+  // While is_running but sample_count=0 the device is still connecting.
+  const isConnecting = !!status?.is_running && (status.sample_count ?? 0) === 0;
+  const isStreaming  = !!status?.is_running && (status.sample_count ?? 0) > 0;
+
   return (
     <section className="rounded-lg border border-neutral-800 p-4">
       <div className="flex items-center justify-between">
@@ -134,7 +139,13 @@ export function HrvPanel({ sessionId, hasPairedDevice = false }: Props) {
             Polar H10
           </span>
         </div>
-        {status?.is_running && (
+        {isConnecting && (
+          <span className="flex items-center gap-2 text-xs text-amber-400">
+            <span className="inline-block h-2 w-2 animate-pulse rounded-full bg-amber-400" />
+            connecting…
+          </span>
+        )}
+        {isStreaming && (
           <span className="flex items-center gap-2 text-xs text-neutral-400">
             <span className="inline-block h-2 w-2 animate-pulse rounded-full bg-red-500" />
             live
@@ -169,7 +180,19 @@ export function HrvPanel({ sessionId, hasPairedDevice = false }: Props) {
 
       {/* Controls */}
       <div className="mt-4 border-t border-neutral-800 pt-4">
-        {status?.is_running ? (
+        {isConnecting ? (
+          <div className="flex items-center gap-3">
+            <p className="text-xs text-neutral-500">
+              Connecting to Polar H10… Make sure the strap is on and Bluetooth is enabled.
+            </p>
+            <button
+              onClick={stop}
+              className="shrink-0 rounded bg-neutral-700 px-3 py-1.5 text-xs font-medium hover:bg-neutral-600"
+            >
+              Cancel
+            </button>
+          </div>
+        ) : isStreaming ? (
           <button
             onClick={stop}
             className="rounded bg-red-600 px-3 py-1.5 text-sm font-medium hover:bg-red-500"
