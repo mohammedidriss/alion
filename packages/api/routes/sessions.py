@@ -825,8 +825,8 @@ def rounds_export(
         raise HTTPException(status_code=404, detail="session not found")
 
     rounds_n = row.round_count or 3
-    round_s = row.round_duration_s or 3
-    rest_s = row.rest_duration_s if row.rest_duration_s is not None else 3
+    round_s = row.round_duration_s or 180   # default 3-minute boxing round
+    rest_s = row.rest_duration_s if row.rest_duration_s is not None else 60  # default 1-min rest
     # The frontend pauses capture during rest periods, so recorded t_ms
     # values are contiguous — no rest gaps in the timeline. Each round
     # occupies exactly round_s of captured time back-to-back.
