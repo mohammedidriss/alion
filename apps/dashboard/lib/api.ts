@@ -513,6 +513,7 @@ export interface RoundHrvBlock {
   mean_hr_bpm: number | null;
   peak_hr_bpm: number | null;
   rmssd_ms: number | null;
+  sdnn_ms: number | null;
   rmssd_delta_vs_baseline_ms: number | null;
 }
 export interface RoundImuBlock {

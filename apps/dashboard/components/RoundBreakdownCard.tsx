@@ -103,6 +103,8 @@ export function RoundBreakdownCard({ sessionId, status }: Props) {
               <th className="py-1.5 pr-3">ppm</th>
               <th className="py-1.5 pr-3">Score</th>
               <th className="py-1.5 pr-3">Mean HR</th>
+              <th className="py-1.5 pr-3">RMSSD</th>
+              <th className="py-1.5 pr-3">SDNN</th>
               <th className="py-1.5 pr-3">Peak g</th>
               <th className="py-1.5">CV/IMU match</th>
             </tr>
@@ -165,6 +167,18 @@ function RoundRow({
         {fmt(r.hrv.mean_hr_bpm, 0)}
         {r.hrv.mean_hr_bpm != null && (
           <span className="ml-0.5 text-[10px] text-neutral-500">bpm</span>
+        )}
+      </td>
+      <td className="py-2 pr-3 tabular-nums">
+        {fmt(r.hrv.rmssd_ms, 1)}
+        {r.hrv.rmssd_ms != null && (
+          <span className="ml-0.5 text-[10px] text-neutral-500">ms</span>
+        )}
+      </td>
+      <td className="py-2 pr-3 tabular-nums">
+        {fmt(r.hrv.sdnn_ms, 1)}
+        {r.hrv.sdnn_ms != null && (
+          <span className="ml-0.5 text-[10px] text-neutral-500">ms</span>
         )}
       </td>
       <td className="py-2 pr-3 tabular-nums">

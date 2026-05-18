@@ -770,6 +770,7 @@ class RoundHrvBlock(BaseModel):
     mean_hr_bpm: float | None
     peak_hr_bpm: float | None
     rmssd_ms: float | None
+    sdnn_ms: float | None
     rmssd_delta_vs_baseline_ms: float | None
 
 
@@ -861,6 +862,7 @@ def rounds_export(
         mean_hr: float | None = None
         peak_hr: float | None = None
         rmssd: float | None = None
+        sdnn: float | None = None
         rmssd_delta: float | None = None
         if hr_in_round:
             hrs = [s.hr_bpm for s in hr_in_round]
@@ -870,6 +872,10 @@ def rounds_export(
             # RMSSD over the round window.
             diffs = [rrs[k] - rrs[k - 1] for k in range(1, len(rrs))]
             rmssd = math.sqrt(sum(d * d for d in diffs) / len(diffs)) if diffs else None
+            # SDNN — standard deviation of RR intervals in the round.
+            if len(rrs) >= 2:
+                rr_mean = sum(rrs) / len(rrs)
+                sdnn = math.sqrt(sum((r - rr_mean) ** 2 for r in rrs) / (len(rrs) - 1))
             rmssd_delta = (
                 rmssd - row.baseline_rmssd_ms
                 if rmssd is not None and row.baseline_rmssd_ms is not None
@@ -880,6 +886,7 @@ def rounds_export(
             mean_hr_bpm=round(mean_hr, 1) if mean_hr is not None else None,
             peak_hr_bpm=round(peak_hr, 1) if peak_hr is not None else None,
             rmssd_ms=round(rmssd, 1) if rmssd is not None else None,
+            sdnn_ms=round(sdnn, 1) if sdnn is not None else None,
             rmssd_delta_vs_baseline_ms=(round(rmssd_delta, 1) if rmssd_delta is not None else None),
         )
 
