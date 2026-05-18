@@ -66,8 +66,14 @@ def _run_stream(
     db_factory: DBFactory,
     stop_event: threading.Event,
     window_ms: float = 60_000.0,
+    fail_session_on_error: bool = True,
 ) -> None:
-    """Shared loop for CSV replay and live BLE — consumes any HRSample iterable."""
+    """Shared loop for CSV replay and live BLE — consumes any HRSample iterable.
+
+    ``fail_session_on_error`` controls whether an unhandled exception marks the
+    *session* as failed.  Set to ``False`` for BLE streams so a device going
+    out of range or being unavailable doesn't crash the whole training session.
+    """
     log.info(
         "hrv.start",
         extra={"_ctx_session_id": str(session_id), "_ctx_source": source_label},
@@ -118,9 +124,16 @@ def _run_stream(
         )
     except Exception as e:
         log.exception("hrv.failed: %s", e, extra={"_ctx_session_id": str(session_id)})
-        with db_factory() as db:
-            SessionRepo(db).update_status(
-                session_id, SessionStatus.FAILED, end=True, failure_reason=str(e)
+        if fail_session_on_error:
+            with db_factory() as db:
+                SessionRepo(db).update_status(
+                    session_id, SessionStatus.FAILED, end=True, failure_reason=str(e)
+                )
+        else:
+            log.warning(
+                "hrv.ble_error_ignored: session kept alive — %s",
+                e,
+                extra={"_ctx_session_id": str(session_id)},
             )
     finally:
         with _lock:
@@ -197,6 +210,7 @@ def start_ble(
                 "db_factory": db_factory,
                 "stop_event": stop_event,
                 "window_ms": window_ms,
+                "fail_session_on_error": False,
             },
             daemon=True,
             name=f"hrv-ble-{session_id}",

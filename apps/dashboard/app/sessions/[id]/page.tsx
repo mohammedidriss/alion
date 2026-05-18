@@ -1025,9 +1025,11 @@ export default function SessionPage({ params }: { params: { id: string } }) {
           <RoundConfigCard session={session} onChange={setSession} />
         </aside>
         <div className="space-y-6">
-      {/* HRV panel — above per-round breakdown so live HR is immediately visible */}
+      {/* HRV panel — above per-round breakdown so live HR is immediately visible.
+          Gated by study condition; always shown when no condition is set so the
+          CSV replay fallback is always accessible regardless of device pairing. */}
       {(!session.study_condition || ["hrv_only", "fused"].includes(session.study_condition)) && (
-        <HrvPanel sessionId={session.id} />
+        <HrvPanel sessionId={session.id} hasPairedDevice={getPairedDevice() !== null} />
       )}
 
       <RoundBreakdownCard sessionId={session.id} status={session.status} />

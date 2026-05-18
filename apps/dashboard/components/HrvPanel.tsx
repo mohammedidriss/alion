@@ -12,6 +12,9 @@ const API_BASE = process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:8000";
 
 interface Props {
   sessionId: string;
+  /** True when a Polar H10 is paired in localStorage. Used to tailor the
+   *  empty-state message (device paired but not yet streaming vs no device). */
+  hasPairedDevice?: boolean;
 }
 
 /**
@@ -21,7 +24,7 @@ interface Props {
  * fires api.startHrvBle alongside api.startCapture). This panel just displays
  * the incoming data and allows stopping / CSV-replay fallback.
  */
-export function HrvPanel({ sessionId }: Props) {
+export function HrvPanel({ sessionId, hasPairedDevice = false }: Props) {
   const [status, setStatus] = useState<HrvStatus | null>(null);
   const [samples, setSamples] = useState<HRSample[]>([]);
   const [uploading, setUploading] = useState(false);
@@ -36,7 +39,12 @@ export function HrvPanel({ sessionId }: Props) {
       setStatus(s);
       if (s.sample_count > 0 || s.is_running) setHasCsv(true);
     } catch (e) {
-      setErr(String(e));
+      // Don't surface transient / "no stream yet" errors as a red banner —
+      // the HRV stream is optional and may simply not have started.
+      const msg = String(e);
+      const isSoft =
+        msg.includes("409") || msg.includes("404") || msg.includes("not found");
+      if (!isSoft) setErr(msg);
     }
   }, [sessionId]);
 
@@ -173,8 +181,9 @@ export function HrvPanel({ sessionId }: Props) {
             {/* Status message when not streaming */}
             {status && status.sample_count === 0 && !hasCsv && (
               <p className="text-xs text-neutral-500">
-                BLE streaming starts automatically with capture when a Polar H10
-                is paired on the fighter dashboard. You can also replay from CSV below.
+                {hasPairedDevice
+                  ? "BLE streaming will start automatically when capture begins. If the device was unreachable, pair it again on the fighter dashboard and restart."
+                  : "No Polar H10 paired. Pair a device on the fighter dashboard before starting capture, or replay from CSV below."}
               </p>
             )}
 
