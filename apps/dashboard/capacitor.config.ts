@@ -35,7 +35,7 @@ const config: CapacitorConfig = {
     : {
         // Production: your Vercel deployment URL.
         // Update this once Vercel assigns the domain (or set a custom domain).
-        url: process.env.CAPACITOR_PROD_URL ?? 'https://alion.vercel.app',
+        url: process.env.CAPACITOR_PROD_URL ?? 'https://alion-dashboard.vercel.app',
         cleartext: false,
       },
 
