@@ -8,9 +8,19 @@
     "start": "next start",
     "lint": "next lint",
     "typecheck": "tsc --noEmit",
-    "gen:api": "openapi-typescript http://localhost:8000/openapi.json -o lib/api-schema.ts"
+    "gen:api": "openapi-typescript http://localhost:8000/openapi.json -o lib/api-schema.ts",
+    "cap:sync": "npx cap sync",
+    "cap:ios": "npx cap sync ios && npx cap open ios",
+    "cap:android": "npx cap sync android && npx cap open android",
+    "cap:dev:ios": "CAPACITOR_SERVER_URL=http://$(ipconfig getifaddr en0):3000 npx cap run ios",
+    "cap:dev:android": "CAPACITOR_SERVER_URL=http://$(ipconfig getifaddr en0):3000 npx cap run android"
   },
   "dependencies": {
+    "@capacitor/android": "^8.3.4",
+    "@capacitor/cli": "^8.3.4",
+    "@capacitor/core": "^8.3.4",
+    "@capacitor/ios": "^8.3.4",
+    "@capgo/capacitor-updater": "^8.46.1",
     "next": "14.2.5",
     "react": "18.3.1",
     "react-dom": "18.3.1"

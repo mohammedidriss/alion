@@ -82,10 +82,16 @@ app = FastAPI(
     lifespan=lifespan,
 )
 
-# Local-only dev: allow the Next.js dashboard at localhost:3000.
+# CORS — dev defaults + any extra origins set via ALION_CORS_ORIGINS env var.
+# In production set: ALION_CORS_ORIGINS=https://alion.vercel.app,https://yourdomain.com
+import os as _os
+_default_origins = ["http://localhost:3000", "http://localhost:3001"]
+_extra = _os.environ.get("ALION_CORS_ORIGINS", "")
+_allowed_origins = _default_origins + [o.strip() for o in _extra.split(",") if o.strip()]
+
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["http://localhost:3000", "http://localhost:3001"],
+    allow_origins=_allowed_origins,
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
