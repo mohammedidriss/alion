@@ -14,7 +14,7 @@ COPY --from=ghcr.io/astral-sh/uv:latest /uv /usr/local/bin/uv
 WORKDIR /app
 
 # ── Dependency layer (cached unless pyproject.toml / uv.lock changes) ─────────
-COPY pyproject.toml uv.lock ./
+COPY pyproject.toml uv.lock README.md ./
 # Only install core deps — no CV (opencv/mediapipe), no BLE (bleak), no YOLO.
 # Those extras require hardware that isn't available in the cloud container.
 RUN uv sync --frozen --no-dev --no-install-project \
