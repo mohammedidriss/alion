@@ -333,13 +333,13 @@ async def scan_ble_hr_devices() -> BleScanResponse:
         return BleScanResponse(
             devices=[BleDevice(name=d["name"], address=d["address"]) for d in devices]
         )
-    except ImportError:
+    except ImportError as err:
         raise HTTPException(
             status_code=501,
             detail="BLE support requires `bleak`. Install with: uv pip install bleak",
-        )
+        ) from err
     except Exception as e:
-        raise HTTPException(status_code=500, detail=f"BLE scan failed: {e}")
+        raise HTTPException(status_code=500, detail=f"BLE scan failed: {e}") from e
 
 
 @router.post("/{session_id}/hrv/ble/start", response_model=HrvStatusResponse, tags=["ble"])

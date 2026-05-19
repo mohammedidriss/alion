@@ -7,14 +7,14 @@ from uuid import UUID
 
 from fastapi import APIRouter, Depends, File, HTTPException, UploadFile, status
 from pydantic import BaseModel
-from sqlmodel import Session as DBSession, select
+from sqlmodel import Session as DBSession
+from sqlmodel import select
 
 from api.deps import coach_note_repo, coach_repo, db_session, resolve_gym_id
 from api.routes.auth import get_current_user, require_current_user
 from api.services.photos import delete_photos_for, save_photo
 from store import CoachingLevel, CoachNoteRepo, CoachRepo, User
 from store.models import (
-    Coach,
     CoachAssignment,
     CoachCreate,
     CoachNoteCreate,
@@ -86,7 +86,9 @@ def list_coaches(
 
 
 @router.get("/{coach_id}", response_model=CoachRead)
-def get_coach(coach_id: UUID, repo: CoachRepo = Depends(coach_repo), session: DBSession = Depends(db_session)) -> CoachRead:
+def get_coach(
+    coach_id: UUID, repo: CoachRepo = Depends(coach_repo), session: DBSession = Depends(db_session)
+) -> CoachRead:
     row = repo.get(coach_id)
     if row is None:
         raise HTTPException(status_code=404, detail="coach not found")

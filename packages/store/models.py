@@ -275,7 +275,8 @@ class GymMembership(SQLModel, table=True):
     joined_on: date = Field(default_factory=lambda: date.today())
     left_on: date | None = None  # set when status → left
     status_note: str | None = Field(
-        default=None, max_length=300,
+        default=None,
+        max_length=300,
         description="Reason for freeze/suspension/departure",
     )
     created_at: datetime = Field(default_factory=lambda: datetime.now(UTC))

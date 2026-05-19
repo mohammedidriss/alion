@@ -11,11 +11,11 @@ from sqlmodel import Session
 from store import (
     CoachNoteRepo,
     CoachRepo,
-    GymManagerRepo,
-    GymRepo,
     ConsensusEventRepo,
     FighterRepo,
     FighterTeamRepo,
+    GymManagerRepo,
+    GymRepo,
     IMUSampleRepo,
     MedicalRepo,
     PunchEventRepo,

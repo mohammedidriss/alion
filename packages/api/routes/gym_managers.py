@@ -6,7 +6,6 @@ from uuid import UUID
 
 from fastapi import APIRouter, Depends, HTTPException, status
 from pydantic import BaseModel
-
 from sqlmodel import Session as DBSession
 
 from api.deps import db_session, gym_manager_repo, gym_repo, resolve_gym_id

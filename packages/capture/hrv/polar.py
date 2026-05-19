@@ -10,6 +10,7 @@ Requires `bleak` (installed via `uv pip install bleak`).
 from __future__ import annotations
 
 import asyncio
+import queue
 import struct
 import threading
 import time
@@ -77,10 +78,7 @@ async def scan_for_hr_devices(timeout: float = 8.0) -> list[dict]:
         timeout=timeout,
         service_uuids=[HR_SERVICE_UUID],
     )
-    return [
-        {"name": d.name or "(unnamed)", "address": d.address}
-        for d in devices
-    ]
+    return [{"name": d.name or "(unnamed)", "address": d.address} for d in devices]
 
 
 class PolarH10Source:
@@ -101,7 +99,7 @@ class PolarH10Source:
         self.address = address
         self._stop_event = stop_event or threading.Event()
         self._queue: asyncio.Queue[HRSample | None] = asyncio.Queue()
-        self._thread_queue: "ThreadQueue[HRSample | None] | None" = None
+        self._thread_queue: queue.Queue[HRSample | None] | None = None
         self._device_name: str | None = None
         self._connected = threading.Event()
         self._error: str | None = None
@@ -151,34 +149,38 @@ class PolarH10Source:
             except queue.Empty:
                 # Check if the BLE thread died.
                 if not ble_thread.is_alive():
-                    log.warning("polar.ble_thread_died", extra={
-                        "_ctx_session_id": str(self.session_id),
-                    })
+                    log.warning(
+                        "polar.ble_thread_died",
+                        extra={
+                            "_ctx_session_id": str(self.session_id),
+                        },
+                    )
                     break
                 continue
             if sample is None:
                 break  # sentinel — BLE disconnected
             yield sample
 
-    def _run_async_loop(self, q: "queue.Queue[HRSample | None]") -> None:
+    def _run_async_loop(self, q: queue.Queue[HRSample | None]) -> None:
         """Runs in a daemon thread — owns its own asyncio event loop."""
-        import queue
 
         loop = asyncio.new_event_loop()
         try:
             loop.run_until_complete(self._stream_ble(q))
         except Exception as exc:
-            log.exception("polar.ble_error: %s", exc, extra={
-                "_ctx_session_id": str(self.session_id),
-            })
+            log.exception(
+                "polar.ble_error: %s",
+                exc,
+                extra={
+                    "_ctx_session_id": str(self.session_id),
+                },
+            )
             self._error = str(exc)
         finally:
             q.put(None)  # sentinel
             loop.close()
 
-    async def _stream_ble(self, q: "queue.Queue[HRSample | None]") -> None:
-        import queue
-
+    async def _stream_ble(self, q: queue.Queue[HRSample | None]) -> None:
         from bleak import BleakClient
 
         t0 = time.monotonic()
@@ -224,9 +226,7 @@ class PolarH10Source:
             self._device_name = self.address
             # Try to read the device name characteristic
             try:
-                name_bytes = await client.read_gatt_char(
-                    "00002a00-0000-1000-8000-00805f9b34fb"
-                )
+                name_bytes = await client.read_gatt_char("00002a00-0000-1000-8000-00805f9b34fb")
                 self._device_name = name_bytes.decode("utf-8").strip()
             except Exception:
                 pass
@@ -238,9 +238,12 @@ class PolarH10Source:
                 # Block until stop is requested or disconnect.
                 while not self._stop_event.is_set():
                     if not client.is_connected:
-                        log.warning("polar.disconnected", extra={
-                            "_ctx_session_id": str(self.session_id),
-                        })
+                        log.warning(
+                            "polar.disconnected",
+                            extra={
+                                "_ctx_session_id": str(self.session_id),
+                            },
+                        )
                         break
                     await asyncio.sleep(0.5)
             finally:

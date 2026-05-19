@@ -16,6 +16,7 @@ from store.models import (
     CoachAssignment,
     CoachAssignmentCreate,
     CoachCreate,
+    CoachNote,
     ConsensusEventRow,
     Fighter,
     FighterCreate,
@@ -29,8 +30,6 @@ from store.models import (
     GymManagerCreate,
     GymMembership,
     HRSampleRow,
-    User,
-    UserCreate,
     IMUSampleRow,
     MedicalCondition,
     MedicalConditionCreate,
@@ -44,6 +43,8 @@ from store.models import (
     SessionCreate,
     SessionStatus,
     Stance,
+    User,
+    UserCreate,
     WeighIn,
     WeighInCreate,
 )
@@ -372,10 +373,9 @@ class GymRepo:
         self._session.commit()
         return True
 
-    def add_member(
-        self, gym_id: UUID, member_id: UUID, member_type: str
-    ) -> GymMembership:
+    def add_member(self, gym_id: UUID, member_id: UUID, member_type: str) -> GymMembership:
         from store.models import MembershipStatus
+
         row = GymMembership(
             gym_id=gym_id,
             member_id=member_id,
@@ -388,7 +388,10 @@ class GymRepo:
         return row
 
     def list_members(
-        self, gym_id: UUID, *, include_left: bool = False,
+        self,
+        gym_id: UUID,
+        *,
+        include_left: bool = False,
     ) -> list[tuple[GymMembership, str]]:
         """Returns (membership, member_name) tuples.
 
@@ -427,10 +430,15 @@ class GymRepo:
         return rows
 
     def update_membership_status(
-        self, gym_id: UUID, membership_id: int, status: str, note: str | None = None,
+        self,
+        gym_id: UUID,
+        membership_id: int,
+        status: str,
+        note: str | None = None,
     ) -> GymMembership | None:
         """Change membership status (active, frozen, suspended, trial, left)."""
         from datetime import date as _date
+
         from store.models import MembershipStatus
 
         row = self._session.get(GymMembership, membership_id)
@@ -717,8 +725,7 @@ class CoachNoteRepo:
     def __init__(self, session: DBSession) -> None:
         self._session = session
 
-    def create(self, coach_id: UUID, fighter_id: UUID, content: str) -> "CoachNote":
-        from store.models import CoachNote
+    def create(self, coach_id: UUID, fighter_id: UUID, content: str) -> CoachNote:
 
         row = CoachNote(coach_id=coach_id, fighter_id=fighter_id, content=content)
         self._session.add(row)
@@ -726,11 +733,8 @@ class CoachNoteRepo:
         self._session.refresh(row)
         return row
 
-    def list_for_fighter(
-        self, fighter_id: UUID
-    ) -> list[tuple["CoachNote", str, str | None]]:
+    def list_for_fighter(self, fighter_id: UUID) -> list[tuple[CoachNote, str, str | None]]:
         """Returns (note, coach_name, coach_photo_path) tuples."""
-        from store.models import CoachNote
 
         stmt = (
             select(CoachNote, Coach.name, Coach.photo_path)
@@ -740,11 +744,8 @@ class CoachNoteRepo:
         )
         return list(self._session.exec(stmt).all())
 
-    def list_for_coach(
-        self, coach_id: UUID
-    ) -> list[tuple["CoachNote", str]]:
+    def list_for_coach(self, coach_id: UUID) -> list[tuple[CoachNote, str]]:
         """Returns (note, fighter_name) tuples."""
-        from store.models import CoachNote
 
         stmt = (
             select(CoachNote, Fighter.name)
@@ -755,7 +756,6 @@ class CoachNoteRepo:
         return list(self._session.exec(stmt).all())
 
     def delete(self, note_id: int, coach_id: UUID) -> bool:
-        from store.models import CoachNote
 
         row = self._session.get(CoachNote, note_id)
         if row is None or row.coach_id != coach_id:
@@ -937,7 +937,11 @@ class CheckInRepo:
         self._session = session
 
     def check_in(
-        self, gym_id: UUID, member_id: UUID, member_type: str, notes: str | None = None,
+        self,
+        gym_id: UUID,
+        member_id: UUID,
+        member_type: str,
+        notes: str | None = None,
     ) -> CheckIn:
         row = CheckIn(
             gym_id=gym_id,
@@ -987,14 +991,15 @@ class CheckInRepo:
                 CheckIn.checked_in_at >= today_start,
             )
         )
-        rows = list(self._session.exec(f_stmt).all()) + list(
-            self._session.exec(c_stmt).all()
-        )
+        rows = list(self._session.exec(f_stmt).all()) + list(self._session.exec(c_stmt).all())
         rows.sort(key=lambda r: r[0].checked_in_at, reverse=True)
         return rows
 
     def list_for_member(
-        self, member_id: UUID, *, limit: int = 30,
+        self,
+        member_id: UUID,
+        *,
+        limit: int = 30,
     ) -> list[CheckIn]:
         stmt = (
             select(CheckIn)
@@ -1007,9 +1012,7 @@ class CheckInRepo:
     def count_for_member_this_month(self, member_id: UUID) -> int:
         from datetime import date as _date
 
-        first_of_month = datetime(
-            _date.today().year, _date.today().month, 1, tzinfo=UTC
-        )
+        first_of_month = datetime(_date.today().year, _date.today().month, 1, tzinfo=UTC)
         stmt = select(CheckIn).where(
             CheckIn.member_id == member_id,
             CheckIn.checked_in_at >= first_of_month,

@@ -85,11 +85,7 @@ def _purge_stale_pending(repo: SessionRepo) -> int:
     all_sessions = repo.list_all()
     deleted = 0
     for s in all_sessions:
-        if (
-            s.status == SessionStatus.PENDING
-            and s.frame_count == 0
-            and s.started_at < cutoff
-        ):
+        if s.status == SessionStatus.PENDING and s.frame_count == 0 and s.started_at < cutoff:
             repo.delete(s.id)
             deleted += 1
     return deleted
@@ -825,7 +821,7 @@ def rounds_export(
         raise HTTPException(status_code=404, detail="session not found")
 
     rounds_n = row.round_count or 3
-    round_s = row.round_duration_s or 180   # default 3-minute boxing round
+    round_s = row.round_duration_s or 180  # default 3-minute boxing round
     rest_s = row.rest_duration_s if row.rest_duration_s is not None else 60  # default 1-min rest
     # The frontend pauses capture during rest periods, so recorded t_ms
     # values are contiguous — no rest gaps in the timeline. Each round

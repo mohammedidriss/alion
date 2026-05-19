@@ -395,9 +395,7 @@ class HeuristicPunchDetector:
                 # Start with velocity-based confidence.
                 base_conf = max(
                     0.1,
-                    min(
-                        1.0, (st.last_speed - base_threshold) / max(base_threshold, 1e-3)
-                    ),
+                    min(1.0, (st.last_speed - base_threshold) / max(base_threshold, 1e-3)),
                 )
 
                 # Apply soft gate penalties — each failed soft gate reduces

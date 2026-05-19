@@ -25,12 +25,13 @@ from api.deps import (
 from api.routes.auth import get_current_user, require_current_user
 from api.services.photos import delete_photos_for, save_photo
 from store import (
-    User,
     WEIGHT_CLASSES,
     AllergyCreate,
     AllergyRead,
     CoachAssignmentCreate,
     CoachAssignmentRead,
+    CoachNoteRead,
+    CoachNoteRepo,
     CoachRole,
     FighterRepo,
     FighterSponsorCreate,
@@ -50,11 +51,11 @@ from store import (
     SkillLevel,
     Stance,
     TitleStatus,
+    User,
     WeighInCreate,
     WeighInRead,
     WeighInRepo,
 )
-from store import CoachNoteRead, CoachNoteRepo
 from store.models import FighterCreate, FighterRead
 
 router = APIRouter(
@@ -205,6 +206,7 @@ def delete_weigh_in(
 
 class WeightAnalysis(BaseModel):
     """AI-powered weight management analysis."""
+
     total_entries: int
     current_kg: float | None = None
     min_kg: float | None = None
@@ -246,14 +248,14 @@ async def weight_analysis(
     # Basic stats
     mean_w = sum(weights) / n
     var_w = sum((w - mean_w) ** 2 for w in weights) / n
-    std_w = var_w ** 0.5
+    std_w = var_w**0.5
     cv_pct = (std_w / mean_w * 100) if mean_w else 0.0
 
     # Trend via simple linear regression (days since first entry)
     t0 = entries[0].recorded_at
     days = [(w.recorded_at - t0).total_seconds() / 86400 for w in entries]
     mean_d = sum(days) / n
-    cov_dw = sum((d - mean_d) * (w - mean_w) for d, w in zip(days, weights)) / n
+    cov_dw = sum((d - mean_d) * (w - mean_w) for d, w in zip(days, weights, strict=False)) / n
     var_d = sum((d - mean_d) ** 2 for d in days) / n
     slope_per_day = cov_dw / var_d if var_d > 0 else 0.0
     trend_per_week = slope_per_day * 7
@@ -309,11 +311,12 @@ async def weight_analysis(
         "3. Rate of change — is weight gain/loss too rapid (unhealthy) or on track?\n"
         "4. Practical advice — nutrition timing, hydration, safe cutting strategies.\n"
         "5. Red flags — yo-yo patterns, crash dieting signs, dehydration risk.\n\n"
-        "Return JSON: {\"summary\": \"2-3 sentence overview\", "
-        "\"action_items\": [\"advice 1\", \"advice 2\", ...]}\n"
+        'Return JSON: {"summary": "2-3 sentence overview", '
+        '"action_items": ["advice 1", "advice 2", ...]}\n'
         "Be specific to the data. Reference actual numbers."
     )
     import json as json_mod
+
     advice = await generate_corner_advice(system_prompt, json_mod.dumps(data_for_ai))
 
     return WeightAnalysis(
@@ -912,8 +915,7 @@ def get_performance_trend(
     cutoff = datetime.utcnow() - timedelta(days=months * 30)
     all_sessions = session_repo_dep.list_for_fighter(fighter_id)
     completed = [
-        s for s in all_sessions
-        if s.status.value == "completed" and s.started_at >= cutoff
+        s for s in all_sessions if s.status.value == "completed" and s.started_at >= cutoff
     ]
     completed.sort(key=lambda s: s.started_at)
 
@@ -925,15 +927,17 @@ def get_performance_trend(
         ppm = len(events) / max(duration_min, 1e-6) if events else 0.0
         p90 = _percentile_90(sorted(velocities)) if velocities else 0.0
         score = p90 * (ppm / 60.0) * duration_min
-        items.append(PerformanceTrendItem(
-            date=s.started_at.strftime("%Y-%m-%d"),
-            punch_count=len(events),
-            peak_velocity_ms=round(p90, 2),
-            ppm=round(ppm, 1),
-            score=round(score, 2),
-            duration_min=round(duration_min, 2),
-            baseline_rmssd_ms=s.baseline_rmssd_ms,
-        ))
+        items.append(
+            PerformanceTrendItem(
+                date=s.started_at.strftime("%Y-%m-%d"),
+                punch_count=len(events),
+                peak_velocity_ms=round(p90, 2),
+                ppm=round(ppm, 1),
+                score=round(score, 2),
+                duration_min=round(duration_min, 2),
+                baseline_rmssd_ms=s.baseline_rmssd_ms,
+            )
+        )
 
     return PerformanceTrendResponse(
         months=months,
@@ -961,8 +965,7 @@ async def generate_fighter_observations(
     cutoff = datetime.utcnow() - timedelta(days=90)
     all_sessions = session_repo_dep.list_for_fighter(fighter_id)
     completed = [
-        s for s in all_sessions
-        if s.status.value == "completed" and s.started_at >= cutoff
+        s for s in all_sessions if s.status.value == "completed" and s.started_at >= cutoff
     ]
     completed.sort(key=lambda s: s.started_at)
 
@@ -985,16 +988,18 @@ async def generate_fighter_observations(
         p90 = _percentile_90(sorted(velocities)) if velocities else 0.0
         score = p90 * (ppm / 60.0) * duration_min
 
-        session_summaries.append({
-            "date": s.started_at.strftime("%Y-%m-%d"),
-            "punch_count": len(events),
-            "peak_velocity_ms": round(p90, 2),
-            "ppm": round(ppm, 1),
-            "score": round(score, 2),
-            "duration_min": round(duration_min, 2),
-            "baseline_rmssd_ms": s.baseline_rmssd_ms,
-            "coach_notes": s.notes or None,
-        })
+        session_summaries.append(
+            {
+                "date": s.started_at.strftime("%Y-%m-%d"),
+                "punch_count": len(events),
+                "peak_velocity_ms": round(p90, 2),
+                "ppm": round(ppm, 1),
+                "score": round(score, 2),
+                "duration_min": round(duration_min, 2),
+                "baseline_rmssd_ms": s.baseline_rmssd_ms,
+                "coach_notes": s.notes or None,
+            }
+        )
 
     # Compute trend deltas (first half vs second half).
     mid = len(session_summaries) // 2
@@ -1007,16 +1012,28 @@ async def generate_fighter_observations(
 
     trend = {
         "velocity_change_pct": round(
-            ((_avg(second_half, "peak_velocity_ms") - _avg(first_half, "peak_velocity_ms"))
-             / max(_avg(first_half, "peak_velocity_ms"), 1e-6)) * 100, 1
+            (
+                (_avg(second_half, "peak_velocity_ms") - _avg(first_half, "peak_velocity_ms"))
+                / max(_avg(first_half, "peak_velocity_ms"), 1e-6)
+            )
+            * 100,
+            1,
         ),
         "ppm_change_pct": round(
-            ((_avg(second_half, "ppm") - _avg(first_half, "ppm"))
-             / max(_avg(first_half, "ppm"), 1e-6)) * 100, 1
+            (
+                (_avg(second_half, "ppm") - _avg(first_half, "ppm"))
+                / max(_avg(first_half, "ppm"), 1e-6)
+            )
+            * 100,
+            1,
         ),
         "score_change_pct": round(
-            ((_avg(second_half, "score") - _avg(first_half, "score"))
-             / max(_avg(first_half, "score"), 1e-6)) * 100, 1
+            (
+                (_avg(second_half, "score") - _avg(first_half, "score"))
+                / max(_avg(first_half, "score"), 1e-6)
+            )
+            * 100,
+            1,
         ),
         "sessions_count": len(completed),
         "period_days": (completed[-1].started_at - completed[0].started_at).days,
@@ -1044,11 +1061,13 @@ async def generate_fighter_observations(
         if ss["baseline_rmssd_ms"] is None:
             del ss["baseline_rmssd_ms"]
 
-    payload = _json.dumps({
-        "fighter": fighter_info,
-        "sessions": recent_summaries,
-        "trend_summary": trend,
-    })
+    payload = _json.dumps(
+        {
+            "fighter": fighter_info,
+            "sessions": recent_summaries,
+            "trend_summary": trend,
+        }
+    )
 
     from coach import FIGHTER_OBSERVATION_SYSTEM_PROMPT
     from coach.llm_client import generate_raw
@@ -1108,6 +1127,7 @@ def list_fighter_coach_notes(
 def _parse_observation_json(text: str) -> dict | None:
     """Extract the first balanced JSON object containing 'observations'."""
     import re
+
     s = text.strip()
     # Strip markdown fences.
     s = re.sub(r"^```(?:json)?\s*", "", s)
@@ -1124,7 +1144,7 @@ def _parse_observation_json(text: str) -> dict | None:
             depth -= 1
             if depth == 0:
                 try:
-                    data = _json.loads(s[start:i + 1])
+                    data = _json.loads(s[start : i + 1])
                     if isinstance(data, dict):
                         return data
                 except _json.JSONDecodeError:

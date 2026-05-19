@@ -129,7 +129,9 @@ async def stream_hr(address: str):
 async def main():
     parser = argparse.ArgumentParser(description="Test Polar H10 BLE connection")
     parser.add_argument("--name", default=None, help="Filter by device name (e.g. 'Polar H10')")
-    parser.add_argument("--address", default=None, help="Skip scan, connect directly to this MAC/UUID")
+    parser.add_argument(
+        "--address", default=None, help="Skip scan, connect directly to this MAC/UUID"
+    )
     parser.add_argument("--scan-timeout", type=float, default=10.0)
     args = parser.parse_args()
 

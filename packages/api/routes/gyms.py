@@ -6,22 +6,18 @@ from uuid import UUID
 
 from fastapi import APIRouter, Depends, HTTPException, status
 from pydantic import BaseModel
-
 from sqlmodel import Session as DBSession
 
 from api.deps import db_session, gym_repo, resolve_gym_id
 from api.routes.auth import get_current_user, require_current_user
-from store import GymRepo, CheckInRepo, User, UserCreate, UserRepo, FighterRepo, CoachRepo
+from store import CheckInRepo, CoachRepo, FighterRepo, GymRepo, User, UserCreate, UserRepo
 from store.models import (
     CheckInRead,
+    CoachCreate,
+    FighterCreate,
     GymCreate,
     GymMembershipRead,
     GymRead,
-    FighterCreate,
-    CoachCreate,
-    Fighter,
-    Coach,
-    MembershipStatus,
 )
 
 router = APIRouter(

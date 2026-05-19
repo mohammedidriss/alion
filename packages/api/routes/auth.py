@@ -12,7 +12,8 @@ from fastapi import APIRouter, Depends, HTTPException, status
 from fastapi.security import OAuth2PasswordBearer, OAuth2PasswordRequestForm
 from jose import JWTError, jwt
 from pydantic import BaseModel, field_validator
-from sqlmodel import Session as DBSession, select
+from sqlmodel import Session as DBSession
+from sqlmodel import select
 
 from api.deps import db_session
 from store import (
@@ -26,12 +27,12 @@ from store import (
     UserRepo,
     UserRole,
 )
-from store.models import FighterCreate, CoachCreate, RefereeCreate
+from store.models import CoachCreate, FighterCreate, RefereeCreate
 
 router = APIRouter(prefix="/auth", tags=["auth"])
 
 # --- Security config ---
-SECRET_KEY = os.environ.get("ALION_JWT_SECRET", "alion-dev-secret-key-change-in-production")  # noqa: S105
+SECRET_KEY = os.environ.get("ALION_JWT_SECRET", "alion-dev-secret-key-change-in-production")
 ALGORITHM = "HS256"
 ACCESS_TOKEN_EXPIRE_MINUTES = 60 * 24 * 7  # 7 days for dev convenience
 
@@ -41,6 +42,7 @@ _EMAIL_RE = re.compile(r"^[^@\s]+@[^@\s]+\.[^@\s]+$")
 
 
 # --- Helpers ---
+
 
 def _hash_password(password: str) -> str:
     return bcrypt.hashpw(password.encode(), bcrypt.gensalt()).decode()
@@ -61,6 +63,7 @@ def _user_repo(session: DBSession = Depends(db_session)) -> UserRepo:
 
 
 # --- Dependency: get current user from token ---
+
 
 async def get_current_user(
     token: str | None = Depends(oauth2_scheme),
@@ -97,6 +100,7 @@ async def require_current_user(
 
 
 # --- Request / Response schemas ---
+
 
 class RegisterRequest(BaseModel):
     email: str
@@ -135,6 +139,7 @@ class TokenResponse(BaseModel):
 
 
 # --- Routes ---
+
 
 @router.post("/register", response_model=TokenResponse, status_code=status.HTTP_201_CREATED)
 def register(
@@ -258,11 +263,15 @@ def update_me(
 
     if data.new_password is not None:
         if not data.current_password:
-            raise HTTPException(status_code=422, detail="Current password is required to set a new one")
+            raise HTTPException(
+                status_code=422, detail="Current password is required to set a new one"
+            )
         if not _verify_password(data.current_password, user.password_hash):
             raise HTTPException(status_code=403, detail="Current password is incorrect")
         if len(data.new_password) < 6:
-            raise HTTPException(status_code=422, detail="New password must be at least 6 characters")
+            raise HTTPException(
+                status_code=422, detail="New password must be at least 6 characters"
+            )
         fields["password_hash"] = _hash_password(data.new_password)
 
     if not fields:
@@ -300,6 +309,7 @@ def _sync_profile_name(user: User, new_name: str, session: DBSession) -> None:
 
 # --- Admin-only helpers ---
 
+
 def _require_admin(user: User = Depends(require_current_user)) -> User:
     """Dependency that enforces admin role."""
     if user.role != UserRole.ADMIN and user.role != "admin":
@@ -308,6 +318,7 @@ def _require_admin(user: User = Depends(require_current_user)) -> User:
 
 
 # --- Admin endpoints ---
+
 
 @router.get("/admin/users", response_model=list[UserRead])
 def admin_list_users(
@@ -434,7 +445,9 @@ def admin_system_stats(
     session: DBSession = Depends(db_session),
 ) -> AdminSystemStats:
     """System-wide statistics (admin only)."""
-    from store.models import Fighter, Coach, Gym, Session as TrainingSession
+    from store.models import Gym
+    from store.models import Session as TrainingSession
+
     users = list(session.exec(select(User)).all())
     return AdminSystemStats(
         total_users=len(users),
