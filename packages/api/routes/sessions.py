@@ -443,8 +443,8 @@ def bulk_add_events(
     events: PunchEventRepo = Depends(punch_event_repo),
     _: Any = Depends(require_current_user),
 ) -> dict:
-    """Accept punch events recorded on the host and persist them. Used by
-    record_api.py when capture runs locally against a remote API."""
+    """Accept punch events recorded in the browser (BrowserCapture) or on
+    the host (record_api.py) and persist them to the remote database."""
     from store import (
         DetectionSourceEnum,
         HandEnum,

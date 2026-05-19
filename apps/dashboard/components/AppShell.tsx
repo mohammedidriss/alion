@@ -15,11 +15,10 @@ export function AppShell({ children }: { children: React.ReactNode }) {
   useEffect(() => { setSidebarOpen(false); }, [pathname]);
 
   useEffect(() => {
-    if (!loading && !user && pathname !== "/") {
-      router.push("/");
-    }
+    if (!loading && !user && pathname !== "/") router.push("/");
   }, [loading, user, pathname, router]);
 
+  // Login page — no chrome
   if (pathname === "/") return <>{children}</>;
 
   if (loading) {
@@ -34,41 +33,41 @@ export function AppShell({ children }: { children: React.ReactNode }) {
   if (!user) {
     return (
       <div className="flex h-screen items-center justify-center text-neutral-400">
-        Redirecting to sign in…
+        Redirecting…
       </div>
     );
   }
 
   return (
     <div className="flex h-screen overflow-hidden bg-[#0a0a0f]">
-      {/* Mobile top bar — hidden on desktop */}
+      {/* Mobile top bar */}
       <MobileTopBar onMenuToggle={() => setSidebarOpen((o) => !o)} menuOpen={sidebarOpen} />
 
-      {/* Sidebar overlay backdrop — mobile only */}
+      {/* Sidebar backdrop */}
       {sidebarOpen && (
         <div
-          className="fixed inset-0 z-30 bg-black/70 md:hidden"
+          className="fixed inset-0 z-40 bg-black/60 backdrop-blur-sm md:hidden"
           onClick={() => setSidebarOpen(false)}
         />
       )}
 
-      {/* Sidebar — slide-in on mobile, always visible on desktop */}
-      <div
+      {/* Sidebar — full height slide-in on mobile, permanent on desktop */}
+      <aside
         className={`
-          fixed inset-y-0 left-0 z-40 w-72 transform transition-transform duration-200 ease-in-out
-          md:relative md:w-56 md:translate-x-0
+          fixed inset-y-0 left-0 z-[60] w-[280px] transform transition-transform duration-200 ease-in-out
+          md:relative md:z-auto md:w-56 md:translate-x-0 md:shrink-0
           ${sidebarOpen ? "translate-x-0" : "-translate-x-full md:translate-x-0"}
         `}
       >
         <Sidebar onNavigate={() => setSidebarOpen(false)} />
-      </div>
+      </aside>
 
-      {/* Main content */}
+      {/* Page content — padded top/bottom for mobile bars via CSS class */}
       <main className="mobile-shell-main flex-1 overflow-y-auto">
         {children}
       </main>
 
-      {/* Mobile bottom tab bar — hidden on desktop */}
+      {/* Mobile bottom tab bar */}
       <MobileBottomBar />
     </div>
   );

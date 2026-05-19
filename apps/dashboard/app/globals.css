@@ -43,15 +43,26 @@ body {
     #0a0a0f;
 }
 
-/* Mobile shell padding — cleared on md+ so desktop layout is unaffected */
+/* Mobile shell — content sits between top bar and bottom tab bar.
+   On md+ (desktop) both bars are hidden so padding resets to zero. */
 .mobile-shell-main {
+  /* top bar = 52px + safe-area-inset-top */
   padding-top: calc(env(safe-area-inset-top, 0px) + 52px);
-  padding-bottom: calc(env(safe-area-inset-bottom, 0px) + 60px);
+  /* bottom bar = 56px + safe-area-inset-bottom */
+  padding-bottom: calc(env(safe-area-inset-bottom, 0px) + 56px);
 }
 
 @media (min-width: 768px) {
   .mobile-shell-main {
     padding-top: 0;
     padding-bottom: 0;
+  }
+}
+
+/* Sidebar respects iOS safe areas on mobile (top notch, bottom home bar) */
+@media (max-width: 767px) {
+  aside {
+    padding-top: env(safe-area-inset-top, 0px);
+    padding-bottom: env(safe-area-inset-bottom, 0px);
   }
 }
