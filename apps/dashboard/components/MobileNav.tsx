@@ -44,8 +44,19 @@ export function MobileTopBar({
 }) {
   const pathname = usePathname();
   const router = useRouter();
+  const { user } = useAuth();
+
+  const homeHref = (() => {
+    if (!user) return "/";
+    if (user.role === "fighter" && user.profile_id) return `/fighters/${user.profile_id}`;
+    if (user.role === "coach" && user.profile_id) return `/coaches/${user.profile_id}`;
+    if (user.role === "gym_manager") return "/gym-dashboard";
+    if (user.role === "admin") return "/admin";
+    return "/";
+  })();
+
   const depth = pathname.split("/").filter(Boolean).length;
-  const isDeep = depth > 1;
+  const isDeep = depth > 1 && pathname !== homeHref;
 
   return (
     <div
