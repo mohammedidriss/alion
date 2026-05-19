@@ -418,6 +418,73 @@ def list_events(
     return [PunchEventRead.model_validate(r, from_attributes=True) for r in rows]
 
 
+class PunchEventCreate(BaseModel):
+    t_ms: float
+    hand: str
+    velocity_ms: float
+    confidence: float
+    detected_by: str = "heuristic"
+    lead_or_rear: str | None = None
+    punch_type: str | None = None
+    velocity_source: str = "image_heuristic"
+
+
+class BulkEventsBody(BaseModel):
+    events: list[PunchEventCreate]
+    frame_count: int | None = None
+    duration_ms: float | None = None
+
+
+@router.post("/{session_id}/events/bulk", response_model=dict)
+def bulk_add_events(
+    session_id: UUID,
+    body: BulkEventsBody,
+    repo: SessionRepo = Depends(session_repo),
+    events: PunchEventRepo = Depends(punch_event_repo),
+    _: Any = Depends(require_current_user),
+) -> dict:
+    """Accept punch events recorded on the host and persist them. Used by
+    record_api.py when capture runs locally against a remote API."""
+    from store import (
+        DetectionSourceEnum,
+        HandEnum,
+        LeadOrRearEnum,
+        PunchEventRow,
+        PunchTypeEnum,
+        VelocitySourceEnum,
+    )
+
+    sess = repo.get(session_id)
+    if sess is None:
+        raise HTTPException(status_code=404, detail="session not found")
+
+    rows = [
+        PunchEventRow(
+            session_id=session_id,
+            t_ms=e.t_ms,
+            hand=HandEnum(e.hand),
+            velocity_ms=e.velocity_ms,
+            confidence=e.confidence,
+            detected_by=DetectionSourceEnum(e.detected_by),
+            lead_or_rear=LeadOrRearEnum(e.lead_or_rear) if e.lead_or_rear else None,
+            punch_type=PunchTypeEnum(e.punch_type) if e.punch_type else None,
+            velocity_source=VelocitySourceEnum(e.velocity_source),
+        )
+        for e in body.events
+    ]
+    events.add_many(rows)
+
+    if body.frame_count is not None or body.duration_ms is not None:
+        repo.attach_artifacts(
+            session_id,
+            frame_count=body.frame_count,
+            duration_ms=body.duration_ms,
+        )
+    from store import SessionStatus
+    repo.update_status(session_id, SessionStatus.COMPLETED, end=True)
+    return {"inserted": len(rows)}
+
+
 @router.get("/{session_id}/events.csv")
 def export_events_csv(
     session_id: UUID,
