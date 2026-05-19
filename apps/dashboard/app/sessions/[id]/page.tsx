@@ -593,8 +593,9 @@ export default function SessionPage({ params }: { params: { id: string } }) {
         <section className="space-y-5 rounded-lg border border-neutral-800 bg-neutral-950/60 p-5">
           <h2 className="text-lg font-semibold">Session setup</h2>
 
-          {/* Camera permission warning */}
-          {setupSource === "live_webcam" && cameras.length === 0 && cameraReason && (
+          {/* Camera permission warning — only shown when server-side CV is available.
+              When cvAvailable is false we use BrowserCapture which manages its own camera. */}
+          {cvAvailable && setupSource === "live_webcam" && cameras.length === 0 && cameraReason && (
             <div className="rounded-lg border border-amber-700/60 bg-amber-950/40 p-4 text-sm">
               <p className="font-medium text-amber-200">⚠ Camera not available</p>
               <p className="mt-1 text-amber-100/80">{cameraReason}</p>

@@ -55,8 +55,16 @@ export function BrowserCapture({ sessionId, stance, onDone }: Props) {
       });
       landmarkerRef.current = landmarker;
 
-      // Open webcam
-      const stream = await navigator.mediaDevices.getUserMedia({ video: { facingMode: "user" } });
+      // Open webcam — navigator.mediaDevices can be undefined in non-secure
+      // contexts or before iOS grants camera permission.
+      if (!navigator.mediaDevices?.getUserMedia) {
+        throw new Error(
+          "Camera not accessible. On iPhone, make sure you opened the app natively (not via Safari) and granted camera permission in Settings → Alion."
+        );
+      }
+      const stream = await navigator.mediaDevices.getUserMedia({
+        video: { facingMode: "user", width: { ideal: 640 }, height: { ideal: 480 } },
+      });
       streamRef.current = stream;
       if (videoRef.current) {
         videoRef.current.srcObject = stream;
@@ -64,7 +72,8 @@ export function BrowserCapture({ sessionId, stance, onDone }: Props) {
       }
       setPhase("ready");
     } catch (e) {
-      setErr(e instanceof Error ? e.message : "Failed to load camera or model");
+      const msg = e instanceof Error ? e.message : "Failed to load camera or model";
+      setErr(msg);
       setPhase("error");
     }
   }, []);
