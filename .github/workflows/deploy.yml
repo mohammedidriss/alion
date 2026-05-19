@@ -15,8 +15,7 @@ jobs:
   deploy-api:
     name: Deploy API → Railway
     runs-on: ubuntu-latest
-    # Skip when Railway token isn't configured yet (repo fork, first setup, etc.)
-    if: ${{ secrets.RAILWAY_TOKEN != '' }}
+    environment: production
     steps:
       - uses: actions/checkout@v4
 
@@ -32,8 +31,7 @@ jobs:
   deploy-dashboard:
     name: Deploy Dashboard → Vercel
     runs-on: ubuntu-latest
-    # Skip when Vercel tokens aren't configured yet.
-    if: ${{ secrets.VERCEL_TOKEN != '' }}
+    environment: production
     defaults:
       run:
         working-directory: apps/dashboard
@@ -54,8 +52,7 @@ jobs:
         run: pnpm install --frozen-lockfile
 
       - name: Deploy to Vercel
-        # Pass token via env var (VERCEL_TOKEN) — the Vercel CLI picks it up
-        # automatically, avoiding shell-injection risk from inline --token flag.
+        # VERCEL_TOKEN env var is picked up automatically by the Vercel CLI.
         run: pnpm dlx vercel deploy --prod --yes
         env:
           VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
