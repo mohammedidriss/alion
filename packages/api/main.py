@@ -83,11 +83,11 @@ app = FastAPI(
     lifespan=lifespan,
 )
 
-# CORS — dev defaults + any extra origins set via ALION_CORS_ORIGINS env var.
-# In production set: ALION_CORS_ORIGINS=https://alion.vercel.app,https://yourdomain.com
-_default_origins = ["http://localhost:3000", "http://localhost:3001"]
-_extra = os.environ.get("ALION_CORS_ORIGINS", "")
-_allowed_origins = _default_origins + [o.strip() for o in _extra.split(",") if o.strip()]
+# CORS — set ALION_CORS_ORIGINS to a comma-separated list of allowed origins.
+# In development this defaults to localhost; in production set it explicitly.
+# Example: ALION_CORS_ORIGINS=https://app.yourdomain.com,https://yourdomain.com
+_raw_origins = os.environ.get("ALION_CORS_ORIGINS", "http://localhost:3000,http://localhost:3001")
+_allowed_origins = [o.strip() for o in _raw_origins.split(",") if o.strip()]
 
 app.add_middleware(
     CORSMiddleware,

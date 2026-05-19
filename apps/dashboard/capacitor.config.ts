@@ -33,8 +33,10 @@ const config: CapacitorConfig = {
         cleartext: true,
       }
     : {
-        // Production: your Vercel deployment URL.
-        // Update this once Vercel assigns the domain (or set a custom domain).
+        // Production: set CAPACITOR_PROD_URL to your deployed frontend URL.
+        // Works with any host — Vercel, AWS CloudFront, Azure Static Web Apps,
+        // GCP Cloud Run, Nginx on a VPS, etc.
+        // Example: https://app.yourdomain.com
         url: process.env.CAPACITOR_PROD_URL ?? 'https://alion-dashboard.vercel.app',
         cleartext: false,
       },

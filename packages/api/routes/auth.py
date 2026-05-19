@@ -33,7 +33,15 @@ from store.models import CoachCreate, FighterCreate, RefereeCreate
 router = APIRouter(prefix="/auth", tags=["auth"])
 
 # --- Security config ---
-SECRET_KEY = os.environ.get("ALION_JWT_SECRET", "alion-dev-secret-key-change-in-production")
+_DEV_SECRET = "alion-dev-secret-key-change-in-production"
+SECRET_KEY = os.environ.get("ALION_JWT_SECRET", _DEV_SECRET)
+if SECRET_KEY == _DEV_SECRET:
+    import warnings
+    warnings.warn(
+        "ALION_JWT_SECRET is not set — using insecure default. "
+        "Set this env var before deploying to production.",
+        stacklevel=1,
+    )
 ALGORITHM = "HS256"
 ACCESS_TOKEN_EXPIRE_MINUTES = 60 * 24 * 7  # 7 days for dev convenience
 
