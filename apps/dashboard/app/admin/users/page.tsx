@@ -111,11 +111,11 @@ export default function AdminUsersPage() {
   };
 
   if (me?.role !== "admin") {
-    return <div className="px-8 py-12 text-neutral-400">Admin access required.</div>;
+    return <div className="px-4 py-8 sm:px-8 sm:py-12 text-neutral-400">Admin access required.</div>;
   }
 
   return (
-    <div className="space-y-6 px-8 py-8">
+    <div className="space-y-6 px-4 py-6 sm:px-8 sm:py-8">
       <header>
         <h1 className="text-2xl font-bold">User Management</h1>
         <p className="text-sm text-neutral-500">{users.length} users in system</p>
@@ -243,10 +243,10 @@ export default function AdminUsersPage() {
             <thead>
               <tr className="border-b border-white/5 bg-white/[0.02] text-left text-xs text-neutral-500">
                 <th className="px-4 py-3">User</th>
-                <th className="px-4 py-3">Email</th>
+                <th className="hidden sm:table-cell px-4 py-3">Email</th>
                 <th className="px-4 py-3">Role</th>
                 <th className="px-4 py-3">Status</th>
-                <th className="px-4 py-3">Created</th>
+                <th className="hidden md:table-cell px-4 py-3">Created</th>
                 <th className="px-4 py-3 text-right">Actions</th>
               </tr>
             </thead>
@@ -259,7 +259,7 @@ export default function AdminUsersPage() {
                       <span className="font-medium">{u.name}</span>
                     </div>
                   </td>
-                  <td className="px-4 py-3 text-neutral-400">{u.email}</td>
+                  <td className="hidden sm:table-cell px-4 py-3 text-neutral-400">{u.email}</td>
                   <td className="px-4 py-3">
                     <span className={`rounded-full px-2 py-0.5 text-[10px] font-medium ${
                       u.role === "admin" ? "bg-purple-500/15 text-purple-300" :
@@ -278,44 +278,48 @@ export default function AdminUsersPage() {
                       {u.is_active ? "active" : "disabled"}
                     </span>
                   </td>
-                  <td className="px-4 py-3 text-neutral-500 text-xs">
+                  <td className="hidden md:table-cell px-4 py-3 text-neutral-500 text-xs">
                     {new Date(u.created_at).toLocaleDateString()}
                   </td>
-                  <td className="px-4 py-3">
-                    <div className="flex justify-end gap-1.5">
+                  <td className="px-2 py-3 sm:px-4">
+                    <div className="flex justify-end gap-1">
                       <button
                         onClick={() => { setEditUser(u); setEditName(u.name); setEditEmail(u.email); setEditRole(u.role); }}
-                        className="rounded-lg px-2 py-1 text-xs text-neutral-400 hover:bg-white/[0.06] hover:text-white"
+                        className="rounded-lg p-2 text-xs text-neutral-400 hover:bg-white/[0.06] hover:text-white"
                         title="Edit user"
                       >
-                        Edit
+                        <span className="hidden sm:inline">Edit</span>
+                        <span className="sm:hidden">✏️</span>
                       </button>
                       <button
                         onClick={() => setResetUser(u)}
-                        className="rounded-lg px-2 py-1 text-xs text-amber-400/70 hover:bg-amber-500/10 hover:text-amber-300"
+                        className="rounded-lg p-2 text-xs text-amber-400/70 hover:bg-amber-500/10 hover:text-amber-300"
                         title="Reset password"
                       >
-                        Reset PW
+                        <span className="hidden sm:inline">Reset PW</span>
+                        <span className="sm:hidden">🔑</span>
                       </button>
                       <button
                         onClick={() => handleToggleActive(u)}
                         disabled={u.id === me?.id}
-                        className={`rounded-lg px-2 py-1 text-xs disabled:opacity-30 ${
+                        className={`rounded-lg p-2 text-xs disabled:opacity-30 ${
                           u.is_active
                             ? "text-yellow-400/70 hover:bg-yellow-500/10 hover:text-yellow-300"
                             : "text-emerald-400/70 hover:bg-emerald-500/10 hover:text-emerald-300"
                         }`}
                         title={u.is_active ? "Deactivate" : "Activate"}
                       >
-                        {u.is_active ? "Disable" : "Enable"}
+                        <span className="hidden sm:inline">{u.is_active ? "Disable" : "Enable"}</span>
+                        <span className="sm:hidden">{u.is_active ? "⏸" : "▶"}</span>
                       </button>
                       <button
                         onClick={() => { if (confirm(`Delete user ${u.email}? This cannot be undone.`)) handleDelete(u); }}
                         disabled={u.id === me?.id}
-                        className="rounded-lg px-2 py-1 text-xs text-red-400/70 hover:bg-red-500/10 hover:text-red-300 disabled:opacity-30"
+                        className="rounded-lg p-2 text-xs text-red-400/70 hover:bg-red-500/10 hover:text-red-300 disabled:opacity-30"
                         title="Delete user"
                       >
-                        Delete
+                        <span className="hidden sm:inline">Delete</span>
+                        <span className="sm:hidden">🗑</span>
                       </button>
                     </div>
                   </td>

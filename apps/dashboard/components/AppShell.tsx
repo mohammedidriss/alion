@@ -28,7 +28,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
     return (
       <div className="flex h-screen overflow-hidden">
         <div className="hidden md:block w-56 shrink-0 border-r border-white/5 bg-[#0d0d12]" />
-        <main className="flex-1 overflow-y-auto">{children}</main>
+        <main className="flex-1 overflow-y-auto pt-14 md:pt-0">{children}</main>
       </div>
     );
   }
@@ -95,7 +95,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
         <Sidebar onNavigate={() => setSidebarOpen(false)} />
       </div>
 
-      <main className="flex-1 overflow-y-auto">{children}</main>
+      <main className="flex-1 overflow-y-auto pt-14 md:pt-0">{children}</main>
     </div>
   );
 }

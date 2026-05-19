@@ -16,14 +16,14 @@ export default function AdminDashboard() {
 
   if (user?.role !== "admin") {
     return (
-      <div className="px-8 py-12 text-neutral-400">
+      <div className="px-4 py-8 sm:px-8 sm:py-12 text-neutral-400">
         Admin access required.
       </div>
     );
   }
 
   return (
-    <div className="space-y-8 px-8 py-8">
+    <div className="space-y-8 px-4 py-6 sm:px-8 sm:py-8">
       <header>
         <h1 className="text-2xl font-bold">System Administration</h1>
         <p className="text-sm text-neutral-500">

@@ -107,7 +107,7 @@ export default function CoachPage({ params }: { params: { id: string } }) {
     setDraft((d) => ({ ...d, [k]: v }));
 
   return (
-    <main className="mx-auto max-w-4xl space-y-6 px-8 py-8">
+    <main className="mx-auto max-w-4xl space-y-6 px-4 py-6 sm:px-8 sm:py-8">
       <Link href="/" className="text-sm text-neutral-400 hover:text-neutral-100">
         ← Main page
       </Link>

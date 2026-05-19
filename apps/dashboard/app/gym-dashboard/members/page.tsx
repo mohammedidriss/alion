@@ -343,14 +343,14 @@ export default function MembersPage() {
 
   if (!isGymManager) {
     return (
-      <div className="px-8 py-12 text-neutral-400">
+      <div className="px-4 py-8 sm:px-8 sm:py-12 text-neutral-400">
         Sign in as a gym manager to access this page.
       </div>
     );
   }
 
   if (loading) {
-    return <div className="px-8 py-12 text-neutral-400">Loading members...</div>;
+    return <div className="px-4 py-8 sm:px-8 sm:py-12 text-neutral-400">Loading members...</div>;
   }
 
   const inputCls =
@@ -358,7 +358,7 @@ export default function MembersPage() {
   const labelCls = "mb-1 block text-xs font-medium text-neutral-400";
 
   return (
-    <div className="space-y-6 px-8 py-8">
+    <div className="space-y-6 px-4 py-6 sm:px-8 sm:py-8">
       <header className="flex flex-wrap items-center justify-between gap-3">
         <div>
           <h1 className="text-2xl font-bold">Members</h1>

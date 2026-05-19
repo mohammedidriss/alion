@@ -131,19 +131,19 @@ export default function GymsPage() {
 
   if (!isGymManager) {
     return (
-      <div className="px-8 py-12 text-neutral-400">
+      <div className="px-4 py-8 sm:px-8 sm:py-12 text-neutral-400">
         Sign in as a gym manager to access this page.
       </div>
     );
   }
 
   if (loading) {
-    return <div className="px-8 py-12 text-neutral-400">Loading gyms...</div>;
+    return <div className="px-4 py-8 sm:px-8 sm:py-12 text-neutral-400">Loading gyms...</div>;
   }
 
   if (loadError) {
     return (
-      <div className="px-8 py-12">
+      <div className="px-4 py-8 sm:px-8 sm:py-12">
         <p className="rounded-lg border border-red-500/30 bg-red-950/30 px-4 py-3 text-sm text-red-300">
           {loadError}
         </p>
@@ -152,7 +152,7 @@ export default function GymsPage() {
   }
 
   return (
-    <div className="space-y-6 px-8 py-8">
+    <div className="space-y-6 px-4 py-6 sm:px-8 sm:py-8">
       <header className="flex items-center justify-between">
         <div>
           <h1 className="text-2xl font-bold">Gyms</h1>

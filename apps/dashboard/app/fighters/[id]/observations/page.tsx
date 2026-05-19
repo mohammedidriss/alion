@@ -28,7 +28,7 @@ export default function ObservationsTab({
   const { user } = useAuth();
   if (user?.role === "admin") {
     return (
-      <div className="space-y-4 px-8 py-12">
+      <div className="space-y-4 px-4 py-8 sm:px-8 sm:py-12">
         <div className="text-4xl">🔒</div>
         <h1 className="text-xl font-semibold">Access Restricted</h1>
         <p className="max-w-md text-sm text-neutral-400">
@@ -100,7 +100,7 @@ export default function ObservationsTab({
     return <p className="text-sm text-red-400">{err}</p>;
 
   return (
-    <div className="space-y-6 px-8 py-6">
+    <div className="space-y-6 px-4 py-5 sm:px-8 sm:py-6">
       <header>
         <h1 className="text-2xl font-semibold">Observations</h1>
         <p className="text-sm text-neutral-400">

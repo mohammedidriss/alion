@@ -191,7 +191,7 @@ export default function ProfilePage() {
 
   if (!user) {
     return (
-      <div className="px-8 py-12 text-neutral-400">
+      <div className="px-4 py-8 sm:px-8 sm:py-12 text-neutral-400">
         Please sign in to view your profile.
       </div>
     );
@@ -344,7 +344,7 @@ export default function ProfilePage() {
   };
 
   return (
-    <div className="mx-auto max-w-3xl space-y-8 px-8 py-8">
+    <div className="mx-auto max-w-3xl space-y-8 px-4 py-6 sm:px-8 sm:py-8">
       {/* Header */}
       <header className="flex items-center gap-4">
         <ProfileAvatar name={user.name} photo_path={user.photo_path} size={64} />

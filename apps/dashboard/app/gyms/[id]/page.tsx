@@ -103,7 +103,7 @@ export default function GymDetailPage() {
 
   if (!gym) {
     return (
-      <div className="mx-auto max-w-4xl px-8 py-12 text-neutral-400">
+      <div className="mx-auto max-w-4xl px-4 py-8 sm:px-8 sm:py-12 text-neutral-400">
         Loading gym…
       </div>
     );
@@ -133,7 +133,7 @@ export default function GymDetailPage() {
     (patch[field] !== undefined ? patch[field] : gym[field]) ?? "";
 
   return (
-    <div className="mx-auto max-w-4xl space-y-6 px-8 py-8">
+    <div className="mx-auto max-w-4xl space-y-6 px-4 py-6 sm:px-8 sm:py-8">
       <Link
         href="/"
         className="text-sm text-neutral-500 hover:text-neutral-300"

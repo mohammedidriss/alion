@@ -3,7 +3,7 @@
 
 export default function ImuTab() {
   return (
-    <div className="space-y-6 px-8 py-6">
+    <div className="space-y-6 px-4 py-5 sm:px-8 sm:py-6">
       <header>
         <h1 className="text-2xl font-semibold">IMU</h1>
         <p className="text-sm text-neutral-400">

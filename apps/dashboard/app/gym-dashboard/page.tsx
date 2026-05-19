@@ -152,7 +152,7 @@ export default function GymDashboardPage() {
 
   if (!isGymManager) {
     return (
-      <div className="px-8 py-12 text-neutral-400">
+      <div className="px-4 py-8 sm:px-8 sm:py-12 text-neutral-400">
         Sign in as a gym manager to access this dashboard.
       </div>
     );
@@ -160,12 +160,12 @@ export default function GymDashboardPage() {
 
   if (loading) {
     return (
-      <div className="px-8 py-12 text-neutral-400">Loading dashboard...</div>
+      <div className="px-4 py-8 sm:px-8 sm:py-12 text-neutral-400">Loading dashboard...</div>
     );
   }
 
   return (
-    <div className="space-y-6 px-8 py-8">
+    <div className="space-y-6 px-4 py-6 sm:px-8 sm:py-8">
       {/* Header */}
       <header>
         <h1 className="text-2xl font-bold">{gym?.name ?? "Gym"} Dashboard</h1>
