@@ -42,16 +42,39 @@ export function AppShell({ children }: { children: React.ReactNode }) {
     );
   }
 
+  const isDeepPage = pathname.split("/").filter(Boolean).length > 1;
+
   return (
     <div className="flex h-screen overflow-hidden">
-      {/* Mobile hamburger */}
-      <button
-        onClick={() => setSidebarOpen(!sidebarOpen)}
-        className="fixed left-3 top-3 z-50 rounded-lg bg-white/10 p-2 text-white md:hidden"
-        aria-label="Toggle menu"
-      >
-        {sidebarOpen ? "✕" : "☰"}
-      </button>
+      {/* Mobile nav controls */}
+      {isDeepPage ? (
+        <>
+          {/* Back arrow on deep pages */}
+          <button
+            onClick={() => router.back()}
+            className="fixed left-3 top-3 z-50 rounded-lg bg-white/10 p-2 text-white md:hidden"
+            aria-label="Go back"
+          >
+            ←
+          </button>
+          {/* Hamburger moves to right on deep pages */}
+          <button
+            onClick={() => setSidebarOpen(!sidebarOpen)}
+            className="fixed right-3 top-3 z-50 rounded-lg bg-white/10 p-2 text-white md:hidden"
+            aria-label="Toggle menu"
+          >
+            {sidebarOpen ? "✕" : "☰"}
+          </button>
+        </>
+      ) : (
+        <button
+          onClick={() => setSidebarOpen(!sidebarOpen)}
+          className="fixed left-3 top-3 z-50 rounded-lg bg-white/10 p-2 text-white md:hidden"
+          aria-label="Toggle menu"
+        >
+          {sidebarOpen ? "✕" : "☰"}
+        </button>
+      )}
 
       {/* Mobile overlay */}
       {sidebarOpen && (
