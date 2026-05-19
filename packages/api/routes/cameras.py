@@ -47,8 +47,8 @@ def _check_macos_camera_permission() -> str:
     if sys.platform != "darwin":
         return "not_macos"
     try:
-        import objc  # type: ignore[import-untyped]  # noqa: F401
-        from AVFoundation import AVCaptureDevice, AVMediaTypeVideo  # type: ignore[import-not-found]
+        import objc  # noqa: F401
+        from AVFoundation import AVCaptureDevice, AVMediaTypeVideo
 
         status = AVCaptureDevice.authorizationStatusForMediaType_(AVMediaTypeVideo)
         # 0 = notDetermined, 1 = restricted, 2 = denied, 3 = authorized

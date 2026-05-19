@@ -109,7 +109,11 @@ module = ["tests.*"]
 disallow_untyped_decorators = false
 
 [[tool.mypy.overrides]]
-module = ["mediapipe.*", "cv2.*", "pyarrow.*", "torch.*", "ultralytics.*", "deep_sort_realtime.*"]
+module = ["analyze.lstm_second_pass", "analyze.action_classifier"]
+disallow_subclassing_any = false
+
+[[tool.mypy.overrides]]
+module = ["mediapipe.*", "cv2.*", "pyarrow.*", "torch.*", "ultralytics.*", "deep_sort_realtime.*", "bcrypt", "bleak", "bleak.*", "objc", "AVFoundation", "jose", "jose.*"]
 ignore_missing_imports = true
 
 [tool.pytest.ini_options]

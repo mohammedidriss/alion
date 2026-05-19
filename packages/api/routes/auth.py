@@ -11,7 +11,7 @@ from uuid import UUID
 import bcrypt
 from fastapi import APIRouter, Depends, HTTPException, status
 from fastapi.security import OAuth2PasswordBearer, OAuth2PasswordRequestForm
-from jose import JWTError, jwt  # type: ignore[import-untyped]
+from jose import JWTError, jwt
 from pydantic import BaseModel, field_validator
 from sqlmodel import Session as DBSession
 from sqlmodel import select
@@ -46,11 +46,11 @@ _EMAIL_RE = re.compile(r"^[^@\s]+@[^@\s]+\.[^@\s]+$")
 
 
 def _hash_password(password: str) -> str:
-    return bcrypt.hashpw(password.encode(), bcrypt.gensalt()).decode()
+    return str(bcrypt.hashpw(password.encode(), bcrypt.gensalt()).decode())
 
 
 def _verify_password(plain: str, hashed: str) -> bool:
-    return bcrypt.checkpw(plain.encode(), hashed.encode())
+    return bool(bcrypt.checkpw(plain.encode(), hashed.encode()))
 
 
 def _create_access_token(user_id: UUID, role: str) -> str:
