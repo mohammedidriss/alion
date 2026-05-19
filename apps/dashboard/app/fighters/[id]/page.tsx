@@ -43,6 +43,7 @@ const PRO_LEVELS: SkillLevel[] = [
   "coach",
 ];
 
+
 export default function FighterPage({ params }: { params: { id: string } }) {
   const { id } = params;
   const router = useRouter();

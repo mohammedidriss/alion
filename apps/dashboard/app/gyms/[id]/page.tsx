@@ -15,6 +15,7 @@ import {
 } from "@/lib/api";
 import { useAuth } from "@/lib/auth";
 
+
 export default function GymDetailPage() {
   const { id } = useParams<{ id: string }>();
   const router = useRouter();

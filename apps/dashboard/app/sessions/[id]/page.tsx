@@ -33,6 +33,7 @@ import {
 } from "@/lib/api";
 import { useAuth } from "@/lib/auth";
 
+
 export default function SessionPage({ params }: { params: { id: string } }) {
   const { id } = params;
   const router = useRouter();

@@ -6,6 +6,7 @@ import { useEffect, useRef, useState } from "react";
 import { ProfileAvatar } from "@/components/ProfileAvatar";
 import { api, type Referee, type RefereeCertLevel } from "@/lib/api";
 
+
 export default function RefereePage({ params }: { params: { id: string } }) {
   const router = useRouter();
   const [referee, setReferee] = useState<Referee | null>(null);

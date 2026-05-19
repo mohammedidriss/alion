@@ -19,6 +19,7 @@ const PERIOD_OPTIONS = [
   { label: "12 months", value: 12 },
 ] as const;
 
+
 export default function ObservationsTab({
   params,
 }: {

@@ -33,6 +33,7 @@ const STATUS_TINT: Record<TitleStatus, string> = {
   retired: "bg-neutral-500/15 text-neutral-300",
 };
 
+
 export default function TeamTab({ params }: { params: { id: string } }) {
   const fighterId = params.id;
   const { user } = useAuth();

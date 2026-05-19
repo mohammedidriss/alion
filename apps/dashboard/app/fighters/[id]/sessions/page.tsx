@@ -34,6 +34,7 @@ interface Row {
   peakVelocity: number;
 }
 
+
 export default function SessionsTab({ params }: { params: { id: string } }) {
   const router = useRouter();
   const { user } = useAuth();

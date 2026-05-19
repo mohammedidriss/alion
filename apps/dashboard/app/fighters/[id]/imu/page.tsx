@@ -1,5 +1,6 @@
 "use client";
 
+
 export default function ImuTab() {
   return (
     <div className="space-y-6 px-8 py-6">

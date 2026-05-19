@@ -4,6 +4,7 @@ import Link from "next/link";
 import { useEffect, useState } from "react";
 import { api, type Session, type CoachAdviceResponse } from "@/lib/api";
 
+
 export default function CornerPage({ params }: { params: { id: string } }) {
   const { id } = params;
   const [session, setSession] = useState<Session | null>(null);

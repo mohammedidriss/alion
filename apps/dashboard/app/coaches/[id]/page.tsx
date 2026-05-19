@@ -6,6 +6,7 @@ import { useEffect, useRef, useState } from "react";
 import { ProfileAvatar } from "@/components/ProfileAvatar";
 import { api, type Coach, type CoachNote, type CoachingLevel, type Fighter } from "@/lib/api";
 
+
 export default function CoachPage({ params }: { params: { id: string } }) {
   const router = useRouter();
   const [coach, setCoach] = useState<Coach | null>(null);

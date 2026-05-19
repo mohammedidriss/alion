@@ -26,6 +26,7 @@ const STATUS_TINT: Record<ConditionStatus, string> = {
   recovered: "bg-emerald-500/15 text-emerald-300",
 };
 
+
 export default function MedicalTab({ params }: { params: { id: string } }) {
   const fighterId = params.id;
   const { user } = useAuth();
