@@ -1,0 +1,7 @@
+<?xml version='1.0' encoding='utf-8'?>
+<resources>
+    <string name="app_name">Alion</string>
+    <string name="title_activity_main">Alion</string>
+    <string name="package_name">ai.alion.app</string>
+    <string name="custom_url_scheme">ai.alion.app</string>
+</resources>
