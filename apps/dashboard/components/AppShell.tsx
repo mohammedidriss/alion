@@ -28,7 +28,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
     return (
       <div className="flex h-screen overflow-hidden">
         <div className="hidden md:block w-56 shrink-0 border-r border-white/5 bg-[#0d0d12]" />
-        <main className="flex-1 overflow-y-auto pt-14 md:pt-0">{children}</main>
+        <main className="flex-1 overflow-y-auto [padding-top:calc(env(safe-area-inset-top,0px)+56px)] md:pt-0">{children}</main>
       </div>
     );
   }
@@ -52,7 +52,8 @@ export function AppShell({ children }: { children: React.ReactNode }) {
           {/* Back arrow on deep pages */}
           <button
             onClick={() => router.back()}
-            className="fixed left-3 top-3 z-50 rounded-lg bg-white/10 p-2 text-white md:hidden"
+            className="fixed left-3 z-50 rounded-lg bg-white/10 p-2 text-white md:hidden"
+            style={{ top: "calc(env(safe-area-inset-top, 0px) + 10px)" }}
             aria-label="Go back"
           >
             ←
@@ -60,7 +61,8 @@ export function AppShell({ children }: { children: React.ReactNode }) {
           {/* Hamburger moves to right on deep pages */}
           <button
             onClick={() => setSidebarOpen(!sidebarOpen)}
-            className="fixed right-3 top-3 z-50 rounded-lg bg-white/10 p-2 text-white md:hidden"
+            className="fixed right-3 z-50 rounded-lg bg-white/10 p-2 text-white md:hidden"
+            style={{ top: "calc(env(safe-area-inset-top, 0px) + 10px)" }}
             aria-label="Toggle menu"
           >
             {sidebarOpen ? "✕" : "☰"}
@@ -69,7 +71,8 @@ export function AppShell({ children }: { children: React.ReactNode }) {
       ) : (
         <button
           onClick={() => setSidebarOpen(!sidebarOpen)}
-          className="fixed left-3 top-3 z-50 rounded-lg bg-white/10 p-2 text-white md:hidden"
+          className="fixed left-3 z-50 rounded-lg bg-white/10 p-2 text-white md:hidden"
+          style={{ top: "calc(env(safe-area-inset-top, 0px) + 10px)" }}
           aria-label="Toggle menu"
         >
           {sidebarOpen ? "✕" : "☰"}
@@ -95,7 +98,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
         <Sidebar onNavigate={() => setSidebarOpen(false)} />
       </div>
 
-      <main className="flex-1 overflow-y-auto pt-14 md:pt-0">{children}</main>
+      <main className="flex-1 overflow-y-auto [padding-top:calc(env(safe-area-inset-top,0px)+56px)] md:pt-0">{children}</main>
     </div>
   );
 }
