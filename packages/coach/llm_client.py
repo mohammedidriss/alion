@@ -5,6 +5,7 @@ from __future__ import annotations
 import json
 import os
 import re
+from typing import Any
 
 from openai import AsyncOpenAI
 from pydantic import BaseModel
@@ -51,7 +52,6 @@ async def generate_corner_advice(system_prompt: str, session_data_json: str) -> 
     it falls back to a raw text summary.
     """
     import asyncio
-    from typing import Any
 
     async def _call() -> Any:
         # Fresh client per call — avoids the stale-connection 404s
@@ -151,7 +151,7 @@ async def generate_raw(system_prompt: str, user_content: str) -> str:
     """
     import asyncio
 
-    async def _call():
+    async def _call() -> Any:
         c = AsyncOpenAI(base_url=OPENAI_BASE_URL, api_key=OPENAI_API_KEY)
         return await c.chat.completions.create(
             model=MODEL,

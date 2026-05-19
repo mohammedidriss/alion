@@ -10,7 +10,17 @@ from sqlmodel import Session as DBSession
 
 from api.deps import db_session, gym_repo, resolve_gym_id
 from api.routes.auth import get_current_user, require_current_user
-from store import CheckInRepo, CoachRepo, FighterRepo, GymRepo, User, UserCreate, UserRepo
+from store import (
+    CheckInRepo,
+    Coach,
+    CoachRepo,
+    Fighter,
+    FighterRepo,
+    GymRepo,
+    User,
+    UserCreate,
+    UserRepo,
+)
 from store.models import (
     CheckInRead,
     CoachCreate,
@@ -127,7 +137,7 @@ def list_members(
     rows = repo.list_members(gym_id, include_left=include_left)
     return [
         GymMembershipRead(
-            id=m.id,  # type: ignore[arg-type]
+            id=m.id,
             gym_id=m.gym_id,
             member_id=m.member_id,
             member_type=m.member_type,
@@ -159,7 +169,7 @@ def add_member(
     m = repo.add_member(gym_id, data.member_id, data.member_type)
     name = ""
     return GymMembershipRead(
-        id=m.id,  # type: ignore[arg-type]
+        id=m.id,
         gym_id=m.gym_id,
         member_id=m.member_id,
         member_type=m.member_type,
@@ -267,7 +277,7 @@ def import_member(
 
     m = repo.add_member(gym_id, system_uuid, member_type)
     return GymMembershipRead(
-        id=m.id,  # type: ignore[arg-type]
+        id=m.id,
         gym_id=m.gym_id,
         member_id=m.member_id,
         member_type=m.member_type,
@@ -340,9 +350,11 @@ def create_member_account(
     gym_name = gym.name if gym else None
     if data.role == "fighter":
         f_repo = FighterRepo(session)
-        profile = f_repo.create(FighterCreate(name=data.name.strip(), stance="orthodox"))
-        profile.gym_id = gym_id  # type: ignore[union-attr]
-        profile.gym = gym_name  # type: ignore[union-attr]
+        profile: Fighter | Coach = f_repo.create(
+            FighterCreate(name=data.name.strip(), stance="orthodox")
+        )
+        profile.gym_id = gym_id
+        profile.gym = gym_name
         session.add(profile)
         session.commit()
         session.refresh(profile)
@@ -350,20 +362,20 @@ def create_member_account(
     else:
         c_repo = CoachRepo(session)
         profile = c_repo.create(CoachCreate(name=data.name.strip()))
-        profile.gym_id = gym_id  # type: ignore[union-attr]
-        profile.gym = gym_name  # type: ignore[union-attr]
+        profile.gym_id = gym_id
+        profile.gym = gym_name
         session.add(profile)
         session.commit()
         session.refresh(profile)
         member_type = "coach"
 
-    profile_id = profile.id  # type: ignore[union-attr]
+    profile_id = profile.id
     user_repo.set_profile_id(new_user.id, profile_id)
 
     # Link to gym
     m = repo.add_member(gym_id, profile_id, member_type)
     return GymMembershipRead(
-        id=m.id,  # type: ignore[arg-type]
+        id=m.id,
         gym_id=m.gym_id,
         member_id=m.member_id,
         member_type=m.member_type,
@@ -423,7 +435,7 @@ def update_membership_status(
             name = c.name
 
     return GymMembershipRead(
-        id=m.id,  # type: ignore[arg-type]
+        id=m.id,
         gym_id=m.gym_id,
         member_id=m.member_id,
         member_type=m.member_type,
@@ -474,7 +486,7 @@ def check_in(
             name = c.name
 
     return CheckInRead(
-        id=ci.id,  # type: ignore[arg-type]
+        id=ci.id,
         gym_id=ci.gym_id,
         member_id=ci.member_id,
         member_type=ci.member_type,
@@ -508,7 +520,7 @@ def check_out(
             name = c.name
 
     return CheckInRead(
-        id=ci.id,  # type: ignore[arg-type]
+        id=ci.id,
         gym_id=ci.gym_id,
         member_id=ci.member_id,
         member_type=ci.member_type,
@@ -532,7 +544,7 @@ def list_todays_checkins(
     rows = ci_repo.list_today(gym_id)
     return [
         CheckInRead(
-            id=ci.id,  # type: ignore[arg-type]
+            id=ci.id,
             gym_id=ci.gym_id,
             member_id=ci.member_id,
             member_type=ci.member_type,

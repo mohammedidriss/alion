@@ -181,7 +181,7 @@ def create_coach_note(
         raise HTTPException(status_code=404, detail="coach not found")
     note = repo.create(coach_id, fighter_id, data.content)
     return CoachNoteRead(
-        id=note.id,  # type: ignore[arg-type]
+        id=note.id,
         coach_id=note.coach_id,
         fighter_id=note.fighter_id,
         coach_name=coach.name,
@@ -206,7 +206,7 @@ def list_coach_notes(
     rows = repo.list_for_coach(coach_id)
     return [
         CoachNoteRead(
-            id=note.id,  # type: ignore[arg-type]
+            id=note.id,
             coach_id=note.coach_id,
             fighter_id=note.fighter_id,
             coach_name="",  # not needed in coach-centric view

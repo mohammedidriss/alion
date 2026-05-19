@@ -92,7 +92,7 @@ def _purge_stale_pending(repo: SessionRepo) -> int:
 
 
 @router.delete("/stale-pending")
-def delete_stale_pending(repo: SessionRepo = Depends(session_repo)) -> dict:
+def delete_stale_pending(repo: SessionRepo = Depends(session_repo)) -> dict[str, Any]:
     """Explicitly purge old empty pending sessions."""
     deleted = _purge_stale_pending(repo)
     return {"deleted": deleted}
@@ -694,9 +694,9 @@ async def get_session_advice(
         )
 
     fused = rounds_export(session_id, sessions, events, db)
-    rounds_payload: list[dict[str, object]] = []
+    rounds_payload: list[dict[str, Any]] = []
     for r in fused.rounds:
-        block: dict[str, object] = {
+        block: dict[str, Any] = {
             "round": r.round_number,
             "duration_s": r.duration_ms / 1000.0,
         }

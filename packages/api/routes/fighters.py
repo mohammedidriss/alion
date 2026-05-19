@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import json as _json
 from datetime import date, datetime, timedelta
+from typing import Any
 from uuid import UUID
 
 from fastapi import APIRouter, Depends, File, HTTPException, UploadFile, status
@@ -1006,7 +1007,7 @@ async def generate_fighter_observations(
     first_half = session_summaries[:mid] if mid > 0 else session_summaries[:1]
     second_half = session_summaries[mid:] if mid > 0 else session_summaries[1:]
 
-    def _avg(items: list[dict], key: str) -> float:
+    def _avg(items: list[dict[str, Any]], key: str) -> float:
         vals = [i[key] for i in items if i[key] is not None]
         return sum(vals) / len(vals) if vals else 0.0
 
@@ -1112,7 +1113,7 @@ def list_fighter_coach_notes(
     rows = repo.list_for_fighter(fighter_id)
     return [
         CoachNoteRead(
-            id=note.id,  # type: ignore[arg-type]
+            id=note.id,
             coach_id=note.coach_id,
             fighter_id=note.fighter_id,
             coach_name=cname,
@@ -1124,7 +1125,7 @@ def list_fighter_coach_notes(
     ]
 
 
-def _parse_observation_json(text: str) -> dict | None:
+def _parse_observation_json(text: str) -> dict[str, Any] | None:
     """Extract the first balanced JSON object containing 'observations'."""
     import re
 

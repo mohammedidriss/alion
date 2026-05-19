@@ -15,6 +15,7 @@ import struct
 import threading
 import time
 from collections.abc import Iterator
+from typing import Any
 from uuid import UUID
 
 from common import get_logger
@@ -27,7 +28,7 @@ HR_SERVICE_UUID = "0000180d-0000-1000-8000-00805f9b34fb"
 HR_MEASUREMENT_UUID = "00002a37-0000-1000-8000-00805f9b34fb"
 
 
-def parse_hr_measurement(data: bytearray) -> dict:
+def parse_hr_measurement(data: bytearray) -> dict[str, Any]:
     """Parse a BLE Heart Rate Measurement characteristic (BLE spec §3.105).
 
     Returns:
@@ -67,7 +68,7 @@ def parse_hr_measurement(data: bytearray) -> dict:
     }
 
 
-async def scan_for_hr_devices(timeout: float = 8.0) -> list[dict]:
+async def scan_for_hr_devices(timeout: float = 8.0) -> list[dict[str, Any]]:
     """Scan for BLE devices advertising the Heart Rate service.
 
     Returns a list of dicts with keys: name, address.
@@ -116,7 +117,7 @@ class PolarH10Source:
         import queue
 
         q: queue.Queue[HRSample | None] = queue.Queue(maxsize=500)
-        self._thread_queue = q  # type: ignore[assignment]
+        self._thread_queue = q
 
         # Launch the async BLE loop on a background thread.
         ble_thread = threading.Thread(
@@ -186,7 +187,7 @@ class PolarH10Source:
         t0 = time.monotonic()
         running_t_ms = 0.0  # cumulative time from RR intervals
 
-        def on_hr_data(_sender: int, data: bytearray) -> None:
+        def on_hr_data(_sender: object, data: bytearray) -> None:
             nonlocal running_t_ms
             parsed = parse_hr_measurement(data)
             rr_list = parsed["rr_ms"]

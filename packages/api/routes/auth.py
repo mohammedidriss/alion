@@ -5,12 +5,13 @@ from __future__ import annotations
 import os
 import re
 from datetime import UTC, datetime, timedelta
+from typing import Any
 from uuid import UUID
 
 import bcrypt
 from fastapi import APIRouter, Depends, HTTPException, status
 from fastapi.security import OAuth2PasswordBearer, OAuth2PasswordRequestForm
-from jose import JWTError, jwt
+from jose import JWTError, jwt  # type: ignore[import-untyped]
 from pydantic import BaseModel, field_validator
 from sqlmodel import Session as DBSession
 from sqlmodel import select
@@ -55,7 +56,7 @@ def _verify_password(plain: str, hashed: str) -> bool:
 def _create_access_token(user_id: UUID, role: str) -> str:
     expire = datetime.now(UTC) + timedelta(minutes=ACCESS_TOKEN_EXPIRE_MINUTES)
     payload = {"sub": str(user_id), "role": role, "exp": expire}
-    return jwt.encode(payload, SECRET_KEY, algorithm=ALGORITHM)
+    return str(jwt.encode(payload, SECRET_KEY, algorithm=ALGORITHM))
 
 
 def _user_repo(session: DBSession = Depends(db_session)) -> UserRepo:
@@ -178,18 +179,18 @@ def register(
 
 def _create_profile_for_role(user: User, session: DBSession) -> UUID | None:
     """Create a profile entity matching the user's role and return its id."""
-    if user.role == UserRole.FIGHTER or user.role == "fighter":
-        repo = FighterRepo(session)
-        f = repo.create(FighterCreate(name=user.name, stance="orthodox"))
-        return f.id  # type: ignore[return-value]
-    if user.role == UserRole.COACH or user.role == "coach":
-        repo = CoachRepo(session)
-        c = repo.create(CoachCreate(name=user.name))
-        return c.id  # type: ignore[return-value]
-    if user.role == UserRole.REFEREE or user.role == "referee":
-        repo = RefereeRepo(session)
-        r = repo.create(RefereeCreate(name=user.name))
-        return r.id  # type: ignore[return-value]
+    if user.role == UserRole.FIGHTER:
+        f_repo = FighterRepo(session)
+        f = f_repo.create(FighterCreate(name=user.name, stance="orthodox"))
+        return f.id
+    if user.role == UserRole.COACH:
+        c_repo = CoachRepo(session)
+        c = c_repo.create(CoachCreate(name=user.name))
+        return c.id
+    if user.role == UserRole.REFEREE:
+        r_repo = RefereeRepo(session)
+        r = r_repo.create(RefereeCreate(name=user.name))
+        return r.id
     # gym_manager profiles need a gym — created later when assigned to a gym
     return None
 
@@ -240,7 +241,7 @@ def update_me(
     session: DBSession = Depends(db_session),
 ) -> UserRead:
     """Update the current user's profile (name, email, password)."""
-    fields: dict = {}
+    fields: dict[str, Any] = {}
 
     if data.name is not None:
         name = data.name.strip()
@@ -312,7 +313,7 @@ def _sync_profile_name(user: User, new_name: str, session: DBSession) -> None:
 
 def _require_admin(user: User = Depends(require_current_user)) -> User:
     """Dependency that enforces admin role."""
-    if user.role != UserRole.ADMIN and user.role != "admin":
+    if user.role != UserRole.ADMIN:
         raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Admin access required")
     return user
 
