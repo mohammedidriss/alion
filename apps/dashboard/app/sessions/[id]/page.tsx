@@ -3,6 +3,7 @@
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useEffect, useRef, useState } from "react";
+import { BrowserCapture } from "@/components/BrowserCapture";
 import { EvaluationCard } from "@/components/EvaluationCard";
 import { FighterBackLink } from "@/components/FighterBackLink";
 import { HrvPanel } from "@/components/HrvPanel";
@@ -572,22 +573,12 @@ export default function SessionPage({ params }: { params: { id: string } }) {
 
       {err && <p className="text-sm text-red-400">{err}</p>}
 
-      {!cvAvailable && (
-        <div className="rounded-lg border border-amber-700/60 bg-amber-950/40 p-4 text-sm">
-          <p className="font-medium text-amber-200">
-            Capture isn&apos;t available on this server
-          </p>
-          <p className="mt-1 text-amber-100/80">
-            {caps?.cv_reason ??
-              "MediaPipe / OpenCV are not installed in this environment."}
-          </p>
-          <p className="mt-2 text-amber-100/70">
-            Run capture on the macOS host:{" "}
-            <code className="rounded bg-black/40 px-1.5 py-0.5 font-mono text-xs">
-              uv run python scripts/{session.source === "live_webcam" ? "record_live.py" : "process_video.py"}
-            </code>
-          </p>
-        </div>
+      {!cvAvailable && session.source === "live_webcam" && session.status === "pending" && (
+        <BrowserCapture
+          sessionId={id}
+          stance={session.fighter_id ? undefined : null}
+          onDone={refresh}
+        />
       )}
 
       {session.status === "failed" && session.failure_reason && (

@@ -840,6 +840,16 @@ export const api = {
   captureStatus: (id: string) =>
     req<CaptureStatus>(`/sessions/${id}/capture/status`),
   listEvents: (id: string) => req<PunchEvent[]>(`/sessions/${id}/events`),
+  bulkAddEvents: (
+    id: string,
+    events: { t_ms: number; hand: string; velocity_ms: number; confidence: number; detected_by: string; lead_or_rear: string | null; velocity_source: string }[],
+    meta?: { frame_count?: number; duration_ms?: number },
+  ) =>
+    req<{ inserted: number }>(`/sessions/${id}/events/bulk`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ events, ...meta }),
+    }),
   uploadBaseline: async (id: string, file: File) => {
     const fd = new FormData();
     fd.append("file", file);
