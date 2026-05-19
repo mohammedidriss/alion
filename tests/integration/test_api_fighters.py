@@ -13,21 +13,21 @@ def test_health(client: TestClient) -> None:
     assert r.json() == {"status": "ok", "schema_version": SCHEMA_VERSION}
 
 
-def test_fighter_crud_flow(client: TestClient) -> None:
-    r = client.post("/fighters", json={"name": "Idriss", "stance": "orthodox"})
+def test_fighter_crud_flow(authed_client: TestClient) -> None:
+    r = authed_client.post("/fighters", json={"name": "Idriss", "stance": "orthodox"})
     assert r.status_code == 201
     fid = r.json()["id"]
 
-    r = client.get("/fighters")
+    r = authed_client.get("/fighters")
     assert r.status_code == 200
     assert len(r.json()) == 1
 
-    r = client.get(f"/fighters/{fid}")
+    r = authed_client.get(f"/fighters/{fid}")
     assert r.status_code == 200
     assert r.json()["name"] == "Idriss"
 
-    r = client.delete(f"/fighters/{fid}")
+    r = authed_client.delete(f"/fighters/{fid}")
     assert r.status_code == 204
 
-    r = client.get(f"/fighters/{fid}")
+    r = authed_client.get(f"/fighters/{fid}")
     assert r.status_code == 404

@@ -34,3 +34,29 @@ def client(session: Session) -> Iterator[TestClient]:
     with TestClient(app) as c:
         yield c
     app.dependency_overrides.clear()
+
+
+@pytest.fixture
+def authed_client(session: Session) -> Iterator[TestClient]:
+    """TestClient pre-configured with an admin JWT — for routes that require auth."""
+    from api.deps import db_session
+    from api.main import app
+
+    def _override() -> Iterator[Session]:
+        yield session
+
+    app.dependency_overrides[db_session] = _override
+    with TestClient(app) as c:
+        resp = c.post(
+            "/auth/register",
+            json={
+                "email": "test-admin@alion.test",
+                "password": "TestPass123!",
+                "name": "Test Admin",
+                "role": "admin",
+            },
+        )
+        token = resp.json()["access_token"]
+        c.headers.update({"Authorization": f"Bearer {token}"})
+        yield c
+    app.dependency_overrides.clear()

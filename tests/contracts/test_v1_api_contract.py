@@ -54,8 +54,8 @@ def test_v1_cameras_shape(client: TestClient) -> None:
 # ---------- Fighter options + CRUD ----------
 
 
-def test_v1_fighter_options_shape(client: TestClient) -> None:
-    r = client.get(f"{V1}/fighters/options")
+def test_v1_fighter_options_shape(authed_client: TestClient) -> None:
+    r = authed_client.get(f"{V1}/fighters/options")
     assert r.status_code == 200
     body = r.json()
     assert {"stances", "hands", "skill_levels", "weight_classes", "sexes"} <= set(body.keys())
@@ -63,7 +63,8 @@ def test_v1_fighter_options_shape(client: TestClient) -> None:
     assert set(body["stances"]) == {"orthodox", "southpaw", "switch"}
 
 
-def test_v1_fighter_full_crud_round_trip(client: TestClient) -> None:
+def test_v1_fighter_full_crud_round_trip(authed_client: TestClient) -> None:
+    client = authed_client
     # Create
     r = client.post(f"{V1}/fighters", json={"name": "v1-test", "stance": "orthodox"})
     assert r.status_code == 201
@@ -125,7 +126,8 @@ def test_v1_fighter_full_crud_round_trip(client: TestClient) -> None:
     assert client.get(f"{V1}/fighters/{fid}").status_code == 404
 
 
-def test_v1_weigh_in_round_trip(client: TestClient) -> None:
+def test_v1_weigh_in_round_trip(authed_client: TestClient) -> None:
+    client = authed_client
     fid = client.post(f"{V1}/fighters", json={"name": "wi-test"}).json()["id"]
 
     # Empty list at start
@@ -148,7 +150,8 @@ def test_v1_weigh_in_round_trip(client: TestClient) -> None:
 # ---------- Sessions ----------
 
 
-def test_v1_session_full_lifecycle(client: TestClient) -> None:
+def test_v1_session_full_lifecycle(authed_client: TestClient) -> None:
+    client = authed_client
     fid = client.post(f"{V1}/fighters", json={"name": "ses-test"}).json()["id"]
 
     r = client.post(f"{V1}/sessions", json={"fighter_id": fid, "source": "live_webcam"})
@@ -199,8 +202,9 @@ def test_v1_session_full_lifecycle(client: TestClient) -> None:
     assert client.post(f"{V1}/sessions/{sid}/capture/stop").status_code == 409
 
 
-def test_v1_session_validation_errors_are_stable(client: TestClient) -> None:
+def test_v1_session_validation_errors_are_stable(authed_client: TestClient) -> None:
     """Validation rejections (422 / 404 / 400) are part of the contract."""
+    client = authed_client
     fid = client.post(f"{V1}/fighters", json={"name": "val-test"}).json()["id"]
     # Bad enum
     assert (
@@ -213,11 +217,11 @@ def test_v1_session_validation_errors_are_stable(client: TestClient) -> None:
     assert client.get(f"{V1}/sessions/00000000-0000-0000-0000-000000000000").status_code == 404
 
 
-def test_unversioned_alias_matches_v1_for_all_routes(client: TestClient) -> None:
+def test_unversioned_alias_matches_v1_for_all_routes(authed_client: TestClient) -> None:
     """The unversioned URL space must mirror /v1 byte-for-byte for the dashboard."""
     paths = ["/health", "/health/capabilities", "/cameras", "/fighters", "/sessions"]
     for path in paths:
-        r1 = client.get(path)
-        r2 = client.get(f"{V1}{path}")
+        r1 = authed_client.get(path)
+        r2 = authed_client.get(f"{V1}{path}")
         assert r1.status_code == r2.status_code, path
         assert r1.json() == r2.json(), f"diverged at {path}"
