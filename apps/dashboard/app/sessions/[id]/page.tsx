@@ -573,23 +573,26 @@ export default function SessionPage({ params }: { params: { id: string } }) {
 
       {err && <p className="text-sm text-red-400">{err}</p>}
 
-      {!cvAvailable && session.source === "live_webcam" && session.status === "pending" && (
+      {/* Browser capture — shown when server has no CV, for live_webcam sessions
+          that are pending OR failed-due-to-missing-CV. Replaces the server flow entirely. */}
+      {!cvAvailable && session.source === "live_webcam" &&
+        (session.status === "pending" || session.status === "failed") && (
         <BrowserCapture
           sessionId={id}
-          stance={session.fighter_id ? undefined : null}
+          stance={null}
           onDone={refresh}
         />
       )}
 
-      {session.status === "failed" && session.failure_reason && (
+      {session.status === "failed" && session.failure_reason && cvAvailable && (
         <div className="rounded-lg border border-red-700/60 bg-red-950/40 p-4 text-sm">
           <p className="font-medium text-red-200">Capture failed</p>
           <p className="mt-1 text-red-100/80">{session.failure_reason}</p>
         </div>
       )}
 
-      {/* ── Pending: full setup UI ── */}
-      {session.status === "pending" && (
+      {/* ── Pending: full setup UI — hidden when browser capture handles it ── */}
+      {session.status === "pending" && (cvAvailable || session.source !== "live_webcam") && (
         <section className="space-y-5 rounded-lg border border-neutral-800 bg-neutral-950/60 p-5">
           <h2 className="text-lg font-semibold">Session setup</h2>
 
