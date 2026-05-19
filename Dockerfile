@@ -35,4 +35,4 @@ ENV ALION_DB_PATH=/app/data/alion.db
 
 EXPOSE 8000
 
-CMD ["sh", "-c", "uv run uvicorn api.main:app --host 0.0.0.0 --port ${PORT:-8000} --log-level info"]
+CMD ["sh", "-c", "mkdir -p /app/data/photos && uv run uvicorn api.main:app --host 0.0.0.0 --port ${PORT:-8000} --log-level info"]
