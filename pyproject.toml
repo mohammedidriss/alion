@@ -113,6 +113,10 @@ module = ["analyze.lstm_second_pass", "analyze.action_classifier"]
 disallow_subclassing_any = false
 
 [[tool.mypy.overrides]]
+module = ["capture.cv.pose_yolo"]
+warn_unused_ignores = false
+
+[[tool.mypy.overrides]]
 module = ["mediapipe.*", "cv2.*", "pyarrow.*", "torch.*", "ultralytics.*", "deep_sort_realtime.*", "bcrypt", "bleak", "bleak.*", "objc", "AVFoundation", "jose", "jose.*"]
 ignore_missing_imports = true
 
