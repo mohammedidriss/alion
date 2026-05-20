@@ -37,8 +37,58 @@ from store import create_db_and_tables
 async def lifespan(_: FastAPI) -> AsyncIterator[None]:
     setup_logging(get_settings().log_level)
     create_db_and_tables()
+    _bootstrap_admin()
     _warm_up_camera_on_macos()
     yield
+
+
+def _bootstrap_admin() -> None:
+    """Create the first admin account from env vars if none exists.
+
+    Set these on Railway (or any host) to auto-provision on first deploy:
+        ALION_ADMIN_EMAIL    — admin login email
+        ALION_ADMIN_PASSWORD — admin login password (min 6 chars)
+        ALION_ADMIN_NAME     — display name (default: "Admin")
+
+    Safe to leave in place permanently: once an admin exists the check
+    is a no-op and no duplicate is ever created.
+    """
+    import logging
+
+    from sqlmodel import Session, select
+
+    from store import UserCreate, UserRepo
+    from store.models import User, UserRole
+    from store.database import _engine  # noqa: PLC2701
+    from api.routes.auth import _hash_password
+
+    email = os.environ.get("ALION_ADMIN_EMAIL", "").strip().lower()
+    password = os.environ.get("ALION_ADMIN_PASSWORD", "").strip()
+    name = os.environ.get("ALION_ADMIN_NAME", "Admin").strip() or "Admin"
+
+    if not email or not password:
+        return  # env vars not set — skip silently
+
+    with Session(_engine) as session:
+        existing_admins = session.exec(
+            select(User).where(User.role == UserRole.ADMIN)
+        ).first()
+        if existing_admins:
+            return  # admin already exists — nothing to do
+
+        repo = UserRepo(session)
+        if repo.get_by_email(email):
+            # Account exists but isn't admin — promote it
+            existing = repo.get_by_email(email)
+            repo.update(existing.id, {"role": UserRole.ADMIN, "is_active": True})
+            logging.getLogger(__name__).info("Promoted %s to admin.", email)
+            return
+
+        repo.create(
+            UserCreate(email=email, password=password, name=name, role=UserRole.ADMIN),
+            _hash_password(password),
+        )
+        logging.getLogger(__name__).info("Bootstrap admin created: %s", email)
 
 
 def _warm_up_camera_on_macos() -> None:
