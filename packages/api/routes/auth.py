@@ -338,6 +338,41 @@ def admin_list_users(
     return [UserRead.model_validate(u, from_attributes=True) for u in repo.list_all()]
 
 
+class AdminCreateUserRequest(BaseModel):
+    email: str
+    password: str
+    name: str
+    role: UserRole
+
+    @field_validator("password")
+    @classmethod
+    def validate_password(cls, v: str) -> str:
+        if len(v) < 6:
+            raise ValueError("Password must be at least 6 characters")
+        return v
+
+
+@router.post("/admin/users", response_model=UserRead, status_code=201)
+def admin_create_user(
+    data: AdminCreateUserRequest,
+    _admin: User = Depends(_require_admin),
+    repo: UserRepo = Depends(_user_repo),
+    session: DBSession = Depends(db_session),
+) -> UserRead:
+    """Create a user account (admin only). Auto-creates profile for non-gym_manager roles."""
+    existing = repo.get_by_email(data.email.lower().strip())
+    if existing:
+        raise HTTPException(status_code=409, detail="Email already registered")
+    user_create = UserCreate(email=data.email.lower().strip(), password=data.password, name=data.name.strip(), role=data.role)
+    hashed = _hash_password(data.password)
+    user = repo.create(user_create, hashed)
+    profile_id = _create_profile_for_role(user, session)
+    if profile_id:
+        repo.set_profile_id(user.id, profile_id)
+        user.profile_id = profile_id
+    return UserRead.model_validate(user, from_attributes=True)
+
+
 class AdminResetPasswordRequest(BaseModel):
     new_password: str
 

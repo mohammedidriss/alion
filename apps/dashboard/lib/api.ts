@@ -1290,7 +1290,13 @@ export const api = {
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ new_password: newPassword }),
     }),
-  adminUpdateUser: (userId: string, fields: Partial<Pick<AuthUser, "name" | "email" | "role" | "is_active">>) =>
+  adminCreateUser: (data: { email: string; password: string; name: string; role: UserRole }) =>
+    req<AuthUser>("/auth/admin/users", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(data),
+    }),
+  adminUpdateUser: (userId: string, fields: Partial<Pick<AuthUser, "name" | "email" | "role" | "is_active" | "profile_id">>) =>
     req<AuthUser>(`/auth/admin/users/${userId}`, {
       method: "PATCH",
       headers: { "Content-Type": "application/json" },

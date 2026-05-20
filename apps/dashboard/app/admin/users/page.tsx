@@ -25,6 +25,15 @@ export default function AdminUsersPage() {
   const [actionMsg, setActionMsg] = useState<string | null>(null);
   const [actionErr, setActionErr] = useState<string | null>(null);
 
+  // Create user form
+  const [showCreateUser, setShowCreateUser] = useState(false);
+  const [newUserName, setNewUserName] = useState("");
+  const [newUserEmail, setNewUserEmail] = useState("");
+  const [newUserPassword, setNewUserPassword] = useState("");
+  const [newUserRole, setNewUserRole] = useState<UserRole>("fighter");
+  const [creatingUser, setCreatingUser] = useState(false);
+  const [createUserErr, setCreateUserErr] = useState<string | null>(null);
+
   const load = useCallback(async () => {
     setLoading(true);
     setError(null);
@@ -99,6 +108,23 @@ export default function AdminUsersPage() {
     }
   };
 
+  const handleCreateUser = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setCreatingUser(true);
+    setCreateUserErr(null);
+    try {
+      await api.adminCreateUser({ name: newUserName.trim(), email: newUserEmail.trim(), password: newUserPassword, role: newUserRole });
+      setActionMsg(`Created user ${newUserEmail}`);
+      setNewUserName(""); setNewUserEmail(""); setNewUserPassword(""); setNewUserRole("fighter");
+      setShowCreateUser(false);
+      load();
+    } catch (e) {
+      setCreateUserErr(e instanceof Error ? e.message : "Failed to create user");
+    } finally {
+      setCreatingUser(false);
+    }
+  };
+
   const handleDelete = async (u: AuthUser) => {
     setActionErr(null);
     try {
@@ -116,10 +142,54 @@ export default function AdminUsersPage() {
 
   return (
     <div className="space-y-6 px-4 py-6 sm:px-8 sm:py-8">
-      <header>
-        <h1 className="text-2xl font-bold">User Management</h1>
-        <p className="text-sm text-neutral-500">{users.length} users in system</p>
+      <header className="flex items-center justify-between">
+        <div>
+          <h1 className="text-2xl font-bold">User Management</h1>
+          <p className="text-sm text-neutral-500">{users.length} users in system</p>
+        </div>
+        <button
+          onClick={() => setShowCreateUser(!showCreateUser)}
+          className="rounded-xl bg-emerald-500 px-4 py-2 text-sm font-medium text-black hover:bg-emerald-400"
+        >
+          {showCreateUser ? "Cancel" : "+ Create User"}
+        </button>
       </header>
+
+      {/* Create User form */}
+      {showCreateUser && (
+        <form onSubmit={handleCreateUser} className="card space-y-4">
+          <h3 className="font-semibold">New User Account</h3>
+          <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-4">
+            <div>
+              <label className="mb-1 block text-xs font-medium text-neutral-400">Name *</label>
+              <input required value={newUserName} onChange={(e) => setNewUserName(e.target.value)} placeholder="Full name"
+                className="w-full rounded-xl border border-white/10 bg-white/[0.03] px-4 py-2.5 text-sm text-neutral-200 placeholder:text-neutral-600 focus:border-emerald-500/40 focus:outline-none" />
+            </div>
+            <div>
+              <label className="mb-1 block text-xs font-medium text-neutral-400">Email *</label>
+              <input required type="email" value={newUserEmail} onChange={(e) => setNewUserEmail(e.target.value)} placeholder="user@example.com"
+                className="w-full rounded-xl border border-white/10 bg-white/[0.03] px-4 py-2.5 text-sm text-neutral-200 placeholder:text-neutral-600 focus:border-emerald-500/40 focus:outline-none" />
+            </div>
+            <div>
+              <label className="mb-1 block text-xs font-medium text-neutral-400">Password *</label>
+              <input required type="password" value={newUserPassword} onChange={(e) => setNewUserPassword(e.target.value)} placeholder="Min 6 characters"
+                className="w-full rounded-xl border border-white/10 bg-white/[0.03] px-4 py-2.5 text-sm text-neutral-200 placeholder:text-neutral-600 focus:border-emerald-500/40 focus:outline-none" />
+            </div>
+            <div>
+              <label className="mb-1 block text-xs font-medium text-neutral-400">Role *</label>
+              <select required value={newUserRole} onChange={(e) => setNewUserRole(e.target.value as UserRole)}
+                className="w-full rounded-xl border border-white/10 bg-[#0d0d12] px-4 py-2.5 text-sm text-neutral-200 focus:border-emerald-500/40 focus:outline-none">
+                {ROLES.map((r) => <option key={r} value={r}>{r.replace("_", " ")}</option>)}
+              </select>
+            </div>
+          </div>
+          {createUserErr && <p className="text-xs text-red-400">{createUserErr}</p>}
+          <button type="submit" disabled={creatingUser || !newUserName.trim() || !newUserEmail.trim() || newUserPassword.length < 6}
+            className="rounded-xl bg-emerald-500 px-6 py-2.5 text-sm font-semibold text-black hover:bg-emerald-400 disabled:opacity-50">
+            {creatingUser ? "Creating..." : "Create User"}
+          </button>
+        </form>
+      )}
 
       {/* Notifications */}
       {actionMsg && (

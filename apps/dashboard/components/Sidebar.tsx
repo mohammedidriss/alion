@@ -63,6 +63,7 @@ export function Sidebar({ onNavigate }: { onNavigate?: () => void } = {}) {
     navItems.push({ label: "Users", href: "/admin/users", icon: "◉" });
     navItems.push({ label: "All Fighters", href: "/admin/fighters", icon: "⊕" });
     navItems.push({ label: "All Coaches", href: "/admin/coaches", icon: "◈" });
+    navItems.push({ label: "Gym Managers", href: "/admin/gym-managers", icon: "M" });
     navItems.push({ label: "All Gyms", href: "/admin/gyms", icon: "⌂" });
     navItems.push({ label: "Compare Backends", href: "/compare", icon: "C" });
   }
