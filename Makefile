@@ -1,5 +1,49 @@
 .PHONY: install verify lint format typecheck test arch api clean fresh-clone-check \
-        migrate migrate-stamp migration migrate-status
+        migrate migrate-stamp migration migrate-status \
+        android-apk android-release ios-build
+
+# ── Mobile builds ─────────────────────────────────────────────────────────────
+ANDROID_HOME ?= $(HOME)/Library/Android/sdk
+JAVA_HOME_21 ?= /opt/homebrew/opt/openjdk@21/libexec/openjdk.jdk/Contents/Home
+DASHBOARD     = apps/dashboard
+
+# Debug APK — install directly on any Android device (no store account needed).
+# Output: apps/dashboard/android/app/build/outputs/apk/debug/app-debug.apk
+android-apk:
+	cd $(DASHBOARD) && npx cap sync android
+	cd $(DASHBOARD)/android && \
+	  ANDROID_HOME=$(ANDROID_HOME) JAVA_HOME=$(JAVA_HOME_21) ./gradlew assembleDebug
+	@echo ""
+	@echo "✓ APK ready:"
+	@ls -lh $(DASHBOARD)/android/app/build/outputs/apk/debug/app-debug.apk
+
+# Release APK — requires KEYSTORE_PATH, KEYSTORE_PASS, KEY_ALIAS, KEY_PASS env vars.
+android-release:
+	cd $(DASHBOARD) && npx cap sync android
+	cd $(DASHBOARD)/android && \
+	  ANDROID_HOME=$(ANDROID_HOME) JAVA_HOME=$(JAVA_HOME_21) \
+	  ./gradlew assembleRelease \
+	    -Pandroid.injected.signing.store.file=$(KEYSTORE_PATH) \
+	    -Pandroid.injected.signing.store.password=$(KEYSTORE_PASS) \
+	    -Pandroid.injected.signing.key.alias=$(KEY_ALIAS) \
+	    -Pandroid.injected.signing.key.password=$(KEY_PASS)
+	@echo ""
+	@echo "✓ Release APK ready:"
+	@ls -lh $(DASHBOARD)/android/app/build/outputs/apk/release/app-release.apk
+
+# iOS build — installs to connected device (id from: xcrun xctrace list devices).
+DEVICE_ID ?= 00008140-000E31D13A29801C
+ios-build:
+	cd $(DASHBOARD) && npx cap sync ios
+	xcodebuild \
+	  -project $(DASHBOARD)/ios/App/App.xcodeproj \
+	  -scheme App -configuration Debug \
+	  -destination "id=$(DEVICE_ID)" \
+	  -derivedDataPath /tmp/alion-build build
+	xcrun devicectl device install app \
+	  --device $(DEVICE_ID) \
+	  /tmp/alion-build/Build/Products/Debug-iphoneos/App.app
+	@echo "✓ Installed on device $(DEVICE_ID)"
 
 install:
 	uv sync --extra dev
