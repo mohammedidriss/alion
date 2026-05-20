@@ -62,3 +62,48 @@ def test_upload_attaches_path(authed_client: TestClient, tmp_path) -> None:  # t
     r = authed_client.post(f"/sessions/{sid}/upload", files=files)
     assert r.status_code == 200
     assert r.json()["video_path"] is not None
+
+
+def test_bulk_events_endpoint(authed_client: TestClient) -> None:
+    """POST /sessions/{id}/events/bulk — used by BrowserCapture on mobile/web."""
+    fid = _make_fighter(authed_client)
+    sid = authed_client.post(
+        "/sessions", json={"fighter_id": fid, "source": "live_webcam"}
+    ).json()["id"]
+
+    events = [
+        {
+            "t_ms": 1000.0,
+            "hand": "left",
+            "velocity_ms": 2.5,
+            "confidence": 0.8,
+            "detected_by": "heuristic",
+            "lead_or_rear": None,
+            "velocity_source": "image_heuristic",
+        },
+        {
+            "t_ms": 1500.0,
+            "hand": "right",
+            "velocity_ms": 3.1,
+            "confidence": 0.9,
+            "detected_by": "heuristic",
+            "lead_or_rear": None,
+            "velocity_source": "world",
+        },
+    ]
+
+    r = authed_client.post(
+        f"/sessions/{sid}/events/bulk",
+        json={"events": events, "duration_ms": 5000.0},
+    )
+    assert r.status_code == 200, r.text
+    assert r.json()["inserted"] == 2
+
+    # Events should now be retrievable
+    stored = authed_client.get(f"/sessions/{sid}/events").json()
+    assert len(stored) == 2
+
+    # Session should be marked completed
+    sess = authed_client.get(f"/sessions/{sid}").json()
+    assert sess["status"] == "completed"
+    assert sess["duration_ms"] == 5000.0

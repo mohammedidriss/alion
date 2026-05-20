@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import importlib.util
 
-from fastapi import APIRouter
+from fastapi import APIRouter, Request
 from pydantic import BaseModel
 
 from contracts import SCHEMA_VERSION
@@ -55,3 +55,17 @@ def capabilities() -> CapabilitiesResponse:
     return CapabilitiesResponse(
         cv_available=cv_available, cv_reason=reason, webcam_likely=webcam_likely
     )
+
+
+@router.get("/health/routes")
+def list_routes(request: Request) -> dict:
+    """Returns every registered route — use to verify a deployment has the
+    expected endpoints without needing to call each one individually.
+    E.g. GET /health/routes and check 'POST /sessions/{session_id}/events/bulk' is present.
+    """
+    routes = [
+        {"method": list(r.methods), "path": r.path}  # type: ignore[attr-defined]
+        for r in request.app.routes
+        if hasattr(r, "methods")
+    ]
+    return {"count": len(routes), "routes": sorted(routes, key=lambda r: r["path"])}
