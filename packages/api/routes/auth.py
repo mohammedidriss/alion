@@ -472,6 +472,45 @@ def admin_activate_user(
     return {"status": "ok", "message": f"Activated {target.email}"}
 
 
+class SeedAdminRequest(BaseModel):
+    email: str
+    password: str
+    name: str
+    seed_secret: str
+
+
+@router.post("/seed-admin", response_model=UserRead, status_code=status.HTTP_201_CREATED)
+def seed_admin(
+    data: SeedAdminRequest,
+    repo: UserRepo = Depends(_user_repo),
+    session: DBSession = Depends(db_session),
+) -> UserRead:
+    """Create the first admin account.
+
+    Protected by ALION_SEED_SECRET env var — set it on Railway, call this
+    endpoint once, then remove the env var to disable it permanently.
+    Returns 403 if the env var is not set or the secret doesn't match.
+    Returns 409 if an admin already exists.
+    """
+    expected = os.environ.get("ALION_SEED_SECRET", "")
+    if not expected or data.seed_secret != expected:
+        raise HTTPException(status_code=403, detail="Invalid or missing seed secret")
+    # Prevent creating a second admin via this endpoint
+    all_users = list(session.exec(select(User)).all())
+    if any(u.role in (UserRole.ADMIN, "admin") for u in all_users):
+        raise HTTPException(status_code=409, detail="An admin account already exists")
+    existing = repo.get_by_email(data.email.lower().strip())
+    if existing:
+        # Promote existing account to admin instead of creating a duplicate
+        updated = repo.update(existing.id, {"role": UserRole.ADMIN, "is_active": True})
+        return UserRead.model_validate(updated, from_attributes=True)
+    user = repo.create(
+        UserCreate(email=data.email.lower().strip(), password=data.password, name=data.name.strip(), role=UserRole.ADMIN),
+        _hash_password(data.password),
+    )
+    return UserRead.model_validate(user, from_attributes=True)
+
+
 class AdminSystemStats(BaseModel):
     total_users: int
     active_users: int
