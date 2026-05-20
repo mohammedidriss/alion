@@ -574,14 +574,20 @@ export default function SessionPage({ params }: { params: { id: string } }) {
       {err && <p className="text-sm text-red-400">{err}</p>}
 
       {/* Browser capture — shown when server has no CV, for live_webcam sessions
-          that are pending OR failed-due-to-missing-CV. Replaces the server flow entirely. */}
+          that are pending OR failed-due-to-missing-CV. */}
       {!cvAvailable && session.source === "live_webcam" &&
         (session.status === "pending" || session.status === "failed") && (
-        <BrowserCapture
-          sessionId={id}
-          stance={null}
-          onDone={refresh}
-        />
+        <div className="space-y-5">
+          {/* Round config still shown so user can configure rounds/rest before capture */}
+          {session.status === "pending" && (
+            <RoundConfigCard session={session} onChange={setSession} />
+          )}
+          <BrowserCapture
+            sessionId={id}
+            stance={null}
+            onDone={refresh}
+          />
+        </div>
       )}
 
       {session.status === "failed" && session.failure_reason && cvAvailable && (
