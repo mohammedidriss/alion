@@ -36,9 +36,7 @@ export default function GymDashboardPage() {
     if (!isGymManager || !user) return;
     setLoading(true);
     try {
-      const gms = await api.listGymManagers();
-      const me = gms.find((gm) => gm.id === user.profile_id);
-      if (!me) return;
+      const me = await api.getMyGymManagerProfile();
       const gymId = me.gym_id;
 
       const [g, fs, cs, ss, gyms] = await Promise.all([

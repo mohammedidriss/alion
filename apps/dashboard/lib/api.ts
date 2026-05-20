@@ -1056,6 +1056,7 @@ export const api = {
 
   // ---- Gym Managers ----
   listGymManagers: () => req<GymManager[]>("/gym-managers"),
+  getMyGymManagerProfile: () => req<GymManager>("/gym-managers/me"),
   getGymManager: (id: string) => req<GymManager>(`/gym-managers/${id}`),
   createGymManager: (data: { name: string; gym_id: string; email?: string; phone?: string }) =>
     req<GymManager>("/gym-managers", {

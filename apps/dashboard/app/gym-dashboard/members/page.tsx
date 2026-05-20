@@ -131,9 +131,7 @@ export default function MembersPage() {
     if (!isGymManager || !user) return;
     setLoading(true);
     try {
-      const gms = await api.listGymManagers();
-      const me = gms.find((gm) => gm.id === user.profile_id);
-      if (!me) return;
+      const me = await api.getMyGymManagerProfile();
       setGymId(me.gym_id);
       const [fs, cs, ms, cis] = await Promise.all([
         api.listFighters(me.gym_id),
@@ -194,14 +192,11 @@ export default function MembersPage() {
 
     // Re-resolve gymId if state was lost (e.g. Fast Refresh)
     let effectiveGymId = gymId;
-    if (!effectiveGymId && user) {
+    if (!effectiveGymId) {
       try {
-        const gms = await api.listGymManagers();
-        const me = gms.find((gm) => gm.id === user.profile_id);
-        if (me) {
-          effectiveGymId = me.gym_id;
-          setGymId(me.gym_id);
-        }
+        const me = await api.getMyGymManagerProfile();
+        effectiveGymId = me.gym_id;
+        setGymId(me.gym_id);
       } catch { /* fallthrough to error below */ }
     }
 

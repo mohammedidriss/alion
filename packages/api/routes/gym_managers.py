@@ -54,6 +54,31 @@ def create_gym_manager(
     return _enrich(mgr, g.name)
 
 
+@router.get("/me", response_model=GymManagerRead)
+def get_my_gym_manager_profile(
+    repo: GymManagerRepo = Depends(gym_manager_repo),
+    gyms: GymRepo = Depends(gym_repo),
+    current_user: User = Depends(require_current_user),
+) -> GymManagerRead:
+    """Return the gym manager profile for the currently logged-in gym_manager user."""
+    if not current_user.profile_id:
+        raise HTTPException(
+            status_code=404,
+            detail=(
+                "Your account has no gym manager profile yet. "
+                "Ask an admin to create a Gym Manager profile and link it to your account."
+            ),
+        )
+    mgr = repo.get(current_user.profile_id)  # type: ignore[arg-type]
+    if mgr is None:
+        raise HTTPException(
+            status_code=404,
+            detail="Gym manager profile not found. It may have been deleted — contact an admin.",
+        )
+    g = gyms.get(mgr.gym_id)
+    return _enrich(mgr, g.name if g else "?")
+
+
 @router.get("", response_model=list[GymManagerRead])
 def list_gym_managers(
     repo: GymManagerRepo = Depends(gym_manager_repo),

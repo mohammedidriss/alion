@@ -39,9 +39,7 @@ export default function CoachesPage() {
     setLoading(true);
     setLoadError(null);
     try {
-      const gms = await api.listGymManagers();
-      const me = gms.find((gm) => gm.id === user.profile_id);
-      if (!me) { setLoadError("Could not find your gym manager profile."); return; }
+      const me = await api.getMyGymManagerProfile();
       setGymId(me.gym_id);
       const cs = await api.listCoaches(me.gym_id);
       setCoaches(cs);
@@ -68,10 +66,9 @@ export default function CoachesPage() {
     try {
       // Re-resolve gymId to avoid stale closure from Fast Refresh
       let resolvedGymId = gymId;
-      if (!resolvedGymId && user) {
-        const gms = await api.listGymManagers();
-        const me = gms.find((gm) => gm.id === user.profile_id);
-        resolvedGymId = me?.gym_id ?? null;
+      if (!resolvedGymId) {
+        const me = await api.getMyGymManagerProfile();
+        resolvedGymId = me.gym_id;
       }
       if (!resolvedGymId) {
         setCreateError("Could not determine your gym. Please reload the page.");

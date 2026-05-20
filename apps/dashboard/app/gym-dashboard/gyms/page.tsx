@@ -42,11 +42,10 @@ export default function GymsPage() {
     setLoading(true);
     setLoadError(null);
     try {
-      const [allGyms, gms] = await Promise.all([
+      const [allGyms, me] = await Promise.all([
         api.listGyms(),
-        api.listGymManagers(),
+        api.getMyGymManagerProfile().catch(() => null),
       ]);
-      const me = gms.find((gm) => gm.id === user.profile_id);
       const myGymId = me?.gym_id ?? null;
 
       // Fetch member counts for each gym
