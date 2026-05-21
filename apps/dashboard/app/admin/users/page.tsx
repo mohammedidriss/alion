@@ -2,7 +2,7 @@
 
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { ProfileAvatar } from "@/components/ProfileAvatar";
-import { api, type AuthUser, type UnifiedPerson, type UserRole } from "@/lib/api";
+import { api, type AuthUser, type Gym, type UnifiedPerson, type UserRole } from "@/lib/api";
 import { useAuth } from "@/lib/auth";
 
 const ROLES: UserRole[] = ["fighter", "coach", "referee", "gym_manager", "admin"];
@@ -33,6 +33,8 @@ export default function AdminUsersPage() {
   const [newUserRole, setNewUserRole] = useState<UserRole>("fighter");
   const [creatingUser, setCreatingUser] = useState(false);
   const [createUserErr, setCreateUserErr] = useState<string | null>(null);
+  const [newUserGymId, setNewUserGymId] = useState<string>("");
+  const [gyms, setGyms] = useState<Gym[]>([]);
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -48,13 +50,14 @@ export default function AdminUsersPage() {
   }, []);
 
   useEffect(() => { load(); }, [load]);
+  useEffect(() => { api.listGyms().then(setGyms).catch(() => {}); }, []);
 
   const q = search.toLowerCase().trim();
   const filtered = useMemo(() => {
     return users.filter((u) => {
       if (roleFilter !== "all" && u.role !== roleFilter) return false;
       if (!q) return true;
-      return u.name.toLowerCase().includes(q) || u.email.toLowerCase().includes(q);
+      return u.name.toLowerCase().includes(q) || (u.email ?? "").toLowerCase().includes(q);
     });
   }, [users, q, roleFilter]);
 
@@ -90,20 +93,29 @@ export default function AdminUsersPage() {
   };
 
   const handleEditSave = async () => {
-    if (!editUser || !editUser.user_id) {
-      setActionErr("This person has no login account to edit.");
-      setEditUser(null);
-      return;
-    }
+    if (!editUser) return;
     setActionErr(null);
     try {
-      const fields: Record<string, unknown> = {};
-      if (editName && editName !== editUser.name) fields.name = editName;
-      if (editEmail && editEmail !== editUser.email) fields.email = editEmail;
-      if (editRole !== editUser.role) fields.role = editRole;
-      if (Object.keys(fields).length === 0) { setEditUser(null); return; }
-      await api.adminUpdateUser(editUser.user_id, fields as Partial<Pick<AuthUser, "name" | "email" | "role">>);
-      setActionMsg(`Updated ${editUser.email}`);
+      if (editUser.user_id) {
+        // Has a login account — update via admin user endpoint
+        const fields: Record<string, unknown> = {};
+        if (editName && editName !== editUser.name) fields.name = editName;
+        if (editEmail && editEmail !== editUser.email) fields.email = editEmail;
+        if (editRole !== editUser.role) fields.role = editRole;
+        if (Object.keys(fields).length === 0) { setEditUser(null); return; }
+        await api.adminUpdateUser(editUser.user_id, fields as Partial<Pick<AuthUser, "name" | "email" | "role">>);
+      } else {
+        // Profile only — update via the profile endpoint (name only)
+        const fields: Record<string, unknown> = {};
+        if (editName && editName !== editUser.name) fields.name = editName;
+        if (Object.keys(fields).length === 0) { setEditUser(null); return; }
+        const role = editUser.role;
+        if (role === "fighter") await api.updateFighter(editUser.id, fields as Parameters<typeof api.updateFighter>[1]);
+        else if (role === "coach") await api.updateCoach(editUser.id, fields as Parameters<typeof api.updateCoach>[1]);
+        else if (role === "referee") await api.updateReferee(editUser.id, fields as Parameters<typeof api.updateReferee>[1]);
+        else if (role === "gym_manager") await api.updateGymManager(editUser.id, fields as Parameters<typeof api.updateGymManager>[1]);
+      }
+      setActionMsg(`Updated ${editUser.name}`);
       setEditUser(null);
       load();
     } catch (e) {
@@ -116,9 +128,20 @@ export default function AdminUsersPage() {
     setCreatingUser(true);
     setCreateUserErr(null);
     try {
-      await api.adminCreateUser({ name: newUserName.trim(), email: newUserEmail.trim(), password: newUserPassword, role: newUserRole });
+      if (newUserRole === "gym_manager" && !newUserGymId) {
+        setCreateUserErr("Please select a gym for the gym manager.");
+        setCreatingUser(false);
+        return;
+      }
+      await api.adminCreateUser({
+        name: newUserName.trim(),
+        email: newUserEmail.trim(),
+        password: newUserPassword,
+        role: newUserRole,
+        ...(newUserRole === "gym_manager" && newUserGymId ? { gym_id: newUserGymId } : {}),
+      });
       setActionMsg(`Created user ${newUserEmail}`);
-      setNewUserName(""); setNewUserEmail(""); setNewUserPassword(""); setNewUserRole("fighter");
+      setNewUserName(""); setNewUserEmail(""); setNewUserPassword(""); setNewUserRole("fighter"); setNewUserGymId("");
       setShowCreateUser(false);
       load();
     } catch (e) {
@@ -129,11 +152,20 @@ export default function AdminUsersPage() {
   };
 
   const handleDelete = async (u: UnifiedPerson) => {
-    if (!u.user_id) { setActionErr("This person has no login account to delete."); return; }
     setActionErr(null);
     try {
-      await api.adminDeleteUser(u.user_id);
-      setActionMsg(`Deleted ${u.email}`);
+      if (u.user_id) {
+        // Has a login account — delete the account (cascades to profile link)
+        await api.adminDeleteUser(u.user_id);
+      } else {
+        // Profile only — delete the profile record directly
+        if (u.role === "fighter") await api.deleteFighter(u.id);
+        else if (u.role === "coach") await api.deleteCoach(u.id);
+        else if (u.role === "referee") await api.deleteReferee(u.id);
+        else if (u.role === "gym_manager") await api.deleteGymManager(u.id);
+        else { setActionErr("Cannot delete this profile type."); return; }
+      }
+      setActionMsg(`Deleted ${u.email ?? u.name}`);
       load();
     } catch (e) {
       setActionErr(e instanceof Error ? e.message : "Delete failed");
@@ -181,14 +213,24 @@ export default function AdminUsersPage() {
             </div>
             <div>
               <label className="mb-1 block text-xs font-medium text-neutral-400">Role *</label>
-              <select required value={newUserRole} onChange={(e) => setNewUserRole(e.target.value as UserRole)}
+              <select required value={newUserRole} onChange={(e) => { setNewUserRole(e.target.value as UserRole); setNewUserGymId(""); }}
                 className="w-full rounded-xl border border-white/10 bg-[#0d0d12] px-4 py-2.5 text-sm text-neutral-200 focus:border-emerald-500/40 focus:outline-none">
                 {ROLES.map((r) => <option key={r} value={r}>{r.replace("_", " ")}</option>)}
               </select>
             </div>
+            {newUserRole === "gym_manager" && (
+              <div>
+                <label className="mb-1 block text-xs font-medium text-neutral-400">Gym *</label>
+                <select required value={newUserGymId} onChange={(e) => setNewUserGymId(e.target.value)}
+                  className="w-full rounded-xl border border-white/10 bg-[#0d0d12] px-4 py-2.5 text-sm text-neutral-200 focus:border-emerald-500/40 focus:outline-none">
+                  <option value="">— select gym —</option>
+                  {gyms.map((g) => <option key={g.id} value={g.id}>{g.name}</option>)}
+                </select>
+              </div>
+            )}
           </div>
           {createUserErr && <p className="text-xs text-red-400">{createUserErr}</p>}
-          <button type="submit" disabled={creatingUser || !newUserName.trim() || !newUserEmail.trim() || newUserPassword.length < 6}
+          <button type="submit" disabled={creatingUser || !newUserName.trim() || !newUserEmail.trim() || newUserPassword.length < 6 || (newUserRole === "gym_manager" && !newUserGymId)}
             className="rounded-xl bg-emerald-500 px-6 py-2.5 text-sm font-semibold text-black hover:bg-emerald-400 disabled:opacity-50">
             {creatingUser ? "Creating..." : "Create User"}
           </button>
@@ -264,7 +306,10 @@ export default function AdminUsersPage() {
       {/* Edit User Modal */}
       {editUser && (
         <div className="card border-blue-500/30 bg-blue-950/10">
-          <h3 className="font-semibold">Edit User: {editUser.email}</h3>
+          <h3 className="font-semibold">Edit: {editUser.name}</h3>
+          {!editUser.user_id && (
+            <p className="mt-1 text-xs text-neutral-500">Profile only — only name can be changed here. To change role or email, go to the profile page.</p>
+          )}
           <div className="mt-3 grid grid-cols-1 gap-3 sm:grid-cols-3">
             <div>
               <label className="mb-1 block text-xs font-medium text-neutral-400">Name</label>
@@ -275,27 +320,31 @@ export default function AdminUsersPage() {
                 className="w-full rounded-xl border border-white/10 bg-white/[0.03] px-4 py-2.5 text-sm text-neutral-200 focus:border-emerald-500/40 focus:outline-none"
               />
             </div>
-            <div>
-              <label className="mb-1 block text-xs font-medium text-neutral-400">Email</label>
-              <input
-                type="email"
-                value={editEmail}
-                onChange={(e) => setEditEmail(e.target.value)}
-                className="w-full rounded-xl border border-white/10 bg-white/[0.03] px-4 py-2.5 text-sm text-neutral-200 focus:border-emerald-500/40 focus:outline-none"
-              />
-            </div>
-            <div>
-              <label className="mb-1 block text-xs font-medium text-neutral-400">Role</label>
-              <select
-                value={editRole}
-                onChange={(e) => setEditRole(e.target.value as UserRole)}
-                className="w-full rounded-xl border border-white/10 bg-white/[0.03] px-4 py-2.5 text-sm text-neutral-200 focus:border-emerald-500/40 focus:outline-none"
-              >
-                {ROLES.map((r) => (
-                  <option key={r} value={r}>{r.replace("_", " ")}</option>
-                ))}
-              </select>
-            </div>
+            {editUser.user_id && (
+              <>
+                <div>
+                  <label className="mb-1 block text-xs font-medium text-neutral-400">Email</label>
+                  <input
+                    type="email"
+                    value={editEmail}
+                    onChange={(e) => setEditEmail(e.target.value)}
+                    className="w-full rounded-xl border border-white/10 bg-white/[0.03] px-4 py-2.5 text-sm text-neutral-200 focus:border-emerald-500/40 focus:outline-none"
+                  />
+                </div>
+                <div>
+                  <label className="mb-1 block text-xs font-medium text-neutral-400">Role</label>
+                  <select
+                    value={editRole}
+                    onChange={(e) => setEditRole(e.target.value as UserRole)}
+                    className="w-full rounded-xl border border-white/10 bg-white/[0.03] px-4 py-2.5 text-sm text-neutral-200 focus:border-emerald-500/40 focus:outline-none"
+                  >
+                    {ROLES.map((r) => (
+                      <option key={r} value={r}>{r.replace("_", " ")}</option>
+                    ))}
+                  </select>
+                </div>
+              </>
+            )}
           </div>
           <div className="mt-3 flex gap-2">
             <button onClick={handleEditSave} className="rounded-xl bg-emerald-500 px-4 py-2 text-sm font-medium text-black hover:bg-emerald-400">

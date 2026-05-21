@@ -1302,7 +1302,7 @@ export const api = {
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ new_password: newPassword }),
     }),
-  adminCreateUser: (data: { email: string; password: string; name: string; role: UserRole }) =>
+  adminCreateUser: (data: { email: string; password: string; name: string; role: UserRole; gym_id?: string }) =>
     req<AuthUser>("/auth/admin/users", {
       method: "POST",
       headers: { "Content-Type": "application/json" },

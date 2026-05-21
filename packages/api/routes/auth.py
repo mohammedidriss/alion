@@ -21,6 +21,7 @@ from store import (
     CoachRepo,
     FighterRepo,
     GymManagerRepo,
+    GymRepo,
     RefereeRepo,
     User,
     UserCreate,
@@ -28,7 +29,7 @@ from store import (
     UserRepo,
     UserRole,
 )
-from store.models import CoachCreate, FighterCreate, RefereeCreate
+from store.models import CoachCreate, FighterCreate, GymManagerCreate, RefereeCreate
 
 router = APIRouter(prefix="/auth", tags=["auth"])
 
@@ -186,7 +187,11 @@ def register(
     )
 
 
-def _create_profile_for_role(user: User, session: DBSession) -> UUID | None:
+def _create_profile_for_role(
+    user: User,
+    session: DBSession,
+    gym_id: UUID | None = None,
+) -> UUID | None:
     """Create a profile entity matching the user's role and return its id."""
     if user.role == UserRole.FIGHTER:
         f_repo = FighterRepo(session)
@@ -200,7 +205,14 @@ def _create_profile_for_role(user: User, session: DBSession) -> UUID | None:
         r_repo = RefereeRepo(session)
         r = r_repo.create(RefereeCreate(name=user.name))
         return r.id
-    # gym_manager profiles need a gym — created later when assigned to a gym
+    if user.role == UserRole.GYM_MANAGER and gym_id is not None:
+        # Validate gym exists
+        g_repo = GymRepo(session)
+        if g_repo.get(gym_id) is None:
+            raise HTTPException(status_code=404, detail="Gym not found")
+        gm_repo = GymManagerRepo(session)
+        gm = gm_repo.create(GymManagerCreate(name=user.name, gym_id=gym_id))
+        return gm.id
     return None
 
 
@@ -421,6 +433,7 @@ class AdminCreateUserRequest(BaseModel):
     password: str
     name: str
     role: UserRole
+    gym_id: UUID | None = None  # required when role == gym_manager
 
     @field_validator("password")
     @classmethod
@@ -437,7 +450,9 @@ def admin_create_user(
     repo: UserRepo = Depends(_user_repo),
     session: DBSession = Depends(db_session),
 ) -> UserRead:
-    """Create a user account (admin only). Auto-creates profile for non-gym_manager roles."""
+    """Create a user account (admin only). Auto-creates a linked profile for all roles."""
+    if data.role == UserRole.GYM_MANAGER and data.gym_id is None:
+        raise HTTPException(status_code=422, detail="gym_id is required when role is gym_manager")
     existing = repo.get_by_email(data.email.lower().strip())
     if existing:
         raise HTTPException(status_code=409, detail="Email already registered")
@@ -449,7 +464,7 @@ def admin_create_user(
     )
     hashed = _hash_password(data.password)
     user = repo.create(user_create, hashed)
-    profile_id = _create_profile_for_role(user, session)
+    profile_id = _create_profile_for_role(user, session, gym_id=data.gym_id)
     if profile_id:
         repo.set_profile_id(user.id, profile_id)
         user.profile_id = profile_id
