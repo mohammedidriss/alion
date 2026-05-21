@@ -69,7 +69,8 @@ def get_my_gym_manager_profile(
                 "Ask an admin to create a Gym Manager profile and link it to your account."
             ),
         )
-    mgr = repo.get(current_user.profile_id)  # type: ignore[arg-type]
+    profile_id = current_user.profile_id
+    mgr = repo.get(profile_id)
     if mgr is None:
         raise HTTPException(
             status_code=404,

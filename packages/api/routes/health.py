@@ -58,13 +58,13 @@ def capabilities() -> CapabilitiesResponse:
 
 
 @router.get("/health/routes")
-def list_routes(request: Request) -> dict:
+def list_routes(request: Request) -> dict[str, object]:
     """Returns every registered route — use to verify a deployment has the
     expected endpoints without needing to call each one individually.
     E.g. GET /health/routes and check 'POST /sessions/{session_id}/events/bulk' is present.
     """
     routes = [
-        {"method": list(r.methods), "path": r.path}  # type: ignore[attr-defined]
+        {"method": list(r.methods), "path": r.path}
         for r in request.app.routes
         if hasattr(r, "methods")
     ]

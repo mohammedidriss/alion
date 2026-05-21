@@ -59,7 +59,7 @@ def _bootstrap_admin() -> None:
 
     from api.routes.auth import _hash_password
     from store import UserCreate, UserRepo
-    from store.database import _engine  # type: ignore[attr-defined]
+    from store.database import _engine
     from store.models import User, UserRole
 
     email = os.environ.get("ALION_ADMIN_EMAIL", "").strip().lower()
@@ -75,9 +75,9 @@ def _bootstrap_admin() -> None:
             return  # admin already exists — nothing to do
 
         repo = UserRepo(session)
-        if repo.get_by_email(email):
+        existing = repo.get_by_email(email)
+        if existing:
             # Account exists but isn't admin — promote it
-            existing = repo.get_by_email(email)
             repo.update(existing.id, {"role": UserRole.ADMIN, "is_active": True})
             logging.getLogger(__name__).info("Promoted %s to admin.", email)
             return

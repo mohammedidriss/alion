@@ -442,7 +442,7 @@ def bulk_add_events(
     repo: SessionRepo = Depends(session_repo),
     events: PunchEventRepo = Depends(punch_event_repo),
     _: Any = Depends(require_current_user),
-) -> dict:
+) -> dict[str, object]:
     """Accept punch events recorded in the browser (BrowserCapture) or on
     the host (record_api.py) and persist them to the remote database."""
     from store import (
