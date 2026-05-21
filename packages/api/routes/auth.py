@@ -339,6 +339,83 @@ def admin_list_users(
     return [UserRead.model_validate(u, from_attributes=True) for u in repo.list_all()]
 
 
+class UnifiedPerson(BaseModel):
+    """A merged view of every person in the system — login account or profile-only."""
+
+    id: UUID  # profile id (or user id for admin/unlinked accounts)
+    user_id: UUID | None = None  # set when a login account exists
+    name: str
+    email: str | None = None
+    role: str
+    has_account: bool
+    is_active: bool
+    photo_path: str | None = None
+
+
+@router.get("/admin/everyone", response_model=list[UnifiedPerson])
+def admin_list_everyone(
+    _admin: User = Depends(_require_admin),
+    repo: UserRepo = Depends(_user_repo),
+    fighters: FighterRepo = Depends(lambda s=Depends(db_session): FighterRepo(s)),
+    coaches: CoachRepo = Depends(lambda s=Depends(db_session): CoachRepo(s)),
+    referees: RefereeRepo = Depends(lambda s=Depends(db_session): RefereeRepo(s)),
+    gym_managers: GymManagerRepo = Depends(lambda s=Depends(db_session): GymManagerRepo(s)),
+) -> list[UnifiedPerson]:
+    """Unified view: every profile (fighter/coach/etc.) + every login account.
+
+    Profiles that have a linked user account are shown once with has_account=True.
+    Profiles with no login are shown with has_account=False.
+    Login accounts with no profile (e.g. bare admin accounts) are shown too.
+    """
+    # Build a map from profile_id → user for fast lookup
+    all_users = repo.list_all()
+    profile_to_user = {u.profile_id: u for u in all_users if u.profile_id}
+    accounted_user_ids = set()
+
+    result: list[UnifiedPerson] = []
+
+    def _add_profiles(profiles: list[Any], role: str) -> None:
+        for p in profiles:
+            user = profile_to_user.get(p.id)
+            if user:
+                accounted_user_ids.add(user.id)
+            result.append(
+                UnifiedPerson(
+                    id=p.id,
+                    user_id=user.id if user else None,
+                    name=p.name,
+                    email=user.email if user else getattr(p, "email", None),
+                    role=role,
+                    has_account=user is not None,
+                    is_active=user.is_active if user else True,
+                    photo_path=getattr(p, "photo_path", None),
+                )
+            )
+
+    _add_profiles(fighters.list_all(), "fighter")
+    _add_profiles(coaches.list_all(), "coach")
+    _add_profiles(referees.list_all(), "referee")
+    _add_profiles(gym_managers.list_all(), "gym_manager")
+
+    # Add any user accounts not yet represented (e.g. admins, unlinked accounts)
+    for u in all_users:
+        if u.id not in accounted_user_ids:
+            result.append(
+                UnifiedPerson(
+                    id=u.id,
+                    user_id=u.id,
+                    name=u.name,
+                    email=u.email,
+                    role=u.role,
+                    has_account=True,
+                    is_active=u.is_active,
+                    photo_path=u.photo_path,
+                )
+            )
+
+    return sorted(result, key=lambda p: (p.role, p.name.lower()))
+
+
 class AdminCreateUserRequest(BaseModel):
     email: str
     password: str

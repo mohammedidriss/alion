@@ -2,22 +2,22 @@
 
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { ProfileAvatar } from "@/components/ProfileAvatar";
-import { api, type AuthUser, type UserRole } from "@/lib/api";
+import { api, type AuthUser, type UnifiedPerson, type UserRole } from "@/lib/api";
 import { useAuth } from "@/lib/auth";
 
 const ROLES: UserRole[] = ["fighter", "coach", "referee", "gym_manager", "admin"];
 
 export default function AdminUsersPage() {
   const { user: me } = useAuth();
-  const [users, setUsers] = useState<AuthUser[]>([]);
+  const [users, setUsers] = useState<UnifiedPerson[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [search, setSearch] = useState("");
   const [roleFilter, setRoleFilter] = useState<UserRole | "all">("all");
 
   // Modal state
-  const [editUser, setEditUser] = useState<AuthUser | null>(null);
-  const [resetUser, setResetUser] = useState<AuthUser | null>(null);
+  const [editUser, setEditUser] = useState<UnifiedPerson | null>(null);
+  const [resetUser, setResetUser] = useState<UnifiedPerson | null>(null);
   const [newPassword, setNewPassword] = useState("");
   const [editName, setEditName] = useState("");
   const [editEmail, setEditEmail] = useState("");
@@ -38,7 +38,7 @@ export default function AdminUsersPage() {
     setLoading(true);
     setError(null);
     try {
-      const data = await api.adminListUsers();
+      const data = await api.adminListEveryone();
       setUsers(data);
     } catch (e) {
       setError(e instanceof Error ? e.message : "Failed to load users");
@@ -60,9 +60,10 @@ export default function AdminUsersPage() {
 
   const handleResetPassword = async () => {
     if (!resetUser || !newPassword) return;
+    if (!resetUser.user_id) { setActionErr("This person has no login account to reset."); return; }
     setActionErr(null);
     try {
-      const res = await api.adminResetPassword(resetUser.id, newPassword);
+      const res = await api.adminResetPassword(resetUser.user_id, newPassword);
       setActionMsg(res.message);
       setResetUser(null);
       setNewPassword("");
@@ -71,14 +72,15 @@ export default function AdminUsersPage() {
     }
   };
 
-  const handleToggleActive = async (u: AuthUser) => {
+  const handleToggleActive = async (u: UnifiedPerson) => {
+    if (!u.user_id) { setActionErr("This person has no login account to activate/deactivate."); return; }
     setActionErr(null);
     try {
       if (u.is_active) {
-        await api.adminDeactivateUser(u.id);
+        await api.adminDeactivateUser(u.user_id);
         setActionMsg(`Deactivated ${u.email}`);
       } else {
-        await api.adminActivateUser(u.id);
+        await api.adminActivateUser(u.user_id);
         setActionMsg(`Activated ${u.email}`);
       }
       load();
@@ -88,18 +90,19 @@ export default function AdminUsersPage() {
   };
 
   const handleEditSave = async () => {
-    if (!editUser) return;
+    if (!editUser || !editUser.user_id) {
+      setActionErr("This person has no login account to edit.");
+      setEditUser(null);
+      return;
+    }
     setActionErr(null);
     try {
       const fields: Record<string, unknown> = {};
       if (editName && editName !== editUser.name) fields.name = editName;
       if (editEmail && editEmail !== editUser.email) fields.email = editEmail;
       if (editRole !== editUser.role) fields.role = editRole;
-      if (Object.keys(fields).length === 0) {
-        setEditUser(null);
-        return;
-      }
-      await api.adminUpdateUser(editUser.id, fields as Partial<Pick<AuthUser, "name" | "email" | "role">>);
+      if (Object.keys(fields).length === 0) { setEditUser(null); return; }
+      await api.adminUpdateUser(editUser.user_id, fields as Partial<Pick<AuthUser, "name" | "email" | "role">>);
       setActionMsg(`Updated ${editUser.email}`);
       setEditUser(null);
       load();
@@ -125,10 +128,11 @@ export default function AdminUsersPage() {
     }
   };
 
-  const handleDelete = async (u: AuthUser) => {
+  const handleDelete = async (u: UnifiedPerson) => {
+    if (!u.user_id) { setActionErr("This person has no login account to delete."); return; }
     setActionErr(null);
     try {
-      await api.adminDeleteUser(u.id);
+      await api.adminDeleteUser(u.user_id);
       setActionMsg(`Deleted ${u.email}`);
       load();
     } catch (e) {
@@ -312,11 +316,11 @@ export default function AdminUsersPage() {
           <table className="w-full text-sm">
             <thead>
               <tr className="border-b border-white/5 bg-white/[0.02] text-left text-xs text-neutral-500">
-                <th className="px-4 py-3">User</th>
+                <th className="px-4 py-3">Name</th>
                 <th className="hidden sm:table-cell px-4 py-3">Email</th>
                 <th className="px-4 py-3">Role</th>
+                <th className="px-4 py-3">Login</th>
                 <th className="px-4 py-3">Status</th>
-                <th className="hidden md:table-cell px-4 py-3">Created</th>
                 <th className="px-4 py-3 text-right">Actions</th>
               </tr>
             </thead>
@@ -329,7 +333,7 @@ export default function AdminUsersPage() {
                       <span className="font-medium">{u.name}</span>
                     </div>
                   </td>
-                  <td className="hidden sm:table-cell px-4 py-3 text-neutral-400">{u.email}</td>
+                  <td className="hidden sm:table-cell px-4 py-3 text-neutral-400">{u.email ?? "—"}</td>
                   <td className="px-4 py-3">
                     <span className={`rounded-full px-2 py-0.5 text-[10px] font-medium ${
                       u.role === "admin" ? "bg-purple-500/15 text-purple-300" :
@@ -343,18 +347,22 @@ export default function AdminUsersPage() {
                   </td>
                   <td className="px-4 py-3">
                     <span className={`rounded-full px-2 py-0.5 text-[10px] font-medium ${
+                      u.has_account ? "bg-emerald-500/15 text-emerald-300" : "bg-neutral-500/15 text-neutral-400"
+                    }`}>
+                      {u.has_account ? "✓ account" : "no login"}
+                    </span>
+                  </td>
+                  <td className="px-4 py-3">
+                    <span className={`rounded-full px-2 py-0.5 text-[10px] font-medium ${
                       u.is_active ? "bg-emerald-500/15 text-emerald-300" : "bg-red-500/15 text-red-300"
                     }`}>
                       {u.is_active ? "active" : "disabled"}
                     </span>
                   </td>
-                  <td className="hidden md:table-cell px-4 py-3 text-neutral-500 text-xs">
-                    {new Date(u.created_at).toLocaleDateString()}
-                  </td>
                   <td className="px-2 py-3 sm:px-4">
                     <div className="flex justify-end gap-1">
                       <button
-                        onClick={() => { setEditUser(u); setEditName(u.name); setEditEmail(u.email); setEditRole(u.role); }}
+                        onClick={() => { setEditUser(u); setEditName(u.name); setEditEmail(u.email ?? ""); setEditRole(u.role); }}
                         className="rounded-lg p-2 text-xs text-neutral-400 hover:bg-white/[0.06] hover:text-white"
                         title="Edit user"
                       >
@@ -371,7 +379,7 @@ export default function AdminUsersPage() {
                       </button>
                       <button
                         onClick={() => handleToggleActive(u)}
-                        disabled={u.id === me?.id}
+                        disabled={u.user_id === me?.id}
                         className={`rounded-lg p-2 text-xs disabled:opacity-30 ${
                           u.is_active
                             ? "text-yellow-400/70 hover:bg-yellow-500/10 hover:text-yellow-300"
@@ -383,8 +391,8 @@ export default function AdminUsersPage() {
                         <span className="sm:hidden">{u.is_active ? "⏸" : "▶"}</span>
                       </button>
                       <button
-                        onClick={() => { if (confirm(`Delete user ${u.email}? This cannot be undone.`)) handleDelete(u); }}
-                        disabled={u.id === me?.id}
+                        onClick={() => { if (confirm(`Delete user ${u.email ?? u.name}? This cannot be undone.`)) handleDelete(u); }}
+                        disabled={u.user_id === me?.id}
                         className="rounded-lg p-2 text-xs text-red-400/70 hover:bg-red-500/10 hover:text-red-300 disabled:opacity-30"
                         title="Delete user"
                       >

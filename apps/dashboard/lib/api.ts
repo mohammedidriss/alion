@@ -641,6 +641,17 @@ export interface AuthUser {
   created_at: string;
 }
 
+export interface UnifiedPerson {
+  id: string;
+  user_id: string | null;
+  name: string;
+  email: string | null;
+  role: UserRole;
+  has_account: boolean;
+  is_active: boolean;
+  photo_path: string | null;
+}
+
 export interface AuthResponse {
   access_token: string;
   token_type: string;
@@ -1284,6 +1295,7 @@ export const api = {
 
   // Admin endpoints
   adminListUsers: () => req<AuthUser[]>("/auth/admin/users"),
+  adminListEveryone: () => req<UnifiedPerson[]>("/auth/admin/everyone"),
   adminResetPassword: (userId: string, newPassword: string) =>
     req<{ status: string; message: string }>(`/auth/admin/users/${userId}/reset-password`, {
       method: "POST",
