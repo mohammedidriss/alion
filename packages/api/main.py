@@ -57,10 +57,10 @@ def _bootstrap_admin() -> None:
 
     from sqlmodel import Session, select
 
-    from store import UserCreate, UserRepo
-    from store.models import User, UserRole
-    from store.database import _engine  # noqa: PLC2701
     from api.routes.auth import _hash_password
+    from store import UserCreate, UserRepo
+    from store.database import _engine  # type: ignore[attr-defined]
+    from store.models import User, UserRole
 
     email = os.environ.get("ALION_ADMIN_EMAIL", "").strip().lower()
     password = os.environ.get("ALION_ADMIN_PASSWORD", "").strip()
