@@ -37,6 +37,7 @@ _DEV_SECRET = "alion-dev-secret-key-change-in-production"
 SECRET_KEY = os.environ.get("ALION_JWT_SECRET", _DEV_SECRET)
 if SECRET_KEY == _DEV_SECRET:
     import warnings
+
     warnings.warn(
         "ALION_JWT_SECRET is not set — using insecure default. "
         "Set this env var before deploying to production.",
@@ -363,7 +364,12 @@ def admin_create_user(
     existing = repo.get_by_email(data.email.lower().strip())
     if existing:
         raise HTTPException(status_code=409, detail="Email already registered")
-    user_create = UserCreate(email=data.email.lower().strip(), password=data.password, name=data.name.strip(), role=data.role)
+    user_create = UserCreate(
+        email=data.email.lower().strip(),
+        password=data.password,
+        name=data.name.strip(),
+        role=data.role,
+    )
     hashed = _hash_password(data.password)
     user = repo.create(user_create, hashed)
     profile_id = _create_profile_for_role(user, session)
@@ -505,7 +511,12 @@ def seed_admin(
         updated = repo.update(existing.id, {"role": UserRole.ADMIN, "is_active": True})
         return UserRead.model_validate(updated, from_attributes=True)
     user = repo.create(
-        UserCreate(email=data.email.lower().strip(), password=data.password, name=data.name.strip(), role=UserRole.ADMIN),
+        UserCreate(
+            email=data.email.lower().strip(),
+            password=data.password,
+            name=data.name.strip(),
+            role=UserRole.ADMIN,
+        ),
         _hash_password(data.password),
     )
     return UserRead.model_validate(user, from_attributes=True)

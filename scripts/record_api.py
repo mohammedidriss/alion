@@ -79,17 +79,20 @@ def main() -> None:
     last_event_t: dict[str, float] = {"left": -9999.0, "right": -9999.0}
 
     from uuid import UUID
+
     sid = UUID(session_id)
 
     def on_frame(pose) -> None:  # type: ignore[no-untyped-def]
         for ev in detector.feed(pose):
-            events_buffer.append({
-                "t_ms": ev.t_ms,
-                "hand": ev.hand,
-                "velocity_ms": ev.velocity_ms,
-                "confidence": ev.confidence,
-                "detected_by": ev.detected_by,
-            })
+            events_buffer.append(
+                {
+                    "t_ms": ev.t_ms,
+                    "hand": ev.hand,
+                    "velocity_ms": ev.velocity_ms,
+                    "confidence": ev.confidence,
+                    "detected_by": ev.detected_by,
+                }
+            )
             last_event_t[ev.hand] = ev.t_ms
             print(
                 f"  punch t={ev.t_ms:7.0f}ms hand={ev.hand:5s} "
@@ -112,15 +115,20 @@ def main() -> None:
                 if pose is not None and pose.t_ms - t < 200:
                     color = (0, 200, 255) if hand == "left" else (255, 200, 0)
                     cv2.putText(
-                        raw, hand.upper(),
+                        raw,
+                        hand.upper(),
                         (20 if hand == "left" else 250, 60),
-                        cv2.FONT_HERSHEY_SIMPLEX, 1.5, color, 3,
+                        cv2.FONT_HERSHEY_SIMPLEX,
+                        1.5,
+                        color,
+                        3,
                     )
             cv2.imshow("Alion — live", raw)
             if cv2.waitKey(1) & 0xFF == ord("q"):
                 raise KeyboardInterrupt()
 
     from pathlib import Path
+
     parquet_path = Path("data/processed") / f"{session_id}.pose.parquet"
     parquet_path.parent.mkdir(parents=True, exist_ok=True)
 
@@ -142,6 +150,7 @@ def main() -> None:
 
     if args.show:
         import cv2
+
         cv2.destroyAllWindows()
 
     # 3. Push events + metadata to remote API

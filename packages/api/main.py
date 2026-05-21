@@ -70,9 +70,7 @@ def _bootstrap_admin() -> None:
         return  # env vars not set — skip silently
 
     with Session(_engine) as session:
-        existing_admins = session.exec(
-            select(User).where(User.role == UserRole.ADMIN)
-        ).first()
+        existing_admins = session.exec(select(User).where(User.role == UserRole.ADMIN)).first()
         if existing_admins:
             return  # admin already exists — nothing to do
 

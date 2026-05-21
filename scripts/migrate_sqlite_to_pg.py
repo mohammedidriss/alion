@@ -124,9 +124,7 @@ def migrate() -> None:
             print(f"  [{table_name:30s}]  0 rows")
             continue
 
-        cols = [d[0] for d in src.execute(
-            f"SELECT * FROM '{table_name}' LIMIT 0"
-        ).description]
+        cols = [d[0] for d in src.execute(f"SELECT * FROM '{table_name}' LIMIT 0").description]
 
         tbl = SQLModel.metadata.tables[table_name]
 

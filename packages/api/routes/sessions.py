@@ -481,6 +481,7 @@ def bulk_add_events(
             duration_ms=body.duration_ms,
         )
     from store import SessionStatus
+
     repo.update_status(session_id, SessionStatus.COMPLETED, end=True)
     return {"inserted": len(rows)}
 
