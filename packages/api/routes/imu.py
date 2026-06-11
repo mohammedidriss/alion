@@ -30,6 +30,7 @@ from api.deps import (
     punch_event_repo,
     session_repo,
 )
+from api.routes.auth import require_current_user
 from store import (
     HandEnum,
     IMUSampleRead,
@@ -39,7 +40,16 @@ from store import (
     SessionRepo,
 )
 
-router = APIRouter(prefix="/sessions", tags=["imu"])
+router = APIRouter(
+    prefix="/sessions",
+    tags=["imu"],
+    dependencies=[Depends(require_current_user)],
+)
+
+# Hard cap on uploaded IMU CSVs. At 200 Hz across nine channels a long
+# session is a few MB; this leaves generous headroom while blocking
+# disk-exhaustion uploads.
+_MAX_IMU_UPLOAD_BYTES = 100 * 1024 * 1024  # 100 MB
 
 
 def _parse_imu_csv(text: str, session_id: UUID) -> list[IMUSampleRow]:
@@ -106,7 +116,15 @@ async def upload_imu_csv(
     imu: IMUSampleRepo = Depends(imu_sample_repo),
 ) -> int:
     _check_imu_condition(sessions, session_id)
-    raw = (await file.read()).decode("utf-8", errors="ignore")
+    # Read one byte past the limit so we can detect (not silently truncate)
+    # an oversized upload before pulling it all into memory.
+    data = await file.read(_MAX_IMU_UPLOAD_BYTES + 1)
+    if len(data) > _MAX_IMU_UPLOAD_BYTES:
+        raise HTTPException(
+            status_code=413,
+            detail=f"IMU CSV exceeds the {_MAX_IMU_UPLOAD_BYTES // (1024 * 1024)} MB limit.",
+        )
+    raw = data.decode("utf-8", errors="ignore")
     rows = _parse_imu_csv(raw, session_id)
     return imu.replace_for_session(session_id, rows)
 

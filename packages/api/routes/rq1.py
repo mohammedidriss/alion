@@ -16,6 +16,7 @@ from sqlmodel import Session as DBSession
 from sqlmodel import select as _select
 
 from api.deps import db_session, session_repo
+from api.routes.auth import require_current_user
 from store import (
     PayloadModeEnum,
     RaterScoreRead,
@@ -23,7 +24,11 @@ from store import (
     SessionRepo,
 )
 
-router = APIRouter(prefix="/studies/rq1", tags=["studies"])
+router = APIRouter(
+    prefix="/studies/rq1",
+    tags=["studies"],
+    dependencies=[Depends(require_current_user)],
+)
 
 
 class RatingUpsertRequest(BaseModel):

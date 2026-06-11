@@ -159,6 +159,7 @@ app.include_router(sessions.preview_router, prefix="/v1")
 # Phase 2 surface: HRV routes are NEW work, only mounted under /v2.
 # Phase 1 (/v1) sees nothing about HRV — preserves the lock from ADR 004.
 app.include_router(hrv.router, prefix="/v2")
+app.include_router(hrv.stream_router, prefix="/v2")
 app.include_router(hrv.ble_router, prefix="/v2")
 app.include_router(imu.router, prefix="/v2")
 app.include_router(imu.router)

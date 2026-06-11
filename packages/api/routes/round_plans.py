@@ -12,9 +12,14 @@ from sqlmodel import Session as DBSession
 from sqlmodel import select
 
 from api.deps import db_session
+from api.routes.auth import require_current_user
 from store import MAX_ROUND_PLANS, RoundPlanCreate, RoundPlanRead, RoundPlanRow
 
-router = APIRouter(prefix="/round_plans", tags=["round_plans"])
+router = APIRouter(
+    prefix="/round_plans",
+    tags=["round_plans"],
+    dependencies=[Depends(require_current_user)],
+)
 
 
 class RoundPlanUpdate(BaseModel):

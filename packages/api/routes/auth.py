@@ -35,17 +35,52 @@ router = APIRouter(prefix="/auth", tags=["auth"])
 
 # --- Security config ---
 _DEV_SECRET = "alion-dev-secret-key-change-in-production"
-SECRET_KEY = os.environ.get("ALION_JWT_SECRET", _DEV_SECRET)
-if SECRET_KEY == _DEV_SECRET:
-    import warnings
 
-    warnings.warn(
-        "ALION_JWT_SECRET is not set — using insecure default. "
-        "Set this env var before deploying to production.",
-        stacklevel=1,
-    )
+
+def _is_production() -> bool:
+    """True when running on a real deployment.
+
+    Triggered by an explicit ALION_ENV=production/prod, or by Railway's
+    auto-injected RAILWAY_ENVIRONMENT var so we fail closed on the host
+    even if ALION_ENV was never set.
+    """
+    if os.environ.get("ALION_ENV", "").strip().lower() in {"production", "prod"}:
+        return True
+    return bool(os.environ.get("RAILWAY_ENVIRONMENT", "").strip())
+
+
+def _resolve_secret_key() -> str:
+    """Return the JWT signing key, or fail closed in production.
+
+    In production a missing/default secret is fatal: a known key lets anyone
+    forge admin tokens. In dev we warn and fall back to the built-in default.
+    """
+    secret = os.environ.get("ALION_JWT_SECRET", "").strip() or _DEV_SECRET
+    if secret == _DEV_SECRET:
+        if _is_production():
+            raise RuntimeError(
+                "ALION_JWT_SECRET must be set in production. Refusing to start with "
+                "the insecure built-in default. Generate one with "
+                "`python -c 'import secrets; print(secrets.token_urlsafe(48))'` and "
+                "set it as the ALION_JWT_SECRET environment variable."
+            )
+        import warnings
+
+        warnings.warn(
+            "ALION_JWT_SECRET is not set — using insecure default. "
+            "Set this env var before deploying to production.",
+            stacklevel=2,
+        )
+    return secret
+
+
+SECRET_KEY = _resolve_secret_key()
 ALGORITHM = "HS256"
-ACCESS_TOKEN_EXPIRE_MINUTES = 60 * 24 * 7  # 7 days for dev convenience
+# Token lifetime. Override with ALION_TOKEN_TTL_MIN. Defaults to 12h in
+# production (shorter blast radius if a token leaks) and 7 days in dev.
+ACCESS_TOKEN_EXPIRE_MINUTES = int(
+    os.environ.get("ALION_TOKEN_TTL_MIN", "") or (60 * 12 if _is_production() else 60 * 24 * 7)
+)
 
 oauth2_scheme = OAuth2PasswordBearer(tokenUrl="/auth/login", auto_error=False)
 
@@ -61,6 +96,22 @@ def _hash_password(password: str) -> str:
 
 def _verify_password(plain: str, hashed: str) -> bool:
     return bool(bcrypt.checkpw(plain.encode(), hashed.encode()))
+
+
+_MIN_PASSWORD_LEN = 8
+
+
+def _validate_password_strength(password: str) -> str:
+    """Enforce a minimum password policy. Returns the password unchanged or raises.
+
+    Kept deliberately simple: a length floor plus a mixed-content check.
+    Raises ValueError so Pydantic validators surface it as a 422.
+    """
+    if len(password) < _MIN_PASSWORD_LEN:
+        raise ValueError(f"Password must be at least {_MIN_PASSWORD_LEN} characters")
+    if password.isalpha() or password.isdigit():
+        raise ValueError("Password must contain both letters and numbers")
+    return password
 
 
 def _create_access_token(user_id: UUID, role: str) -> str:
@@ -130,9 +181,7 @@ class RegisterRequest(BaseModel):
     @field_validator("password")
     @classmethod
     def validate_password(cls, v: str) -> str:
-        if len(v) < 6:
-            raise ValueError("Password must be at least 6 characters")
-        return v
+        return _validate_password_strength(v)
 
     @field_validator("name")
     @classmethod
@@ -290,10 +339,10 @@ def update_me(
             )
         if not _verify_password(data.current_password, user.password_hash):
             raise HTTPException(status_code=403, detail="Current password is incorrect")
-        if len(data.new_password) < 6:
-            raise HTTPException(
-                status_code=422, detail="New password must be at least 6 characters"
-            )
+        try:
+            _validate_password_strength(data.new_password)
+        except ValueError as err:
+            raise HTTPException(status_code=422, detail=str(err)) from err
         fields["password_hash"] = _hash_password(data.new_password)
 
     if not fields:
@@ -438,9 +487,7 @@ class AdminCreateUserRequest(BaseModel):
     @field_validator("password")
     @classmethod
     def validate_password(cls, v: str) -> str:
-        if len(v) < 6:
-            raise ValueError("Password must be at least 6 characters")
-        return v
+        return _validate_password_strength(v)
 
 
 @router.post("/admin/users", response_model=UserRead, status_code=201)
@@ -477,9 +524,7 @@ class AdminResetPasswordRequest(BaseModel):
     @field_validator("new_password")
     @classmethod
     def validate_password(cls, v: str) -> str:
-        if len(v) < 6:
-            raise ValueError("Password must be at least 6 characters")
-        return v
+        return _validate_password_strength(v)
 
 
 @router.post("/admin/users/{user_id}/reset-password")

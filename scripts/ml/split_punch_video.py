@@ -33,14 +33,12 @@ from __future__ import annotations
 
 import argparse
 import csv
-import json
 from pathlib import Path
 
 import cv2
 import mediapipe as mp
 import numpy as np
 from scipy.signal import find_peaks, savgol_filter
-
 
 # ── MediaPipe landmark indices ────────────────────────────────────────────────
 # BlazePose 33-keypoint model
@@ -86,10 +84,7 @@ def extract_keypoints(video_path: str) -> tuple[np.ndarray, float]:
         results = pose.process(rgb)
 
         if results.pose_landmarks:
-            kps = [
-                (lm.x, lm.y, lm.z, lm.visibility)
-                for lm in results.pose_landmarks.landmark
-            ]
+            kps = [(lm.x, lm.y, lm.z, lm.visibility) for lm in results.pose_landmarks.landmark]
         else:
             # Fill with zeros if pose not detected
             kps = [(0.0, 0.0, 0.0, 0.0)] * 33
@@ -118,8 +113,8 @@ def compute_wrist_speed(
     wrist_xy = keypoints[:, idx, :2]  # shape [T, 2]
 
     # Frame-to-frame displacement
-    diff = np.diff(wrist_xy, axis=0)                          # [T-1, 2]
-    speed = np.linalg.norm(diff, axis=1) * fps                 # pixels/sec (normalised)
+    diff = np.diff(wrist_xy, axis=0)  # [T-1, 2]
+    speed = np.linalg.norm(diff, axis=1) * fps  # pixels/sec (normalised)
 
     # Pad to match original length
     speed = np.concatenate([[0.0], speed])
@@ -155,7 +150,7 @@ def find_punch_boundaries(
     min_dur_frames = int(min_punch_duration_sec * fps)
 
     # Find prominent peaks
-    peaks, props = find_peaks(
+    peaks, _props = find_peaks(
         speed,
         height=threshold,
         distance=min_gap_frames,
@@ -221,7 +216,6 @@ def export_clips(
     cap = cv2.VideoCapture(video_path)
     width = int(cap.get(cv2.CAP_PROP_FRAME_WIDTH))
     height = int(cap.get(cv2.CAP_PROP_FRAME_HEIGHT))
-    total_frames = int(cap.get(cv2.CAP_PROP_FRAME_COUNT))
 
     out_dir.mkdir(parents=True, exist_ok=True)
     metadata = []
@@ -245,21 +239,23 @@ def export_clips(
         writer.release()
 
         duration_ms = int((end - start) / fps * 1000)
-        metadata.append({
-            "clip_name": clip_name,
-            "subject_id": subject,
-            "punch_type": label,
-            "hand": hand,
-            "stance": stance,
-            "frame_start": start,
-            "frame_end": end,
-            "duration_ms": duration_ms,
-            "source_video": Path(video_path).name,
-            "quality_flag": "ok",
-            "annotator_id": "auto_mediapipe",
-        })
+        metadata.append(
+            {
+                "clip_name": clip_name,
+                "subject_id": subject,
+                "punch_type": label,
+                "hand": hand,
+                "stance": stance,
+                "frame_start": start,
+                "frame_end": end,
+                "duration_ms": duration_ms,
+                "source_video": Path(video_path).name,
+                "quality_flag": "ok",
+                "annotator_id": "auto_mediapipe",
+            }
+        )
 
-        print(f"  ✓ Clip {i+1:03d}: frames {start}–{end} ({duration_ms} ms) → {clip_name}")
+        print(f"  ✓ Clip {i + 1:03d}: frames {start}–{end} ({duration_ms} ms) → {clip_name}")
 
     cap.release()
     return metadata
@@ -308,22 +304,36 @@ def visualise_detection(
 def main() -> None:
     parser = argparse.ArgumentParser(description="Split long punch video into individual clips.")
     parser.add_argument("--video", required=True, help="Path to the long recording")
-    parser.add_argument("--label", required=True,
-                        choices=["jab", "cross", "lead_hook", "rear_hook", "lead_uppercut", "rear_uppercut"],
-                        help="Punch type label")
-    parser.add_argument("--hand", required=True, choices=["left", "right"],
-                        help="Which hand is punching")
+    parser.add_argument(
+        "--label",
+        required=True,
+        choices=["jab", "cross", "lead_hook", "rear_hook", "lead_uppercut", "rear_uppercut"],
+        help="Punch type label",
+    )
+    parser.add_argument(
+        "--hand", required=True, choices=["left", "right"], help="Which hand is punching"
+    )
     parser.add_argument("--subject", required=True, help="Subject ID e.g. S01")
-    parser.add_argument("--stance", default="orthodox", choices=["orthodox", "southpaw"],
-                        help="Fighter stance")
+    parser.add_argument(
+        "--stance", default="orthodox", choices=["orthodox", "southpaw"], help="Fighter stance"
+    )
     parser.add_argument("--out", default="data/clips/", help="Output directory for clips")
-    parser.add_argument("--threshold-percentile", type=float, default=70,
-                        help="Speed percentile used as punch detection threshold (default 70). "
-                             "Lower = more sensitive, higher = stricter.")
-    parser.add_argument("--min-gap-sec", type=float, default=0.5,
-                        help="Minimum seconds between two punches (default 0.5)")
-    parser.add_argument("--plot", action="store_true",
-                        help="Save a speed-curve plot showing detected boundaries")
+    parser.add_argument(
+        "--threshold-percentile",
+        type=float,
+        default=70,
+        help="Speed percentile used as punch detection threshold (default 70). "
+        "Lower = more sensitive, higher = stricter.",
+    )
+    parser.add_argument(
+        "--min-gap-sec",
+        type=float,
+        default=0.5,
+        help="Minimum seconds between two punches (default 0.5)",
+    )
+    parser.add_argument(
+        "--plot", action="store_true", help="Save a speed-curve plot showing detected boundaries"
+    )
     args = parser.parse_args()
 
     video_path = args.video
@@ -363,7 +373,9 @@ def main() -> None:
     # 4. Export clips
     print(f"\n[4/4] Exporting {len(boundaries)} clips...")
     metadata = export_clips(
-        video_path, boundaries, out_dir,
+        video_path,
+        boundaries,
+        out_dir,
         label=args.label,
         hand=args.hand,
         subject=args.subject,

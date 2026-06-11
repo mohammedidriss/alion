@@ -16,12 +16,28 @@ from sqlmodel import Session as DBSession
 from sqlmodel import select
 
 from api.deps import db_session, session_repo
+from api.routes.auth import require_current_user
 from api.services import hrv_runner
 from contracts import HRMetricsWindow
 from store import HRSampleRead, HRSampleRow, SessionRepo
 from store.models import SessionRead
 
-router = APIRouter(prefix="/sessions", tags=["hrv"])
+router = APIRouter(
+    prefix="/sessions",
+    tags=["hrv"],
+    dependencies=[Depends(require_current_user)],
+)
+
+# Hard cap on uploaded RR-interval CSVs. A full session of beat-to-beat
+# intervals is well under this; anything larger is almost certainly junk
+# or an attempt to exhaust disk.
+_MAX_HRV_UPLOAD_BYTES = 25 * 1024 * 1024  # 25 MB
+
+# Separate router for the SSE live stream. The browser consumes it with
+# `new EventSource(...)`, which cannot attach an Authorization header, so
+# (like the MJPEG preview_router) the unguessable session UUID is the
+# access control here rather than a bearer token.
+stream_router = APIRouter(prefix="/sessions", tags=["hrv"])
 
 _HRV_DIR = Path("data/raw/hrv")
 
@@ -75,8 +91,17 @@ def upload_hrv_csv(
         raise HTTPException(status_code=404, detail="session not found")
     _HRV_DIR.mkdir(parents=True, exist_ok=True)
     dest = _HRV_DIR / f"{session_id}.csv"
+    written = 0
     with dest.open("wb") as out:
         while chunk := file.file.read(1024 * 1024):
+            written += len(chunk)
+            if written > _MAX_HRV_UPLOAD_BYTES:
+                out.close()
+                dest.unlink(missing_ok=True)
+                raise HTTPException(
+                    status_code=413,
+                    detail=f"HRV CSV exceeds the {_MAX_HRV_UPLOAD_BYTES // (1024 * 1024)} MB limit.",
+                )
             out.write(chunk)
     # Stamp the path into notes (Phase-1-friendly, no schema change required).
     note_marker = f"hrv_csv: {dest}"
@@ -249,7 +274,7 @@ def _count_samples(db: DBSession, session_id: UUID) -> int:
     return len(list(rows))
 
 
-@router.get("/{session_id}/hrv/live", tags=["hrv"])
+@stream_router.get("/{session_id}/hrv/live", tags=["hrv"])
 async def hrv_live_stream(
     session_id: UUID,
     repo: SessionRepo = Depends(session_repo),
@@ -306,7 +331,11 @@ async def hrv_live_stream(
 
 # ── Polar H10 BLE endpoints ──────────────────────────────────────────
 
-ble_router = APIRouter(prefix="/ble", tags=["ble"])
+ble_router = APIRouter(
+    prefix="/ble",
+    tags=["ble"],
+    dependencies=[Depends(require_current_user)],
+)
 
 
 class BleDevice(BaseModel):
