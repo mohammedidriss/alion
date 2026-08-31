@@ -151,3 +151,12 @@ layers = [
     "common",
     "contracts",
 ]
+
+[[tool.importlinter.contracts]]
+name = "Capture adapters are mutually independent — no sibling cross-imports"
+type = "independence"
+modules = [
+    "capture.cv",
+    "capture.hrv",
+    "capture.mouthguard",
+]

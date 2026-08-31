@@ -212,6 +212,26 @@ Accelerometer + gyroscope samples per session.
 | `gx`, `gy`, `gz` | Gyroscope rad/s |
 | `peak_g` | Peak magnitude |
 
+#### `HeadImpactEventRow`
+
+Head impacts measured by an instrumented mouthguard (ADR 007). Its **own**
+table — a head impact is a *received* head event, distinct from a *thrown*
+punch, and is never written to `punch_event` or `imu_sample`. Advisory
+telemetry only; not a concussion diagnosis.
+
+| Field | Notes |
+|---|---|
+| `t_ms` | Session-start offset (SessionClock T_0) |
+| `peak_linear_accel_g` | Peak linear acceleration (g) |
+| `peak_rotational_vel_rad_s` | Peak angular velocity (rad/s) |
+| `peak_rotational_accel_rad_s2` | Peak angular acceleration (rad/s²), nullable |
+| `location` | `front / back / left / right / top / chin` |
+| `device_id` | Mouthguard identifier, nullable |
+| `confidence` | 0.0–1.0 |
+
+Produced by the isolated `capture/mouthguard` adapter (`CsvImpactReplaySource`
+for dev/replay, `MouthguardBleSource` for live BLE).
+
 #### `ConsensusEventRow`
 
 Reconciled punch events (merged across detection methods). One row per final consensus punch.

@@ -29,6 +29,7 @@ from store.models import (
     GymManager,
     GymManagerCreate,
     GymMembership,
+    HeadImpactEventRow,
     HRSampleRow,
     IMUSampleRow,
     MedicalCondition,
@@ -799,6 +800,44 @@ class IMUSampleRepo:
 
     def count_for_session(self, session_id: UUID) -> int:
         stmt = select(IMUSampleRow).where(IMUSampleRow.session_id == session_id)
+        return len(list(self._session.exec(stmt).all()))
+
+
+class HeadImpactRepo:
+    """Per-session head-impact events from the instrumented mouthguard (ADR 007).
+
+    Mirrors IMUSampleRepo: bulk insert + ordered list. Its own table; never
+    touches punch_event or imu_sample.
+    """
+
+    def __init__(self, session: DBSession) -> None:
+        self._session = session
+
+    def add_many(self, rows: list[HeadImpactEventRow]) -> int:
+        for r in rows:
+            self._session.add(r)
+        self._session.commit()
+        return len(rows)
+
+    def replace_for_session(self, session_id: UUID, rows: list[HeadImpactEventRow]) -> int:
+        from sqlmodel import delete as sqlmodel_delete
+
+        stmt = sqlmodel_delete(HeadImpactEventRow).where(
+            HeadImpactEventRow.session_id == session_id  # type: ignore[arg-type]
+        )
+        self._session.exec(stmt)
+        return self.add_many(rows)
+
+    def list_for_session(self, session_id: UUID) -> list[HeadImpactEventRow]:
+        stmt = (
+            select(HeadImpactEventRow)
+            .where(HeadImpactEventRow.session_id == session_id)
+            .order_by(HeadImpactEventRow.t_ms)  # type: ignore[arg-type]
+        )
+        return list(self._session.exec(stmt).all())
+
+    def count_for_session(self, session_id: UUID) -> int:
+        stmt = select(HeadImpactEventRow).where(HeadImpactEventRow.session_id == session_id)
         return len(list(self._session.exec(stmt).all()))
 
 

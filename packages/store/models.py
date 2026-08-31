@@ -633,6 +633,47 @@ class IMUSampleRead(SQLModel):
 
 
 # ----------------------------------------------------------------------
+# Head-impact events — instrumented mouthguard (ADR 007). Its OWN table:
+# a head impact is a received head event, distinct from a thrown punch,
+# and is never written to punch_event or imu_sample. Advisory telemetry
+# only — not a concussion diagnosis.
+# ----------------------------------------------------------------------
+
+
+class ImpactLocationEnum(StrEnum):
+    FRONT = "front"
+    BACK = "back"
+    LEFT = "left"
+    RIGHT = "right"
+    TOP = "top"
+    CHIN = "chin"
+
+
+class HeadImpactEventRow(SQLModel, table=True):
+    __tablename__ = "head_impact_event"
+    id: int | None = Field(default=None, primary_key=True)
+    session_id: UUID = Field(foreign_key="session.id", index=True)
+    t_ms: float
+    peak_linear_accel_g: float
+    peak_rotational_vel_rad_s: float
+    peak_rotational_accel_rad_s2: float | None = None
+    location: ImpactLocationEnum
+    device_id: str | None = None
+    confidence: float
+
+
+class HeadImpactEventRead(SQLModel):
+    session_id: UUID
+    t_ms: float
+    peak_linear_accel_g: float
+    peak_rotational_vel_rad_s: float
+    peak_rotational_accel_rad_s2: float | None = None
+    location: ImpactLocationEnum
+    device_id: str | None = None
+    confidence: float
+
+
+# ----------------------------------------------------------------------
 # Saved round-structure plans — small reusable presets the fighter can
 # apply to a session in one click ("3×3 + 1 (pro spar)" etc.). Server
 # caps the count at MAX_ROUND_PLANS to keep the UI list short.
