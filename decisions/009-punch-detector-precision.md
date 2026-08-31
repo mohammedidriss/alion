@@ -58,6 +58,15 @@ punch-type classification and velocity refinement apply. `capture_runner`
 selects it; nothing else changes. The old detector, its module, and the `/v1`
 contract are untouched.
 
+**Two implementations, kept in sync.** Live webcam capture runs pose detection
+*and punch detection in the browser* (`apps/dashboard/lib/punchDetector.ts`, a
+MediaPipe pipeline that bulk-uploads events via `POST /sessions/{id}/events/bulk`).
+The Python `capture_runner` path is used for uploaded-video / offline
+reprocessing. So the same extension-cycle algorithm is ported to TypeScript with
+identical thresholds and validated with the same synthetic cases; the Python
+detector is the reference. A future refactor could serve one shared spec, but
+until then any threshold change must be made in *both* files.
+
 ## Validation
 
 Re-run on the labeled session (4 true punches), same pipeline:
