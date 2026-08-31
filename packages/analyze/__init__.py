@@ -3,6 +3,10 @@
 from analyze.hrv_metrics import RollingHRMetrics, mean_hr_bpm, rmssd_ms, sdnn_ms
 from analyze.load import TrimpResult, compute_trimp, estimate_hr_max
 from analyze.performance import PerformanceScore, compute_score, compute_swc
+from analyze.punch_detector_extension import (
+    ExtensionCyclePunchDetector,
+    detect_punches_extension,
+)
 from analyze.punch_detector_heuristic import HeuristicPunchDetector, detect_punches
 from analyze.punch_type_heuristic import PunchType, classify_punch_type
 from analyze.readiness import (
@@ -23,6 +27,7 @@ __all__ = [
     "MIN_HISTORY",
     "ConsensusEvent",
     "ConsensusKind",
+    "ExtensionCyclePunchDetector",
     "HeuristicPunchDetector",
     "PerformanceScore",
     "PunchType",
@@ -39,6 +44,7 @@ __all__ = [
     "compute_trimp",
     "default_second_pass",
     "detect_punches",
+    "detect_punches_extension",
     "estimate_hr_max",
     "mean_hr_bpm",
     "reconcile_events",

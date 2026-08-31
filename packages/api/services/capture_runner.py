@@ -6,6 +6,7 @@ Lives in `api/` (the composition root) because it pulls together `capture`,
 
 from __future__ import annotations
 
+import os
 import threading
 from collections.abc import Callable
 from contextlib import AbstractContextManager
@@ -15,7 +16,12 @@ from uuid import UUID
 
 from sqlmodel import Session as DBSession
 
-from analyze import HeuristicPunchDetector, classify_punch_type, refine_peak_velocity
+from analyze import (
+    ExtensionCyclePunchDetector,
+    HeuristicPunchDetector,
+    classify_punch_type,
+    refine_peak_velocity,
+)
 from capture.cv import CapturePipeline, FileSource, WebcamSource
 from capture.cv.overlay import draw_pose
 from capture.cv.sources import FrameSource
@@ -171,7 +177,16 @@ def _run_capture(
             "_ctx_camera_index": camera_index,
         },
     )
-    detector = HeuristicPunchDetector(stance=stance)
+    # Punch detector selection (ADR 009). The extension-cycle detector is the
+    # default: on labeled ground truth it cut false positives from 84 to a
+    # handful (precision 0.05 → 0.5) where the velocity-peak heuristic counted
+    # every wrist blip. Set ALION_PUNCH_DETECTOR=heuristic to fall back.
+    _detector_kind = os.environ.get("ALION_PUNCH_DETECTOR", "extension").strip().lower()
+    detector: HeuristicPunchDetector | ExtensionCyclePunchDetector
+    if _detector_kind == "heuristic":
+        detector = HeuristicPunchDetector(stance=stance)
+    else:
+        detector = ExtensionCyclePunchDetector(stance=stance)
     buffered_events: list[PunchEventRow] = []
     # Rolling pose history feeds the punch-type classifier (~last 8 frames).
     pose_history: list[PoseFrame] = []
