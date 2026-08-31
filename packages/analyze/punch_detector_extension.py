@@ -35,24 +35,34 @@ from contracts import Hand, LeadOrRear, PoseFrame, PunchEvent
 
 LM_LEFT_SHOULDER = 11
 LM_RIGHT_SHOULDER = 12
+LM_LEFT_ELBOW = 13
+LM_RIGHT_ELBOW = 14
 LM_LEFT_WRIST = 15
 LM_RIGHT_WRIST = 16
 
-# Defaults tuned against the c71b080b reference session (4 labeled punches, whose
-# wrists peaked at 4.2-5.3 m/s while background movement sat below ~2 m/s). The
-# key discriminator is ballistic peak velocity; the excursion cycle just makes it
-# one-count-per-punch and requires real out-and-back travel.
+# The wrist-excursion gate catches wide/side punches (hooks, and anything moving
+# across the image plane). But a straight punch thrown *toward the camera* travels
+# along the depth axis, which a monocular camera estimates poorly — its measured
+# speed/travel are compressed, so the excursion gate misses it. The elbow-extension
+# gate is direction-invariant: a jab/cross straightens the elbow no matter which
+# way the fighter faces, so a fast chamber→extend of the elbow counts as a punch
+# even when the wrist's forward motion is invisible. Hooks/uppercuts never fully
+# straighten, so they are left to the excursion gate. See ADR 009.
 DEFAULT_MIN_PEAK_VELOCITY_MS = 2.5  # was 1.2 (far too low); 3.0 under-caught depth-axis punches
 DEFAULT_MIN_EXCURSION_M = 0.04  # min wrist travel valley→peak, metres (world coords)
 DEFAULT_HYSTERESIS_M = 0.03  # turn-around must exceed this to confirm a peak/valley
 DEFAULT_REFRACTORY_MS = 250.0
 DEFAULT_MIN_VISIBILITY = 0.5
 DEFAULT_LEGACY_BODY_WIDTH_M = 0.45  # 2D-fallback scale (no world landmarks)
+# Elbow-extension gate.
+DEFAULT_ELBOW_CHAMBER_DEG = 100.0  # elbow counts as "bent" below this
+DEFAULT_ELBOW_EXTEND_DEG = 150.0  # ...and "straight" above this
+DEFAULT_ELBOW_WINDOW_MS = 200.0  # bent→straight must happen within this window (punch tempo)
 
 
 @dataclass
 class _HandCycle:
-    """Hysteresis peak/valley tracker over the wrist→shoulder extension signal."""
+    """Per-hand state: wrist-excursion hysteresis tracker + elbow-extension tracker."""
 
     going_up: bool = True
     extreme: float | None = None  # current local extreme (peak while up, valley while down)
@@ -61,11 +71,30 @@ class _HandCycle:
     peak_t: float = 0.0
     last_pos: tuple[float, float, float] | None = None
     last_t: float | None = None
-    last_event_t: float | None = None
+    last_event_t: float | None = None  # shared refractory across both gates
+    # Elbow-extension gate: recent (t_ms, angle) samples for the tempo window.
+    elbow_hist: list[tuple[float, float]] = field(default_factory=list)
+    elbow_extended: bool = False  # currently past the extend threshold — needs re-chamber
 
 
 def _dist(a: tuple[float, float, float], b: tuple[float, float, float]) -> float:
     return math.sqrt(sum((a[i] - b[i]) ** 2 for i in range(3)))
+
+
+def _elbow_angle_deg(
+    shoulder: tuple[float, float, float],
+    elbow: tuple[float, float, float],
+    wrist: tuple[float, float, float],
+) -> float:
+    """Angle at the elbow joint in degrees (180° = fully straight arm)."""
+    ux, uy, uz = (shoulder[i] - elbow[i] for i in range(3))
+    vx, vy, vz = (wrist[i] - elbow[i] for i in range(3))
+    nu = math.sqrt(ux * ux + uy * uy + uz * uz)
+    nv = math.sqrt(vx * vx + vy * vy + vz * vz)
+    if nu < 1e-6 or nv < 1e-6:
+        return 180.0
+    cos_a = max(-1.0, min(1.0, (ux * vx + uy * vy + uz * vz) / (nu * nv)))
+    return math.degrees(math.acos(cos_a))
 
 
 def _hand_to_lead_rear(hand: Hand, stance: str | None) -> LeadOrRear | None:
@@ -94,6 +123,9 @@ class ExtensionCyclePunchDetector:
     refractory_ms: float = DEFAULT_REFRACTORY_MS
     min_visibility: float = DEFAULT_MIN_VISIBILITY
     body_width_m: float = DEFAULT_LEGACY_BODY_WIDTH_M
+    elbow_chamber_deg: float = DEFAULT_ELBOW_CHAMBER_DEG
+    elbow_extend_deg: float = DEFAULT_ELBOW_EXTEND_DEG
+    elbow_window_ms: float = DEFAULT_ELBOW_WINDOW_MS
 
     _left: _HandCycle = field(default_factory=_HandCycle, init=False)
     _right: _HandCycle = field(default_factory=_HandCycle, init=False)
@@ -105,10 +137,14 @@ class ExtensionCyclePunchDetector:
 
     def feed(self, frame: PoseFrame) -> list[PunchEvent]:
         events: list[PunchEvent] = []
-        ev_l = self._step(frame, "left", LM_LEFT_WRIST, LM_LEFT_SHOULDER, self._left)
+        ev_l = self._step(
+            frame, "left", LM_LEFT_WRIST, LM_LEFT_SHOULDER, LM_LEFT_ELBOW, self._left
+        )
         if ev_l is not None:
             events.append(ev_l)
-        ev_r = self._step(frame, "right", LM_RIGHT_WRIST, LM_RIGHT_SHOULDER, self._right)
+        ev_r = self._step(
+            frame, "right", LM_RIGHT_WRIST, LM_RIGHT_SHOULDER, LM_RIGHT_ELBOW, self._right
+        )
         if ev_r is not None:
             events.append(ev_r)
         return events
@@ -126,7 +162,13 @@ class ExtensionCyclePunchDetector:
         return (lm.x, lm.y, lm.z), lm.visibility
 
     def _step(
-        self, frame: PoseFrame, hand: Hand, wrist_idx: int, shoulder_idx: int, cyc: _HandCycle
+        self,
+        frame: PoseFrame,
+        hand: Hand,
+        wrist_idx: int,
+        shoulder_idx: int,
+        elbow_idx: int,
+        cyc: _HandCycle,
     ) -> PunchEvent | None:
         use_world = frame.world_landmarks is not None
         wrist = self._landmark(frame, wrist_idx, world=use_world)
@@ -207,6 +249,41 @@ class ExtensionCyclePunchDetector:
                 cyc.extreme = ext
                 cyc.rise_peak_speed = speed
                 cyc.peak_t = frame.t_ms
+
+        # --- Elbow-extension gate: fires when the elbow goes from bent to straight
+        # within a short window — a punch tempo. Direction-invariant, so it catches
+        # straight punches thrown toward the camera that the excursion gate misses.
+        elbow = self._landmark(frame, elbow_idx, world=use_world)
+        if elbow is not None:
+            elbow_angle = _elbow_angle_deg((sx, sy, sz), elbow[0], wrist_xyz)
+            cyc.elbow_hist.append((frame.t_ms, elbow_angle))
+            cutoff = frame.t_ms - self.elbow_window_ms
+            cyc.elbow_hist = [(t, a) for (t, a) in cyc.elbow_hist if t >= cutoff]
+            if elbow_angle <= self.elbow_chamber_deg:
+                cyc.elbow_extended = False  # re-armed
+            recent_min = min(a for _, a in cyc.elbow_hist)
+            if (
+                not cyc.elbow_extended
+                and elbow_angle >= self.elbow_extend_deg
+                and recent_min <= self.elbow_chamber_deg  # was bent within the window
+            ):
+                spaced = (
+                    cyc.last_event_t is None
+                    or (frame.t_ms - cyc.last_event_t) >= self.refractory_ms
+                )
+                if ev is None and spaced:
+                    ev = PunchEvent(
+                        session_id=frame.session_id,
+                        t_ms=frame.t_ms,
+                        hand=hand,
+                        lead_or_rear=_hand_to_lead_rear(hand, self.stance),
+                        velocity_ms=round(speed, 2),
+                        velocity_source="world" if use_world else "image_heuristic",
+                        detected_by="heuristic",
+                        confidence=0.6,
+                    )
+                    cyc.last_event_t = frame.t_ms
+                cyc.elbow_extended = True  # require re-chamber before the next elbow fire
 
         return ev
 

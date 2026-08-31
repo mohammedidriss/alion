@@ -110,3 +110,20 @@ recordings (still + N clean punches, *with saved pose*) are available.
   `frame_count=0` and no parquet), which blocks offline evaluation *and* the
   dissertation's RQ2 accuracy study; then finalize thresholds and consider a
   per-fighter calibration.
+
+## Amendment (2026-05-22): direction-invariant elbow gate
+
+Live testing surfaced a real gap: straight punches thrown *toward the camera*
+were missed while side-on punches counted. A toward-camera punch travels along
+the depth axis, which a monocular camera compresses, so its measured wrist
+speed/travel fall under the excursion gate (the limitation ADR 003 flagged).
+
+Added a second, **direction-invariant** trigger: the elbow-extension gate. A
+jab/cross straightens the elbow regardless of facing, so a fast bent→straight of
+the elbow (chamber ≤100°, extend ≥150°, within a 200 ms window) counts as a
+punch even when the wrist's forward motion is invisible. Hooks/uppercuts never
+fully straighten and stay with the excursion gate. Both gates share one
+per-hand refractory, so a jab that trips both counts once. Added to both the
+Python and TS detectors with matching parameters and unit tests (including
+camera-facing and slow-reach cases). Thresholds remain first-pass, pending real
+pose data.

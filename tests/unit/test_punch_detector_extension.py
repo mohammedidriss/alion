@@ -102,3 +102,61 @@ def test_detect_helper_matches_streaming() -> None:
     assert events[0].hand == "right"
     assert events[0].detected_by == "heuristic"
     assert events[0].velocity_ms > 0
+
+
+# ── Elbow-extension gate (direction-invariant; the camera-facing case) ────────
+
+
+def _arm_frame(i: int, r_wrist: tuple[float, float, float]) -> PoseFrame:
+    """Frame with the right shoulder(12)/elbow(14)/wrist(16) placed explicitly."""
+    wl = [WorldLandmark(x=0.0, y=0.0, z=0.0, visibility=1.0) for _ in range(33)]
+    wl[_R_SHOULDER] = WorldLandmark(x=0.0, y=0.0, z=0.0, visibility=1.0)
+    wl[14] = WorldLandmark(x=0.0, y=-0.15, z=0.0, visibility=1.0)  # right elbow
+    wl[_R_WRIST] = WorldLandmark(x=r_wrist[0], y=r_wrist[1], z=r_wrist[2], visibility=1.0)
+    wl[_L_SHOULDER] = WorldLandmark(x=-0.4, y=0.0, z=0.0, visibility=1.0)
+    wl[_L_WRIST] = WorldLandmark(x=-0.45, y=0.0, z=0.0, visibility=1.0)
+    from contracts import Landmark
+
+    lm = tuple(Landmark(x=w.x, y=w.y, z=w.z, visibility=1.0) for w in wl)
+    return PoseFrame(
+        session_id=SID, frame_index=i, t_ms=i * FPS_DT, landmarks=lm, world_landmarks=tuple(wl)
+    )
+
+
+_BENT = (0.12, -0.12, 0.0)  # elbow ≈ 76° (chambered)
+_STRAIGHT = (0.0, -0.30, 0.0)  # elbow ≈ 180° (extended)
+
+
+def _run_arm(wrists: list[tuple[float, float, float]], **kwargs) -> int:
+    det = ExtensionCyclePunchDetector(stance="orthodox", **kwargs)
+    return sum(len(det.feed(_arm_frame(i, w))) for i, w in enumerate(wrists))
+
+
+def test_elbow_gate_catches_straight_punch() -> None:
+    # Excursion gate disabled (impossible thresholds) — only the elbow gate can fire.
+    seq = [_BENT] * 5 + [_STRAIGHT] * 4 + [_BENT] * 4
+    assert _run_arm(seq, min_peak_velocity_ms=999, min_excursion_m=999) == 1
+
+
+def test_elbow_gate_no_fire_without_chamber() -> None:
+    # Arm already straight the whole time — never chambered, so no punch.
+    assert _run_arm([_STRAIGHT] * 12, min_peak_velocity_ms=999, min_excursion_m=999) == 0
+
+
+def test_elbow_gate_two_straight_punches() -> None:
+    seq = [_BENT] * 5 + [_STRAIGHT] * 4 + [_BENT] * 6 + [_STRAIGHT] * 4 + [_BENT] * 4
+    assert _run_arm(seq, min_peak_velocity_ms=999, min_excursion_m=999) == 2
+
+
+def test_elbow_gate_ignores_slow_extension() -> None:
+    # Straighten very slowly (25 frames ≫ the punch window) — a reach, not a punch.
+    n = 25
+    ramp = [
+        (
+            _BENT[0] + (_STRAIGHT[0] - _BENT[0]) * k / n,
+            _BENT[1] + (_STRAIGHT[1] - _BENT[1]) * k / n,
+            0.0,
+        )
+        for k in range(n + 1)
+    ]
+    assert _run_arm([_BENT] * 5 + ramp, min_peak_velocity_ms=999, min_excursion_m=999) == 0

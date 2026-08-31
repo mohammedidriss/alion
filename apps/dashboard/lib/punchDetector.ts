@@ -17,18 +17,26 @@
 // MediaPipe landmark indices
 const LM_LEFT_SHOULDER = 11;
 const LM_RIGHT_SHOULDER = 12;
+const LM_LEFT_ELBOW = 13;
+const LM_RIGHT_ELBOW = 14;
 const LM_LEFT_WRIST = 15;
 const LM_RIGHT_WRIST = 16;
 
-// Defaults mirror the Python reference (validated on real sessions). The key
-// discriminator is ballistic peak velocity; the excursion cycle makes it one
-// count per punch and requires real out-and-back travel.
+// Defaults mirror the Python reference (validated on real sessions). The
+// excursion gate catches wide/side punches; the elbow-extension gate is
+// direction-invariant and catches straight punches thrown toward the camera
+// (whose forward motion the monocular depth axis compresses). Keep in sync with
+// packages/analyze/punch_detector_extension.py (ADR 009).
 const MIN_PEAK_VELOCITY_MS = 2.5; // was 1.2 (far too low); 3.0 under-caught depth-axis punches
 const MIN_EXCURSION_M = 0.04; // min wrist travel valley→peak, metres (world coords)
 const HYSTERESIS_M = 0.03; // turn-around must exceed this to confirm a peak/valley
 const REFRACTORY_MS = 250;
 const MIN_VISIBILITY = 0.5;
 const LEGACY_BODY_WIDTH = 0.45; // 2D-fallback scale (no world landmarks)
+// Elbow-extension gate.
+const ELBOW_CHAMBER_DEG = 100; // elbow counts as "bent" below this
+const ELBOW_EXTEND_DEG = 150; // ...and "straight" above this
+const ELBOW_WINDOW_MS = 200; // bent→straight must happen within this window (punch tempo)
 
 export type Hand = "left" | "right";
 
@@ -51,7 +59,7 @@ interface Landmark {
   visibility?: number;
 }
 
-/** Hysteresis peak/valley tracker over the wrist→shoulder extension signal. */
+/** Per-hand state: wrist-excursion hysteresis tracker + elbow-extension tracker. */
 interface HandCycle {
   goingUp: boolean;
   extreme: number | null; // current local extreme (peak while up, valley while down)
@@ -60,7 +68,9 @@ interface HandCycle {
   peakT: number;
   lastPos: Vec3 | null;
   lastT: number | null;
-  lastEventT: number | null;
+  lastEventT: number | null; // shared refractory across both gates
+  elbowHist: Array<[number, number]>; // recent (t_ms, angle) samples for the tempo window
+  elbowExtended: boolean; // currently past the extend threshold — needs re-chamber
 }
 
 function makeHandCycle(): HandCycle {
@@ -73,11 +83,27 @@ function makeHandCycle(): HandCycle {
     lastPos: null,
     lastT: null,
     lastEventT: null,
+    elbowHist: [],
+    elbowExtended: false,
   };
 }
 
 function dist(a: Vec3, b: Vec3): number {
   return Math.sqrt((a[0] - b[0]) ** 2 + (a[1] - b[1]) ** 2 + (a[2] - b[2]) ** 2);
+}
+
+function elbowAngleDeg(shoulder: Vec3, elbow: Vec3, wrist: Vec3): number {
+  const ux = shoulder[0] - elbow[0],
+    uy = shoulder[1] - elbow[1],
+    uz = shoulder[2] - elbow[2];
+  const vx = wrist[0] - elbow[0],
+    vy = wrist[1] - elbow[1],
+    vz = wrist[2] - elbow[2];
+  const nu = Math.sqrt(ux * ux + uy * uy + uz * uz);
+  const nv = Math.sqrt(vx * vx + vy * vy + vz * vz);
+  if (nu < 1e-6 || nv < 1e-6) return 180;
+  const cosA = Math.max(-1, Math.min(1, (ux * vx + uy * vy + uz * vz) / (nu * nv)));
+  return (Math.acos(cosA) * 180) / Math.PI;
 }
 
 function getLandmark(lms: Landmark[], idx: number): Landmark | null {
@@ -130,9 +156,9 @@ export class PunchDetector {
     const useWorld = lms === worldLms;
 
     const events: PunchEvent[] = [];
-    const el = this.step(lms, "left", LM_LEFT_WRIST, LM_LEFT_SHOULDER, this.left, tMs, useWorld);
+    const el = this.step(lms, "left", LM_LEFT_WRIST, LM_LEFT_SHOULDER, LM_LEFT_ELBOW, this.left, tMs, useWorld);
     if (el) events.push(el);
-    const er = this.step(lms, "right", LM_RIGHT_WRIST, LM_RIGHT_SHOULDER, this.right, tMs, useWorld);
+    const er = this.step(lms, "right", LM_RIGHT_WRIST, LM_RIGHT_SHOULDER, LM_RIGHT_ELBOW, this.right, tMs, useWorld);
     if (er) events.push(er);
     return events;
   }
@@ -142,6 +168,7 @@ export class PunchDetector {
     hand: Hand,
     wristIdx: number,
     shoulderIdx: number,
+    elbowIdx: number,
     cyc: HandCycle,
     tMs: number,
     useWorld: boolean,
@@ -222,6 +249,40 @@ export class PunchDetector {
         cyc.extreme = ext;
         cyc.risePeakSpeed = speed;
         cyc.peakT = tMs;
+      }
+    }
+
+    // --- Elbow-extension gate: fires when the elbow goes from bent to straight
+    // within a short window — a punch tempo. Direction-invariant, so it catches
+    // straight punches toward the camera that the excursion gate misses.
+    const elLm = getLandmark(lms, elbowIdx);
+    if (elLm) {
+      const elbowAngle = elbowAngleDeg(shoulder, [elLm.x, elLm.y, elLm.z], wrist);
+      cyc.elbowHist.push([tMs, elbowAngle]);
+      const cutoff = tMs - ELBOW_WINDOW_MS;
+      cyc.elbowHist = cyc.elbowHist.filter(([t]) => t >= cutoff);
+      if (elbowAngle <= ELBOW_CHAMBER_DEG) cyc.elbowExtended = false; // re-armed
+      const recentMin = Math.min(...cyc.elbowHist.map(([, a]) => a));
+      if (
+        !cyc.elbowExtended &&
+        elbowAngle >= ELBOW_EXTEND_DEG &&
+        recentMin <= ELBOW_CHAMBER_DEG // was bent within the window
+      ) {
+        const spaced =
+          cyc.lastEventT === null || tMs - cyc.lastEventT >= REFRACTORY_MS;
+        if (ev === null && spaced) {
+          ev = {
+            t_ms: tMs,
+            hand,
+            velocity_ms: Math.round(speed * 100) / 100,
+            confidence: 0.6,
+            detected_by: "heuristic",
+            lead_or_rear: handToLeadRear(hand, this.stance),
+            velocity_source: useWorld ? "world" : "image_heuristic",
+          };
+          cyc.lastEventT = tMs;
+        }
+        cyc.elbowExtended = true; // require re-chamber before the next elbow fire
       }
     }
 
