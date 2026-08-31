@@ -137,9 +137,7 @@ class ExtensionCyclePunchDetector:
 
     def feed(self, frame: PoseFrame) -> list[PunchEvent]:
         events: list[PunchEvent] = []
-        ev_l = self._step(
-            frame, "left", LM_LEFT_WRIST, LM_LEFT_SHOULDER, LM_LEFT_ELBOW, self._left
-        )
+        ev_l = self._step(frame, "left", LM_LEFT_WRIST, LM_LEFT_SHOULDER, LM_LEFT_ELBOW, self._left)
         if ev_l is not None:
             events.append(ev_l)
         ev_r = self._step(
