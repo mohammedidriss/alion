@@ -674,6 +674,39 @@ class HeadImpactEventRead(SQLModel):
 
 
 # ----------------------------------------------------------------------
+# Pulse samples — rPPG (video-derived) cardiac fallback (ADR 008). Its OWN
+# table and source: pulse-rate variability (PRV), NOT HRV. A between-rounds
+# low-motion fallback for the Polar H10; never written to hr_sample and not
+# equivalent to it. `ibi_ms` is named distinctly from HRSampleRow.rr_ms so
+# the two intervals are never conflated. Advisory only.
+# ----------------------------------------------------------------------
+
+
+class CardiacSourceEnum(StrEnum):
+    RPPG = "rppg"
+
+
+class PulseSampleRow(SQLModel, table=True):
+    __tablename__ = "pulse_sample"
+    id: int | None = Field(default=None, primary_key=True)
+    session_id: UUID = Field(foreign_key="session.id", index=True)
+    t_ms: float
+    ibi_ms: float
+    pulse_bpm: float
+    quality: float
+    source: CardiacSourceEnum = CardiacSourceEnum.RPPG
+
+
+class PulseSampleRead(SQLModel):
+    session_id: UUID
+    t_ms: float
+    ibi_ms: float
+    pulse_bpm: float
+    quality: float
+    source: CardiacSourceEnum = CardiacSourceEnum.RPPG
+
+
+# ----------------------------------------------------------------------
 # Saved round-structure plans — small reusable presets the fighter can
 # apply to a session in one click ("3×3 + 1 (pro spar)" etc.). Server
 # caps the count at MAX_ROUND_PLANS to keep the UI list short.

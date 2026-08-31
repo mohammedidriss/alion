@@ -159,4 +159,5 @@ modules = [
     "capture.cv",
     "capture.hrv",
     "capture.mouthguard",
+    "capture.rppg",
 ]

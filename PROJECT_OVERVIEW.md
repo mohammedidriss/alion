@@ -232,6 +232,26 @@ telemetry only; not a concussion diagnosis.
 Produced by the isolated `capture/mouthguard` adapter (`CsvImpactReplaySource`
 for dev/replay, `MouthguardBleSource` for live BLE).
 
+#### `PulseSampleRow`
+
+rPPG (video-derived) pulse samples — **pulse-rate variability (PRV), not HRV**
+(ADR 008). Its **own** table and a distinct cardiac `source`: a between-rounds,
+low-motion fallback for the Polar H10, never written to `hr_sample` and not
+equivalent to it. The interval is `ibi_ms` (inter-beat interval), named
+distinctly from `HRSampleRow.rr_ms` so the two are never conflated.
+
+| Field | Notes |
+|---|---|
+| `t_ms` | Session-start offset (SessionClock T_0) |
+| `ibi_ms` | Inter-beat interval, ms (PRV — not an ECG RR) |
+| `pulse_bpm` | 60 000 / ibi_ms |
+| `quality` | 0.0–1.0 signal quality (rPPG is motion/light-sensitive) |
+| `source` | `rppg` (`CardiacSourceEnum`) |
+
+Produced by the isolated `capture/rppg` adapter (`estimate_pulse` +
+`RppgWindowSource`), which does its own frame/ROI handling and never imports
+`capture/cv`.
+
 #### `ConsensusEventRow`
 
 Reconciled punch events (merged across detection methods). One row per final consensus punch.

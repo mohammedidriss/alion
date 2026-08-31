@@ -22,6 +22,9 @@ SessionSource = Literal["live_webcam", "uploaded_video", "live_iphone"]
 DetectionSource = Literal["heuristic", "lstm_v1", "custom_ml"]
 # Head-impact location as reported by an instrumented mouthguard (ADR 007).
 ImpactLocation = Literal["front", "back", "left", "right", "top", "chin"]
+# Cardiac signal provenance. `rppg` is a distinct, video-derived PRV source,
+# never equivalent to or merged with the Polar H10 HRV stream (ADR 008).
+CardiacSource = Literal["rppg"]
 
 
 class _Frozen(BaseModel):
@@ -125,6 +128,27 @@ class HRMetricsWindow(_Frozen):
     mean_hr_bpm: float = Field(ge=0.0)
     rmssd_ms: float = Field(ge=0.0)
     sdnn_ms: float = Field(ge=0.0)
+
+
+class PulseSample(_Frozen):
+    """One inter-beat interval estimated by rPPG from video (ADR 008).
+
+    Pulse-rate variability (PRV), NOT HRV. The interval is the blood-volume-pulse
+    peak-to-peak time recovered from skin-colour changes in ordinary video — not
+    the ECG RR interval the Polar H10 measures. `ibi_ms` is named distinctly from
+    `HRSample.rr_ms` on purpose: this is a between-rounds, low-motion *fallback*
+    for the H10, a separate cardiac `source`, never merged into the HRV stream
+    and not equivalent to it. Advisory only.
+    """
+
+    session_id: UUID
+    t_ms: float = Field(ge=0.0, description="ms since session start (SessionClock T_0)")
+    ibi_ms: float = Field(gt=0.0, description="inter-beat interval, ms (PRV — not an ECG RR)")
+    pulse_bpm: float = Field(gt=0.0, le=300.0)
+    quality: float = Field(
+        ge=0.0, le=1.0, description="0-1 signal quality; rPPG is motion/light-sensitive"
+    )
+    source: CardiacSource = "rppg"
 
 
 class SessionMeta(_Frozen):
