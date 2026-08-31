@@ -42,8 +42,8 @@ LM_RIGHT_WRIST = 16
 # wrists peaked at 4.2-5.3 m/s while background movement sat below ~2 m/s). The
 # key discriminator is ballistic peak velocity; the excursion cycle just makes it
 # one-count-per-punch and requires real out-and-back travel.
-DEFAULT_MIN_PEAK_VELOCITY_MS = 3.0  # was 1.2 on the old detector — far too low
-DEFAULT_MIN_EXCURSION_M = 0.06  # min wrist travel valley→peak, metres (world coords)
+DEFAULT_MIN_PEAK_VELOCITY_MS = 2.5  # was 1.2 (far too low); 3.0 under-caught depth-axis punches
+DEFAULT_MIN_EXCURSION_M = 0.04  # min wrist travel valley→peak, metres (world coords)
 DEFAULT_HYSTERESIS_M = 0.03  # turn-around must exceed this to confirm a peak/valley
 DEFAULT_REFRACTORY_MS = 250.0
 DEFAULT_MIN_VISIBILITY = 0.5

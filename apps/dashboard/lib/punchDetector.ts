@@ -23,8 +23,8 @@ const LM_RIGHT_WRIST = 16;
 // Defaults mirror the Python reference (validated on real sessions). The key
 // discriminator is ballistic peak velocity; the excursion cycle makes it one
 // count per punch and requires real out-and-back travel.
-const MIN_PEAK_VELOCITY_MS = 3.0; // was 1.2 on the old detector — far too low
-const MIN_EXCURSION_M = 0.06; // min wrist travel valley→peak, metres (world coords)
+const MIN_PEAK_VELOCITY_MS = 2.5; // was 1.2 (far too low); 3.0 under-caught depth-axis punches
+const MIN_EXCURSION_M = 0.04; // min wrist travel valley→peak, metres (world coords)
 const HYSTERESIS_M = 0.03; // turn-around must exceed this to confirm a peak/valley
 const REFRACTORY_MS = 250;
 const MIN_VISIBILITY = 0.5;
