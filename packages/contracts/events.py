@@ -20,6 +20,11 @@ LeadOrRear = Literal["lead", "rear"]
 PunchType = Literal["jab", "cross", "hook", "uppercut"]
 SessionSource = Literal["live_webcam", "uploaded_video", "live_iphone"]
 DetectionSource = Literal["heuristic", "lstm_v1", "custom_ml"]
+# Head-impact location as reported by an instrumented mouthguard (ADR 007).
+ImpactLocation = Literal["front", "back", "left", "right", "top", "chin"]
+# Cardiac signal provenance. `rppg` is a distinct, video-derived PRV source,
+# never equivalent to or merged with the Polar H10 HRV stream (ADR 008).
+CardiacSource = Literal["rppg"]
 
 
 class _Frozen(BaseModel):
@@ -76,6 +81,29 @@ class PunchEvent(_Frozen):
     confidence: float = Field(ge=0.0, le=1.0)
 
 
+class HeadImpactEvent(_Frozen):
+    """A single measured head impact from an instrumented mouthguard (ADR 007).
+
+    Distinct from `PunchEvent` and never merged into it: a punch is a *hand*
+    event the athlete generates; a head impact is a *head* event they usually
+    *receive* (most often from the opponent). The physical quantities differ —
+    linear + rotational acceleration and an impact location, not wrist velocity.
+
+    Advisory telemetry only — not a concussion diagnosis or return-to-play call.
+    """
+
+    session_id: UUID
+    t_ms: float = Field(ge=0.0, description="ms since session start (SessionClock T_0)")
+    peak_linear_accel_g: float = Field(ge=0.0, description="peak linear acceleration, g")
+    peak_rotational_vel_rad_s: float = Field(ge=0.0, description="peak angular velocity, rad/s")
+    peak_rotational_accel_rad_s2: float | None = Field(
+        default=None, ge=0.0, description="peak angular acceleration, rad/s^2 (optional)"
+    )
+    location: ImpactLocation
+    device_id: str | None = None
+    confidence: float = Field(ge=0.0, le=1.0)
+
+
 class HRSample(_Frozen):
     """One heart-beat from a Polar H10 (or replay file).
 
@@ -100,6 +128,27 @@ class HRMetricsWindow(_Frozen):
     mean_hr_bpm: float = Field(ge=0.0)
     rmssd_ms: float = Field(ge=0.0)
     sdnn_ms: float = Field(ge=0.0)
+
+
+class PulseSample(_Frozen):
+    """One inter-beat interval estimated by rPPG from video (ADR 008).
+
+    Pulse-rate variability (PRV), NOT HRV. The interval is the blood-volume-pulse
+    peak-to-peak time recovered from skin-colour changes in ordinary video — not
+    the ECG RR interval the Polar H10 measures. `ibi_ms` is named distinctly from
+    `HRSample.rr_ms` on purpose: this is a between-rounds, low-motion *fallback*
+    for the H10, a separate cardiac `source`, never merged into the HRV stream
+    and not equivalent to it. Advisory only.
+    """
+
+    session_id: UUID
+    t_ms: float = Field(ge=0.0, description="ms since session start (SessionClock T_0)")
+    ibi_ms: float = Field(gt=0.0, description="inter-beat interval, ms (PRV — not an ECG RR)")
+    pulse_bpm: float = Field(gt=0.0, le=300.0)
+    quality: float = Field(
+        ge=0.0, le=1.0, description="0-1 signal quality; rPPG is motion/light-sensitive"
+    )
+    source: CardiacSource = "rppg"
 
 
 class SessionMeta(_Frozen):

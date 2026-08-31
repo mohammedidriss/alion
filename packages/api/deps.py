@@ -16,8 +16,10 @@ from store import (
     FighterTeamRepo,
     GymManagerRepo,
     GymRepo,
+    HeadImpactRepo,
     IMUSampleRepo,
     MedicalRepo,
+    PulseSampleRepo,
     PunchEventRepo,
     RefereeRepo,
     SessionRepo,
@@ -44,6 +46,14 @@ def punch_event_repo(session: Session = Depends(db_session)) -> PunchEventRepo:
 
 def imu_sample_repo(session: Session = Depends(db_session)) -> IMUSampleRepo:
     return IMUSampleRepo(session)
+
+
+def head_impact_repo(session: Session = Depends(db_session)) -> HeadImpactRepo:
+    return HeadImpactRepo(session)
+
+
+def pulse_sample_repo(session: Session = Depends(db_session)) -> PulseSampleRepo:
+    return PulseSampleRepo(session)
 
 
 def consensus_event_repo(

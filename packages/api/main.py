@@ -22,7 +22,9 @@ from api.routes import (
     gyms,
     health,
     hrv,
+    impacts,
     imu,
+    pulse,
     referees,
     round_plans,
     rq1,
@@ -163,6 +165,10 @@ app.include_router(hrv.stream_router, prefix="/v2")
 app.include_router(hrv.ble_router, prefix="/v2")
 app.include_router(imu.router, prefix="/v2")
 app.include_router(imu.router)
+# New capture streams — mouthguard head impact (ADR 007) and rPPG PRV (ADR 008).
+# v2 only: net-new Phase 2/3 work, not part of any frozen contract.
+app.include_router(impacts.router, prefix="/v2")
+app.include_router(pulse.router, prefix="/v2")
 app.include_router(rq1.router)
 app.include_router(round_plans.router)
 
