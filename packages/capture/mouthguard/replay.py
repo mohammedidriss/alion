@@ -47,27 +47,38 @@ class ImpactReading:
 
 
 def parse_impacts_csv(path: str | Path) -> list[tuple[float, ImpactReading]]:
-    """Parse a head-impact CSV into (t_ms, ImpactReading) tuples — pure function.
+    """Parse a head-impact CSV file into (t_ms, ImpactReading) tuples."""
+    with Path(path).open() as f:
+        return _parse_impacts_lines(f)
+
+
+def parse_impacts_text(text: str) -> list[tuple[float, ImpactReading]]:
+    """Parse head-impact CSV *text* (e.g. an uploaded body) — same rules as the file parser."""
+    import io
+
+    return _parse_impacts_lines(io.StringIO(text))
+
+
+def _parse_impacts_lines(lines: Iterator[str]) -> list[tuple[float, ImpactReading]]:
+    """Core parser over an iterable of CSV lines — pure.
 
     Rows with a missing/invalid required field or an unknown `location` are
     skipped (same lenient policy as the HRV replay parser).
     """
-    p = Path(path)
     rows: list[tuple[float, ImpactReading]] = []
-    with p.open() as f:
-        reader = csv.DictReader(_strip_comments(f))
-        if reader.fieldnames is None:
-            return []
-        cols = {c.strip().lower(): c for c in reader.fieldnames}
-        required = ("t_ms", "peak_linear_accel_g", "peak_rotational_vel_rad_s", "location")
-        if any(r not in cols for r in required):
-            missing = [r for r in required if r not in cols]
-            raise ValueError(f"CSV {p} missing required column(s): {missing}")
+    reader = csv.DictReader(_strip_comments(lines))
+    if reader.fieldnames is None:
+        return []
+    cols = {c.strip().lower(): c for c in reader.fieldnames}
+    required = ("t_ms", "peak_linear_accel_g", "peak_rotational_vel_rad_s", "location")
+    if any(r not in cols for r in required):
+        missing = [r for r in required if r not in cols]
+        raise ValueError(f"CSV missing required column(s): {missing}")
 
-        for row in reader:
-            parsed = _parse_row(row, cols)
-            if parsed is not None:
-                rows.append(parsed)
+    for row in reader:
+        parsed = _parse_row(row, cols)
+        if parsed is not None:
+            rows.append(parsed)
     return rows
 
 

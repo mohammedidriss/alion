@@ -16,6 +16,7 @@ from capture.mouthguard.replay import (
     CsvImpactReplaySource,
     ImpactReading,
     parse_impacts_csv,
+    parse_impacts_text,
 )
 
 __all__ = [
@@ -25,5 +26,6 @@ __all__ = [
     "MouthguardBleSource",
     "impact_event_from_reading",
     "parse_impacts_csv",
+    "parse_impacts_text",
     "scan_for_impact_devices",
 ]
