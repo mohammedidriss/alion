@@ -48,12 +48,16 @@ LM_RIGHT_WRIST = 16
 # way the fighter faces, so a fast chamber→extend of the elbow counts as a punch
 # even when the wrist's forward motion is invisible. Hooks/uppercuts never fully
 # straighten, so they are left to the excursion gate. See ADR 009.
-DEFAULT_MIN_PEAK_VELOCITY_MS = 2.5  # was 1.2 (far too low); 3.0 under-caught depth-axis punches
+DEFAULT_MIN_PEAK_VELOCITY_MS = 2.2  # 1.2 caught everything; 3.0 missed depth-axis punches
 DEFAULT_MIN_EXCURSION_M = 0.04  # min wrist travel valley→peak, metres (world coords)
 DEFAULT_HYSTERESIS_M = 0.03  # turn-around must exceed this to confirm a peak/valley
 DEFAULT_REFRACTORY_MS = 250.0
 DEFAULT_MIN_VISIBILITY = 0.5
 DEFAULT_LEGACY_BODY_WIDTH_M = 0.45  # 2D-fallback scale (no world landmarks)
+# Opposite-hand suppression: a near-simultaneous fire on the *other* hand is
+# almost always body sway registering on both wrists, not a real second punch.
+# Drop it if it lands within this window of the last accepted event.
+DEFAULT_OPP_HAND_SUPPRESS_MS = 130.0
 # Elbow-extension gate.
 DEFAULT_ELBOW_CHAMBER_DEG = 100.0  # elbow counts as "bent" below this
 DEFAULT_ELBOW_EXTEND_DEG = 150.0  # ...and "straight" above this
@@ -126,9 +130,12 @@ class ExtensionCyclePunchDetector:
     elbow_chamber_deg: float = DEFAULT_ELBOW_CHAMBER_DEG
     elbow_extend_deg: float = DEFAULT_ELBOW_EXTEND_DEG
     elbow_window_ms: float = DEFAULT_ELBOW_WINDOW_MS
+    opp_hand_suppress_ms: float = DEFAULT_OPP_HAND_SUPPRESS_MS
 
     _left: _HandCycle = field(default_factory=_HandCycle, init=False)
     _right: _HandCycle = field(default_factory=_HandCycle, init=False)
+    _last_fire_t: float | None = field(default=None, init=False)
+    _last_fire_hand: Hand | None = field(default=None, init=False)
 
     @property
     def near_misses(self) -> list[dict[str, str | float]]:
@@ -136,15 +143,22 @@ class ExtensionCyclePunchDetector:
         return []
 
     def feed(self, frame: PoseFrame) -> list[PunchEvent]:
-        events: list[PunchEvent] = []
         ev_l = self._step(frame, "left", LM_LEFT_WRIST, LM_LEFT_SHOULDER, LM_LEFT_ELBOW, self._left)
-        if ev_l is not None:
-            events.append(ev_l)
         ev_r = self._step(
             frame, "right", LM_RIGHT_WRIST, LM_RIGHT_SHOULDER, LM_RIGHT_ELBOW, self._right
         )
-        if ev_r is not None:
-            events.append(ev_r)
+        events: list[PunchEvent] = []
+        for ev in (e for e in (ev_l, ev_r) if e is not None):
+            if (
+                self._last_fire_t is not None
+                and self._last_fire_hand is not None
+                and ev.hand != self._last_fire_hand
+                and (ev.t_ms - self._last_fire_t) < self.opp_hand_suppress_ms
+            ):
+                continue  # sway on the opposite wrist, not a real second punch
+            self._last_fire_t = ev.t_ms
+            self._last_fire_hand = ev.hand
+            events.append(ev)
         return events
 
     def _landmark(

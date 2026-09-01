@@ -27,7 +27,7 @@ const LM_RIGHT_WRIST = 16;
 // direction-invariant and catches straight punches thrown toward the camera
 // (whose forward motion the monocular depth axis compresses). Keep in sync with
 // packages/analyze/punch_detector_extension.py (ADR 009).
-const MIN_PEAK_VELOCITY_MS = 2.5; // was 1.2 (far too low); 3.0 under-caught depth-axis punches
+const MIN_PEAK_VELOCITY_MS = 2.2; // 1.2 caught everything; 3.0 missed depth-axis punches
 const MIN_EXCURSION_M = 0.04; // min wrist travel valley→peak, metres (world coords)
 const HYSTERESIS_M = 0.03; // turn-around must exceed this to confirm a peak/valley
 const REFRACTORY_MS = 250;
@@ -37,6 +37,9 @@ const LEGACY_BODY_WIDTH = 0.45; // 2D-fallback scale (no world landmarks)
 const ELBOW_CHAMBER_DEG = 100; // elbow counts as "bent" below this
 const ELBOW_EXTEND_DEG = 150; // ...and "straight" above this
 const ELBOW_WINDOW_MS = 200; // bent→straight must happen within this window (punch tempo)
+// Opposite-hand suppression: a near-simultaneous fire on the other hand is
+// almost always body sway on both wrists, not a real second punch.
+const OPP_HAND_SUPPRESS_MS = 130;
 
 export type Hand = "left" | "right";
 
@@ -134,6 +137,8 @@ export class PunchDetector {
   private stance: string | null;
   private left = makeHandCycle();
   private right = makeHandCycle();
+  private lastFireT: number | null = null;
+  private lastFireHand: Hand | null = null;
 
   constructor(stance: string | null = null) {
     this.stance = stance;
@@ -142,6 +147,8 @@ export class PunchDetector {
   reset() {
     this.left = makeHandCycle();
     this.right = makeHandCycle();
+    this.lastFireT = null;
+    this.lastFireHand = null;
   }
 
   /**
@@ -155,11 +162,23 @@ export class PunchDetector {
     const lms = worldLms && worldLms.length === 33 ? worldLms : normLms;
     const useWorld = lms === worldLms;
 
-    const events: PunchEvent[] = [];
     const el = this.step(lms, "left", LM_LEFT_WRIST, LM_LEFT_SHOULDER, LM_LEFT_ELBOW, this.left, tMs, useWorld);
-    if (el) events.push(el);
     const er = this.step(lms, "right", LM_RIGHT_WRIST, LM_RIGHT_SHOULDER, LM_RIGHT_ELBOW, this.right, tMs, useWorld);
-    if (er) events.push(er);
+    const events: PunchEvent[] = [];
+    for (const ev of [el, er]) {
+      if (!ev) continue;
+      if (
+        this.lastFireT !== null &&
+        this.lastFireHand !== null &&
+        ev.hand !== this.lastFireHand &&
+        ev.t_ms - this.lastFireT < OPP_HAND_SUPPRESS_MS
+      ) {
+        continue; // sway on the opposite wrist, not a real second punch
+      }
+      this.lastFireT = ev.t_ms;
+      this.lastFireHand = ev.hand;
+      events.push(ev);
+    }
     return events;
   }
 
