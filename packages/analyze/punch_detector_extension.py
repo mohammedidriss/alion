@@ -62,6 +62,13 @@ DEFAULT_OPP_HAND_SUPPRESS_MS = 130.0
 DEFAULT_ELBOW_CHAMBER_DEG = 100.0  # elbow counts as "bent" below this
 DEFAULT_ELBOW_EXTEND_DEG = 150.0  # ...and "straight" above this
 DEFAULT_ELBOW_WINDOW_MS = 200.0  # bent→straight must happen within this window (punch tempo)
+# Upward-drive gate — the uppercut. It brings the fist UP while the arm stays
+# bent and close to the body, so neither the excursion nor the elbow gate sees
+# it. Fire on a fast upward wrist drive that started from below the shoulder.
+DEFAULT_UP_MIN_SPEED_MS = 2.0  # upward wrist speed
+DEFAULT_UP_MIN_RISE_M = 0.13  # wrist must rise at least this far within the window
+DEFAULT_UP_START_BELOW_M = 0.05  # ...having started at least this far below the shoulder
+DEFAULT_UP_WINDOW_MS = 250.0
 
 
 @dataclass
@@ -75,10 +82,13 @@ class _HandCycle:
     peak_t: float = 0.0
     last_pos: tuple[float, float, float] | None = None
     last_t: float | None = None
-    last_event_t: float | None = None  # shared refractory across both gates
+    last_event_t: float | None = None  # shared refractory across all gates
     # Elbow-extension gate: recent (t_ms, angle) samples for the tempo window.
     elbow_hist: list[tuple[float, float]] = field(default_factory=list)
     elbow_extended: bool = False  # currently past the extend threshold — needs re-chamber
+    # Upward-drive (uppercut) gate: recent (t_ms, wrist_y − shoulder_y) samples.
+    yrel_hist: list[tuple[float, float]] = field(default_factory=list)
+    uppercut_fired: bool = False  # currently mid-drive — needs the wrist to stop rising
 
 
 def _dist(a: tuple[float, float, float], b: tuple[float, float, float]) -> float:
@@ -130,6 +140,10 @@ class ExtensionCyclePunchDetector:
     elbow_chamber_deg: float = DEFAULT_ELBOW_CHAMBER_DEG
     elbow_extend_deg: float = DEFAULT_ELBOW_EXTEND_DEG
     elbow_window_ms: float = DEFAULT_ELBOW_WINDOW_MS
+    up_min_speed_ms: float = DEFAULT_UP_MIN_SPEED_MS
+    up_min_rise_m: float = DEFAULT_UP_MIN_RISE_M
+    up_start_below_m: float = DEFAULT_UP_START_BELOW_M
+    up_window_ms: float = DEFAULT_UP_WINDOW_MS
     opp_hand_suppress_ms: float = DEFAULT_OPP_HAND_SUPPRESS_MS
 
     _left: _HandCycle = field(default_factory=_HandCycle, init=False)
@@ -197,9 +211,11 @@ class ExtensionCyclePunchDetector:
         ext = _dist(wrist_xyz, (sx, sy, sz)) * scale
 
         speed = 0.0
+        up_speed = 0.0  # upward wrist speed (world Y more negative = up)
         if cyc.last_pos is not None and cyc.last_t is not None:
             dt_s = max(1e-3, (frame.t_ms - cyc.last_t) / 1000.0)
             speed = _dist(wrist_xyz, cyc.last_pos) * scale / dt_s
+            up_speed = -(wy - cyc.last_pos[1]) * scale / dt_s
         cyc.last_pos = wrist_xyz
         cyc.last_t = frame.t_ms
 
@@ -296,6 +312,40 @@ class ExtensionCyclePunchDetector:
                     )
                     cyc.last_event_t = frame.t_ms
                 cyc.elbow_extended = True  # require re-chamber before the next elbow fire
+
+        # --- Upward-drive gate (uppercut): a fast upward wrist drive that started
+        # from below the shoulder. Covers the punch neither other gate sees.
+        yrel = (wy - sy) * scale  # + = wrist below the shoulder
+        cyc.yrel_hist.append((frame.t_ms, yrel))
+        up_cutoff = frame.t_ms - self.up_window_ms
+        cyc.yrel_hist = [(t, y) for (t, y) in cyc.yrel_hist if t >= up_cutoff]
+        if up_speed <= 0:
+            cyc.uppercut_fired = False  # reset once the wrist stops rising
+        low = max(y for _, y in cyc.yrel_hist)  # most-below point in the window
+        risen = low - yrel
+        if (
+            ev is None
+            and not cyc.uppercut_fired
+            and up_speed >= self.up_min_speed_ms
+            and risen >= self.up_min_rise_m
+            and low >= self.up_start_below_m
+        ):
+            spaced = (
+                cyc.last_event_t is None or (frame.t_ms - cyc.last_event_t) >= self.refractory_ms
+            )
+            if spaced:
+                ev = PunchEvent(
+                    session_id=frame.session_id,
+                    t_ms=frame.t_ms,
+                    hand=hand,
+                    lead_or_rear=_hand_to_lead_rear(hand, self.stance),
+                    velocity_ms=round(up_speed, 2),
+                    velocity_source="world" if use_world else "image_heuristic",
+                    detected_by="heuristic",
+                    confidence=0.6,
+                )
+                cyc.last_event_t = frame.t_ms
+            cyc.uppercut_fired = True
 
         return ev
 

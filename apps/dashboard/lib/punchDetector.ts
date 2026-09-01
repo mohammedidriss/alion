@@ -37,6 +37,12 @@ const LEGACY_BODY_WIDTH = 0.45; // 2D-fallback scale (no world landmarks)
 const ELBOW_CHAMBER_DEG = 100; // elbow counts as "bent" below this
 const ELBOW_EXTEND_DEG = 150; // ...and "straight" above this
 const ELBOW_WINDOW_MS = 200; // bent→straight must happen within this window (punch tempo)
+// Upward-drive gate — the uppercut. Brings the fist up with the arm bent and
+// close to the body, so neither other gate sees it.
+const UP_MIN_SPEED_MS = 2.0;
+const UP_MIN_RISE_M = 0.13;
+const UP_START_BELOW_M = 0.05;
+const UP_WINDOW_MS = 250;
 // Opposite-hand suppression: a near-simultaneous fire on the other hand is
 // almost always body sway on both wrists, not a real second punch.
 const OPP_HAND_SUPPRESS_MS = 130;
@@ -71,9 +77,11 @@ interface HandCycle {
   peakT: number;
   lastPos: Vec3 | null;
   lastT: number | null;
-  lastEventT: number | null; // shared refractory across both gates
+  lastEventT: number | null; // shared refractory across all gates
   elbowHist: Array<[number, number]>; // recent (t_ms, angle) samples for the tempo window
   elbowExtended: boolean; // currently past the extend threshold — needs re-chamber
+  yrelHist: Array<[number, number]>; // recent (t_ms, wristY − shoulderY) for the uppercut gate
+  uppercutFired: boolean; // currently mid-drive — needs the wrist to stop rising
 }
 
 function makeHandCycle(): HandCycle {
@@ -88,6 +96,8 @@ function makeHandCycle(): HandCycle {
     lastEventT: null,
     elbowHist: [],
     elbowExtended: false,
+    yrelHist: [],
+    uppercutFired: false,
   };
 }
 
@@ -206,9 +216,11 @@ export class PunchDetector {
     const ext = dist(wrist, shoulder) * scale;
 
     let speed = 0;
+    let upSpeed = 0; // upward wrist speed (world Y more negative = up)
     if (cyc.lastPos && cyc.lastT !== null) {
       const dtS = Math.max(1e-3, (tMs - cyc.lastT) / 1000);
       speed = (dist(wrist, cyc.lastPos) * scale) / dtS;
+      upSpeed = (-(wrist[1] - cyc.lastPos[1]) * scale) / dtS;
     }
     cyc.lastPos = wrist;
     cyc.lastT = tMs;
@@ -303,6 +315,38 @@ export class PunchDetector {
         }
         cyc.elbowExtended = true; // require re-chamber before the next elbow fire
       }
+    }
+
+    // --- Upward-drive gate (uppercut): a fast upward wrist drive that started
+    // from below the shoulder. Covers the punch neither other gate sees.
+    const yrel = (wrist[1] - shoulder[1]) * scale; // + = wrist below the shoulder
+    cyc.yrelHist.push([tMs, yrel]);
+    const upCutoff = tMs - UP_WINDOW_MS;
+    cyc.yrelHist = cyc.yrelHist.filter(([t]) => t >= upCutoff);
+    if (upSpeed <= 0) cyc.uppercutFired = false; // reset once the wrist stops rising
+    const low = Math.max(...cyc.yrelHist.map(([, y]) => y)); // most-below point in window
+    const risen = low - yrel;
+    if (
+      ev === null &&
+      !cyc.uppercutFired &&
+      upSpeed >= UP_MIN_SPEED_MS &&
+      risen >= UP_MIN_RISE_M &&
+      low >= UP_START_BELOW_M
+    ) {
+      const spaced = cyc.lastEventT === null || tMs - cyc.lastEventT >= REFRACTORY_MS;
+      if (spaced) {
+        ev = {
+          t_ms: tMs,
+          hand,
+          velocity_ms: Math.round(upSpeed * 100) / 100,
+          confidence: 0.6,
+          detected_by: "heuristic",
+          lead_or_rear: handToLeadRear(hand, this.stance),
+          velocity_source: useWorld ? "world" : "image_heuristic",
+        };
+        cyc.lastEventT = tMs;
+      }
+      cyc.uppercutFired = true;
     }
 
     return ev;

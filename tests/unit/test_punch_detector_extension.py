@@ -148,6 +148,39 @@ def test_elbow_gate_two_straight_punches() -> None:
     assert _run_arm(seq, min_peak_velocity_ms=999, min_excursion_m=999) == 2
 
 
+def _upcut_frame(i: int, wrist_y: float) -> PoseFrame:
+    """Frame with the right wrist at (0.1, wrist_y, 0); shoulder at origin."""
+    wl = [WorldLandmark(x=0.0, y=0.0, z=0.0, visibility=1.0) for _ in range(33)]
+    wl[_R_SHOULDER] = WorldLandmark(x=0.0, y=0.0, z=0.0, visibility=1.0)
+    wl[_R_WRIST] = WorldLandmark(x=0.1, y=wrist_y, z=0.0, visibility=1.0)
+    wl[_L_SHOULDER] = WorldLandmark(x=-0.4, y=0.0, z=0.0, visibility=1.0)
+    wl[_L_WRIST] = WorldLandmark(x=-0.45, y=0.0, z=0.0, visibility=1.0)
+    from contracts import Landmark
+
+    lm = tuple(Landmark(x=w.x, y=w.y, z=w.z, visibility=1.0) for w in wl)
+    return PoseFrame(
+        session_id=SID, frame_index=i, t_ms=i * FPS_DT, landmarks=lm, world_landmarks=tuple(wl)
+    )
+
+
+def _run_upcut(ys: list[float]) -> int:
+    det = ExtensionCyclePunchDetector(stance="orthodox")
+    return sum(len(det.feed(_upcut_frame(i, y))) for i, y in enumerate(ys))
+
+
+def test_uppercut_gate_catches_upward_drive() -> None:
+    # Fist low (below shoulder), fast drive up, then back down.
+    ys = [0.15] * 5 + [0.05, -0.05, -0.12] + [0.15] * 5
+    assert _run_upcut(ys) == 1
+
+
+def test_uppercut_gate_ignores_slow_raise() -> None:
+    # Raising the guard slowly from low to high — not a punch.
+    n = 25
+    ramp = [0.15 - 0.27 * k / n for k in range(n + 1)]
+    assert _run_upcut([0.15] * 5 + ramp) == 0
+
+
 def test_elbow_gate_ignores_slow_extension() -> None:
     # Straighten very slowly (25 frames ≫ the punch window) — a reach, not a punch.
     n = 25
