@@ -127,3 +127,32 @@ per-hand refractory, so a jab that trips both counts once. Added to both the
 Python and TS detectors with matching parameters and unit tests (including
 camera-facing and slow-reach cases). Thresholds remain first-pass, pending real
 pose data.
+
+## Amendment (2026-05-22): three-gate taxonomy — sway suppression + uppercut gate
+
+A browser pose-export diagnostic let us replay real recordings offline. Two more
+findings:
+
+1. **Both hands firing at the same instant** was body sway on both wrists, not two
+   punches (the "counted 2-3×" doubles). Added **opposite-hand suppression** — a
+   fire on the other hand within 130 ms of the last accepted one is dropped. On a
+   real 15-punch recording this removed all three sway-doubles. The velocity
+   threshold was also lowered 2.5 → 2.2 to bias toward recall.
+2. **Uppercuts scored zero.** An uppercut drives the fist *up* with the arm bent
+   and close to the body, so it trips neither the excursion gate (no
+   away-from-shoulder travel) nor the elbow gate (no straightening). Added a
+   third **upward-drive gate**: a fast (≥2.0 m/s) upward wrist drive that rose
+   ≥0.13 m within 250 ms, starting below the shoulder.
+
+The detector now covers the punch taxonomy with three motion-specific gates,
+sharing one per-hand refractory and the opposite-hand suppression:
+
+| Gate | Signal | Catches |
+|---|---|---|
+| Excursion | wrist travels away from shoulder | hooks, wide/side punches |
+| Elbow-extension | arm straightens (bent→straight) | jab / cross (incl. toward-camera) |
+| Upward-drive | fast upward wrist drive from below shoulder | uppercut |
+
+Residual limit: straight punches thrown *directly* at the camera are compressed
+by the monocular depth axis and remain partially missed — the robust fix is a
+side-angled camera or the wrist IMU stream, not more CV tuning.
