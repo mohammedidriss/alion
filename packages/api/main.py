@@ -23,6 +23,7 @@ from api.routes import (
     health,
     hrv,
     imu,
+    pose,
     referees,
     round_plans,
     rq1,
@@ -163,6 +164,9 @@ app.include_router(hrv.stream_router, prefix="/v2")
 app.include_router(hrv.ble_router, prefix="/v2")
 app.include_router(imu.router, prefix="/v2")
 app.include_router(imu.router)
+# Pose-stream upload — persists browser-captured landmarks as parquet so
+# browser sessions save pose data (offline eval + RQ2). New endpoint, additive.
+app.include_router(pose.router)
 app.include_router(rq1.router)
 app.include_router(round_plans.router)
 

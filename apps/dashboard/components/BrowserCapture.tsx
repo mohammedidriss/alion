@@ -29,6 +29,11 @@ export function BrowserCapture({ sessionId, stance, onDone }: Props) {
   const landmarkerRef = useRef<unknown>(null);
   const detectorRef = useRef<PunchDetector>(new PunchDetector(stance ?? null));
   const eventsRef = useRef<PunchEvent[]>([]);
+  // Full per-frame landmarks, uploaded on stop so the session saves pose data
+  // (offline detector evaluation + RQ2). 33 × [x, y, z, visibility].
+  const poseRef = useRef<
+    { t_ms: number; landmarks: number[][]; world_landmarks: number[][] | null }[]
+  >([]);
   const rafRef = useRef<number>(0);
   const startEpochRef = useRef<number>(0);
   const streamRef = useRef<MediaStream | null>(null);
@@ -97,6 +102,7 @@ export function BrowserCapture({ sessionId, stance, onDone }: Props) {
       // Reset detector and event buffer
       detectorRef.current = new PunchDetector(stance ?? null);
       eventsRef.current = [];
+      poseRef.current = [];
       setPunchCount(0);
       startEpochRef.current = performance.now();
       setPhase("recording");
@@ -141,6 +147,13 @@ export function BrowserCapture({ sessionId, stance, onDone }: Props) {
         // Draw skeleton
         drawSkeleton(ctx, lms, canvas.width, canvas.height);
 
+        // Record the full landmark frame for server-side pose saving.
+        poseRef.current.push({
+          t_ms: Math.round(tMs),
+          landmarks: lms.map((p) => [p.x, p.y, p.z, p.visibility ?? 1]),
+          world_landmarks: worldLms ? worldLms.map((p) => [p.x, p.y, p.z, p.visibility ?? 1]) : null,
+        });
+
         // Detect punches
         const punches = detectorRef.current.feed(lms, worldLms, tMs);
         if (punches.length) {
@@ -163,6 +176,15 @@ export function BrowserCapture({ sessionId, stance, onDone }: Props) {
     const durationMs = performance.now() - startEpochRef.current;
     try {
       await api.bulkAddEvents(sessionId, eventsRef.current, { duration_ms: durationMs });
+      // Persist the pose stream so the session saves its landmarks (offline
+      // evaluation + RQ2). Best-effort: never fail the capture on this.
+      try {
+        if (poseRef.current.length) {
+          await api.bulkAddPose(sessionId, poseRef.current, { duration_ms: durationMs });
+        }
+      } catch {
+        /* pose saving is non-critical — events are already stored */
+      }
       stopStream();
       setPhase("done");
       onDone?.();

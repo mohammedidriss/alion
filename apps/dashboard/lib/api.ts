@@ -861,6 +861,18 @@ export const api = {
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ events, ...meta }),
     }),
+  // Persist the browser-captured pose stream so the session saves pose data
+  // (offline detector evaluation + RQ2). Frames: 33 × [x,y,z,visibility].
+  bulkAddPose: (
+    id: string,
+    frames: { t_ms: number; landmarks: number[][]; world_landmarks: number[][] | null }[],
+    meta?: { duration_ms?: number },
+  ) =>
+    req<{ frames: number; path: string }>(`/sessions/${id}/pose/bulk`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ frames, ...meta }),
+    }),
   uploadBaseline: async (id: string, file: File) => {
     const fd = new FormData();
     fd.append("file", file);
