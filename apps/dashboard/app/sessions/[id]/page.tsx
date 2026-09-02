@@ -13,6 +13,7 @@ import { DetectorComparisonCard } from "@/components/DetectorComparisonCard";
 import { LiveAdviceCard } from "@/components/LiveAdviceCard";
 import { RoundBreakdownCard } from "@/components/RoundBreakdownCard";
 import { RQ1RaterCard } from "@/components/RQ1RaterCard";
+import { SessionVideo } from "@/components/SessionVideo";
 import { PunchChart } from "@/components/PunchChart";
 import { PunchTimeline } from "@/components/PunchTimeline";
 import {
@@ -1032,6 +1033,13 @@ export default function SessionPage({ params }: { params: { id: string } }) {
           CSV replay fallback is always accessible regardless of device pairing. */}
       {(!session.study_condition || ["hrv_only", "fused"].includes(session.study_condition)) && (
         <HrvPanel sessionId={session.id} hasPairedDevice={getPairedDevice() !== null} />
+      )}
+
+      {session.video_path && (
+        <div className="card">
+          <h2 className="mb-3 text-lg font-semibold">Recording</h2>
+          <SessionVideo sessionId={session.id} />
+        </div>
       )}
 
       <RoundBreakdownCard sessionId={session.id} status={session.status} />

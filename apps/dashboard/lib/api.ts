@@ -883,6 +883,34 @@ export const api = {
     if (!r.ok) throw new Error(`${r.status} ${await r.text()}`);
     return r.json() as Promise<Session>;
   },
+  // Save the browser-recorded webcam clip for visual review of the count.
+  uploadSessionVideo: async (id: string, blob: Blob) => {
+    const token =
+      (typeof window !== "undefined" &&
+        (localStorage.getItem("alion.token") ?? sessionStorage.getItem("alion.token"))) ||
+      "";
+    const fd = new FormData();
+    fd.append("file", blob, "capture.webm");
+    const r = await fetch(`${BASE}/sessions/${id}/video/upload`, {
+      method: "POST",
+      headers: token ? { Authorization: `Bearer ${token}` } : {},
+      body: fd,
+    });
+    if (!r.ok) throw new Error(`${r.status} ${await r.text()}`);
+    return r.json() as Promise<{ video_path: string; bytes: number }>;
+  },
+  // Fetch the saved clip (auth) as an object URL for a <video> element.
+  sessionVideoBlobUrl: async (id: string): Promise<string | null> => {
+    const token =
+      (typeof window !== "undefined" &&
+        (localStorage.getItem("alion.token") ?? sessionStorage.getItem("alion.token"))) ||
+      "";
+    const r = await fetch(`${BASE}/sessions/${id}/video`, {
+      headers: token ? { Authorization: `Bearer ${token}` } : {},
+    });
+    if (!r.ok) return null;
+    return URL.createObjectURL(await r.blob());
+  },
   sessionPerformance: (id: string) =>
     req<PerformanceScore>(`/sessions/${id}/performance`),
   generateAdvice: (id: string, payload_mode: PayloadMode = "fused") =>

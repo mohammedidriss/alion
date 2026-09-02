@@ -37,6 +37,9 @@ export function BrowserCapture({ sessionId, stance, onDone }: Props) {
   const rafRef = useRef<number>(0);
   const startEpochRef = useRef<number>(0);
   const streamRef = useRef<MediaStream | null>(null);
+  // Downscaled webcam recording, uploaded on stop so the count can be reviewed.
+  const recorderRef = useRef<MediaRecorder | null>(null);
+  const chunksRef = useRef<Blob[]>([]);
 
   const [phase, setPhase] = useState<Phase>("idle");
   const [countdown, setCountdown] = useState(3);
@@ -105,6 +108,22 @@ export function BrowserCapture({ sessionId, stance, onDone }: Props) {
       poseRef.current = [];
       setPunchCount(0);
       startEpochRef.current = performance.now();
+      // Start recording the clip (downscaled ~1 Mbps). Best-effort; capture
+      // continues even if MediaRecorder isn't supported.
+      chunksRef.current = [];
+      recorderRef.current = null;
+      if (streamRef.current) {
+        try {
+          const rec = new MediaRecorder(streamRef.current, { videoBitsPerSecond: 1_000_000 });
+          rec.ondataavailable = (e) => {
+            if (e.data.size) chunksRef.current.push(e.data);
+          };
+          rec.start(1000);
+          recorderRef.current = rec;
+        } catch {
+          recorderRef.current = null; // recording unsupported — pose/events still saved
+        }
+      }
       setPhase("recording");
       return;
     }
@@ -174,6 +193,17 @@ export function BrowserCapture({ sessionId, stance, onDone }: Props) {
     cancelAnimationFrame(rafRef.current);
     setPhase("uploading");
     const durationMs = performance.now() - startEpochRef.current;
+
+    // Finalise the recording and collect the clip (if recording was supported).
+    let videoBlob: Blob | null = null;
+    const rec = recorderRef.current;
+    if (rec && rec.state !== "inactive") {
+      videoBlob = await new Promise<Blob>((resolve) => {
+        rec.onstop = () => resolve(new Blob(chunksRef.current, { type: "video/webm" }));
+        rec.stop();
+      });
+    }
+
     try {
       await api.bulkAddEvents(sessionId, eventsRef.current, { duration_ms: durationMs });
       // Persist the pose stream so the session saves its landmarks (offline
@@ -184,6 +214,14 @@ export function BrowserCapture({ sessionId, stance, onDone }: Props) {
         }
       } catch {
         /* pose saving is non-critical — events are already stored */
+      }
+      // Upload the recorded clip for visual review. Best-effort.
+      try {
+        if (videoBlob && videoBlob.size) {
+          await api.uploadSessionVideo(sessionId, videoBlob);
+        }
+      } catch {
+        /* video is non-critical — events + pose are already stored */
       }
       stopStream();
       setPhase("done");

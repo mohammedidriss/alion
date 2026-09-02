@@ -28,6 +28,7 @@ from api.routes import (
     round_plans,
     rq1,
     sessions,
+    video,
 )
 from api.services.photos import photos_root
 from common import get_settings, setup_logging
@@ -167,6 +168,8 @@ app.include_router(imu.router)
 # Pose-stream upload — persists browser-captured landmarks as parquet so
 # browser sessions save pose data (offline eval + RQ2). New endpoint, additive.
 app.include_router(pose.router)
+# Session video — save + serve the browser-recorded clip for visual review.
+app.include_router(video.router)
 app.include_router(rq1.router)
 app.include_router(round_plans.router)
 
