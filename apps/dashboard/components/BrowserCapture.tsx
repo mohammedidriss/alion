@@ -20,8 +20,13 @@ interface Props {
 
 type Phase = "idle" | "loading" | "ready" | "countdown" | "recording" | "uploading" | "done" | "error";
 
-const MODEL_URL =
-  "https://storage.googleapis.com/mediapipe-models/pose_landmarker/pose_landmarker_lite/float16/1/pose_landmarker_lite.task";
+// Pose model accuracy: lite < full < heavy. `lite` (the old default) is the
+// least accurate; every gate depends on landmark quality, so we use `full` for
+// a clear accuracy gain that still keeps ~30 fps on a GPU. Switch to `heavy`
+// for maximum accuracy if the machine can sustain the frame rate (heavy is
+// slower, and fewer frames/second hurts fast-punch sampling — measure first).
+const POSE_MODEL: "lite" | "full" | "heavy" = "full";
+const MODEL_URL = `https://storage.googleapis.com/mediapipe-models/pose_landmarker/pose_landmarker_${POSE_MODEL}/float16/1/pose_landmarker_${POSE_MODEL}.task`;
 
 export function BrowserCapture({ sessionId, stance, onDone }: Props) {
   const videoRef = useRef<HTMLVideoElement>(null);
