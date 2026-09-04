@@ -73,6 +73,16 @@ def test_southpaw_flips_jab_and_cross() -> None:
     assert classify_punch_type(history, "right", "southpaw") == "jab"
 
 
+def test_stance_is_case_insensitive() -> None:
+    # Regression: the DB enum is upper-case ("ORTHODOX"). A case-sensitive check
+    # used to fall through to the no-stance default and mislabel every straight
+    # punch, and left lead_or_rear null. Upper-case must resolve like lower-case.
+    sid = uuid4()
+    right_forward = [_frame(sid, i, right_wrist=(0.20, 0.0, -0.30 + i * 0.10)) for i in range(5)]
+    assert classify_punch_type(right_forward, "right", "ORTHODOX") == "cross"
+    assert classify_punch_type(right_forward, "right", "SOUTHPAW") == "jab"
+
+
 def test_lateral_motion_classifies_as_hook() -> None:
     sid = uuid4()
     # Right wrist sweeps strongly sideways (Δx large) with minimal forward.

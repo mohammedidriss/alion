@@ -14,6 +14,8 @@
  * 39. See ADR 009 for the validation.
  */
 
+import type { PunchType } from "./api";
+
 // MediaPipe landmark indices
 const LM_LEFT_SHOULDER = 11;
 const LM_RIGHT_SHOULDER = 12;
@@ -57,6 +59,9 @@ export interface PunchEvent {
   detected_by: string;
   lead_or_rear: "lead" | "rear" | null;
   velocity_source: string;
+  // Set by the caller after detection via classifyPunchType(); the gates
+  // themselves are detection-only (kept in sync with the Python detector).
+  punch_type: PunchType | null;
 }
 
 type Vec3 = [number, number, number];
@@ -126,8 +131,10 @@ function getLandmark(lms: Landmark[], idx: number): Landmark | null {
 }
 
 function handToLeadRear(hand: Hand, stance: string | null): "lead" | "rear" | null {
-  if (stance === "orthodox") return hand === "left" ? "lead" : "rear";
-  if (stance === "southpaw") return hand === "right" ? "lead" : "rear";
+  // Stance may arrive in any case (the DB enum is upper-case "ORTHODOX").
+  const s = stance ? stance.toLowerCase() : null;
+  if (s === "orthodox") return hand === "left" ? "lead" : "rear";
+  if (s === "southpaw") return hand === "right" ? "lead" : "rear";
   return null;
 }
 
@@ -264,6 +271,7 @@ export class PunchDetector {
             detected_by: "heuristic",
             lead_or_rear: handToLeadRear(hand, this.stance),
             velocity_source: useWorld ? "world" : "image_heuristic",
+            punch_type: null, // classified by the caller from pose history
           };
           cyc.lastEventT = cyc.peakT;
         }
@@ -310,6 +318,7 @@ export class PunchDetector {
             detected_by: "heuristic",
             lead_or_rear: handToLeadRear(hand, this.stance),
             velocity_source: useWorld ? "world" : "image_heuristic",
+            punch_type: null, // classified by the caller from pose history
           };
           cyc.lastEventT = tMs;
         }
@@ -343,6 +352,7 @@ export class PunchDetector {
           detected_by: "heuristic",
           lead_or_rear: handToLeadRear(hand, this.stance),
           velocity_source: useWorld ? "world" : "image_heuristic",
+          punch_type: null, // classified by the caller from pose history
         };
         cyc.lastEventT = tMs;
       }
@@ -351,4 +361,61 @@ export class PunchDetector {
 
     return ev;
   }
+}
+
+// --- Punch-type classifier -------------------------------------------------
+// TypeScript port of analyze/punch_type_heuristic.classify_punch_type — MUST
+// stay in sync with it (ADR 009). Runs *after* the detector has decided a punch
+// happened: it reads the wrist's 3D trajectory over the last few pose frames and
+// labels the type from the dominant motion axis + stance. v0.5 — replaced later
+// by the IMU/LSTM. Frames are the rolling pose buffer (newest last), each with
+// `landmarks`/`world_landmarks` as 33 × [x, y, z, visibility].
+const HOOK_LATERAL_RATIO = 1.2; // |Δx| must dominate |Δz| by this to call it a hook
+const UPPERCUT_VERTICAL_RATIO = 1.4; // upward |Δy| must dominate this much
+const CLASSIFY_LOOKBACK = 5; // frames of history to read the trajectory from
+
+interface PoseHistoryFrame {
+  landmarks: number[][];
+  world_landmarks: number[][] | null;
+}
+
+export function classifyPunchType(
+  history: PoseHistoryFrame[],
+  hand: Hand,
+  stance: string | null,
+): PunchType | null {
+  if (history.length < 2) return null;
+  const tail = history.slice(-CLASSIFY_LOOKBACK);
+  if (tail.length < 2) return null;
+
+  const wristIdx = hand === "left" ? LM_LEFT_WRIST : LM_RIGHT_WRIST;
+  const useWorld = tail.every((f) => f.world_landmarks != null);
+  const wristXyz = (f: PoseHistoryFrame): Vec3 | null => {
+    const src = useWorld ? f.world_landmarks! : f.landmarks;
+    const w = src[wristIdx];
+    if (!w) return null;
+    if ((w[3] ?? 1) < 0.4) return null; // wrist visibility too low
+    return [w[0], w[1], w[2]];
+  };
+
+  const start = wristXyz(tail[0]);
+  const end = wristXyz(tail[tail.length - 1]);
+  if (!start || !end) return null;
+
+  const dx = end[0] - start[0]; // lateral
+  const dy = end[1] - start[1]; // vertical (world +y ≈ downward, so up = negative)
+  const dz = end[2] - start[2]; // depth (forward)
+  const absDx = Math.abs(dx);
+  const absDy = Math.abs(dy);
+  const absDz = Math.abs(dz);
+
+  // 1. Uppercut: dominant vertical motion AND it's upward (dy < 0).
+  if (absDy >= UPPERCUT_VERTICAL_RATIO * Math.max(absDx, absDz, 1e-6) && dy < 0) return "uppercut";
+  // 2. Hook: lateral motion dominates forward.
+  if (absDx >= HOOK_LATERAL_RATIO * Math.max(absDz, 1e-6)) return "hook";
+  // 3. Straight punch — jab if lead hand, cross if rear; default jab when no stance.
+  const s = stance ? stance.toLowerCase() : null;
+  const isLead = (s === "orthodox" && hand === "left") || (s === "southpaw" && hand === "right");
+  if (s === "orthodox" || s === "southpaw") return isLead ? "jab" : "cross";
+  return "jab";
 }

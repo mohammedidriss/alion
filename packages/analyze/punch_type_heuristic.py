@@ -109,10 +109,10 @@ def classify_punch_type(
         return "hook"
 
     # 3. Straight punch — jab if lead hand, cross if rear.
-    is_lead = (stance == "orthodox" and hand == "left") or (
-        stance == "southpaw" and hand == "right"
-    )
-    if stance in ("orthodox", "southpaw"):
+    # Stance may arrive in any case (the DB enum is upper-case "ORTHODOX").
+    s = stance.lower() if stance else None
+    is_lead = (s == "orthodox" and hand == "left") or (s == "southpaw" and hand == "right")
+    if s in ("orthodox", "southpaw"):
         return "jab" if is_lead else "cross"
 
     # No known stance: default to "jab" for any straight punch (closer to

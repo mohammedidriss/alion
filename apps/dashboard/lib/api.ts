@@ -853,7 +853,7 @@ export const api = {
   listEvents: (id: string) => req<PunchEvent[]>(`/sessions/${id}/events`),
   bulkAddEvents: (
     id: string,
-    events: { t_ms: number; hand: string; velocity_ms: number; confidence: number; detected_by: string; lead_or_rear: string | null; velocity_source: string }[],
+    events: { t_ms: number; hand: string; velocity_ms: number; confidence: number; detected_by: string; lead_or_rear: string | null; velocity_source: string; punch_type: string | null }[],
     meta?: { frame_count?: number; duration_ms?: number },
   ) =>
     req<{ inserted: number }>(`/sessions/${id}/events/bulk`, {

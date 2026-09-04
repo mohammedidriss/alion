@@ -9,7 +9,7 @@
  */
 
 import { useCallback, useEffect, useRef, useState } from "react";
-import { PunchDetector, type PunchEvent } from "@/lib/punchDetector";
+import { PunchDetector, classifyPunchType, type PunchEvent } from "@/lib/punchDetector";
 import { api } from "@/lib/api";
 
 interface Props {
@@ -182,6 +182,9 @@ export function BrowserCapture({ sessionId, stance, onDone }: Props) {
         const punches = detectorRef.current.feed(lms, worldLms, tMs);
         if (punches.length) {
           punches.forEach((p) => {
+            // Label the punch type from the wrist trajectory in the pose buffer
+            // (poseRef already includes this frame). Mirrors the server path.
+            p.punch_type = classifyPunchType(poseRef.current, p.hand, stance ?? null);
             eventsRef.current.push(p);
             setLastHand(p.hand);
             setTimeout(() => setLastHand(null), 300);

@@ -67,6 +67,16 @@ identical thresholds and validated with the same synthetic cases; the Python
 detector is the reference. A future refactor could serve one shared spec, but
 until then any threshold change must be made in *both* files.
 
+**Type classification, also dual-implemented.** The detector is detection-only;
+punch *type* (jab/cross/hook/uppercut) is assigned afterward from the wrist's 3D
+trajectory. The reference is `analyze/punch_type_heuristic.classify_punch_type`
+(used by `capture_runner`); it is ported to `classifyPunchType` in
+`punchDetector.ts` and called from `BrowserCapture` so live sessions store types
+too. Same sync rule: change one, change both. (Amendment: earlier live sessions
+recorded `punch_type` null because the browser path never classified, and
+`lead_or_rear` null because the stance comparison was case-sensitive while the DB
+enum is upper-case — both fixed.)
+
 ## Validation
 
 Re-run on the labeled session (4 true punches), same pipeline:

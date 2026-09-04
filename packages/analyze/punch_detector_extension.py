@@ -112,9 +112,11 @@ def _elbow_angle_deg(
 
 
 def _hand_to_lead_rear(hand: Hand, stance: str | None) -> LeadOrRear | None:
-    if stance == "orthodox":
+    # Stance may arrive in any case (the DB enum is upper-case "ORTHODOX").
+    s = stance.lower() if stance else None
+    if s == "orthodox":
         return "lead" if hand == "left" else "rear"
-    if stance == "southpaw":
+    if s == "southpaw":
         return "lead" if hand == "right" else "rear"
     return None
 
