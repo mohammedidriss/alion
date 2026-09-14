@@ -12,14 +12,19 @@ export function AppShell({ children }: { children: React.ReactNode }) {
   const { user, loading } = useAuth();
   const [sidebarOpen, setSidebarOpen] = useState(false);
 
+  // The camera slave page (ADR-010) is joined by phones with only a session token —
+  // it must render with no login and no app chrome.
+  const isCameraSlave = /^\/sessions\/[^/]+\/camera$/.test(pathname);
+
   useEffect(() => { setSidebarOpen(false); }, [pathname]);
 
   useEffect(() => {
-    if (!loading && !user && pathname !== "/") router.push("/");
-  }, [loading, user, pathname, router]);
+    if (!loading && !user && pathname !== "/" && !isCameraSlave) router.push("/");
+  }, [loading, user, pathname, router, isCameraSlave]);
 
-  // Login page — no chrome
+  // Login page and the public camera slave page — no chrome, no guard.
   if (pathname === "/") return <>{children}</>;
+  if (isCameraSlave) return <>{children}</>;
 
   if (loading) {
     return (

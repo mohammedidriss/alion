@@ -8,10 +8,17 @@ const nextConfig = {
   logging: {
     fetches: { fullUrl: false },
   },
-  // NEXT_PUBLIC_API_URL must be set at build time for the correct API host.
-  // Default falls back to localhost for local development only.
-  env: {
-    NEXT_PUBLIC_API_URL: process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:8000",
+  async rewrites() {
+    return [
+      // Same-origin proxy to the API so LAN phones (multi-camera, ADR-010) need no
+      // CORS and only the dashboard's TLS cert. Dev/LAN; prod sets NEXT_PUBLIC_API_URL.
+      { source: "/api/:path*", destination: "http://127.0.0.1:8000/:path*" },
+    ];
   },
+  // NEXT_PUBLIC_API_URL is auto-exposed by Next when it's set in the environment
+  // (e.g. a production deploy). We deliberately do NOT default it to localhost:
+  // when unset, the client derives the API host from window.location (lib/api.ts),
+  // so a phone joining over the LAN (multi-camera, ADR-010) reaches the coach's
+  // machine instead of its own localhost.
 };
 export default nextConfig;

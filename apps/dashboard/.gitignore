@@ -1,0 +1,4 @@
+
+# Local TLS certs for LAN HTTPS (multi-camera)
+certs/
+certificates/

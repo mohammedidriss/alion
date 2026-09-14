@@ -16,6 +16,7 @@ from fastapi.staticfiles import StaticFiles
 from api.routes import (
     auth,
     cameras,
+    capture_coord,
     coaches,
     fighters,
     gym_managers,
@@ -170,6 +171,10 @@ app.include_router(imu.router)
 app.include_router(pose.router)
 # Session video — save + serve the browser-recorded clip for visual review.
 app.include_router(video.router)
+# Multi-device capture coordinator (ADR-010): device roster + synchronized start.
+# master = coach (authenticated); slave = phone (join-token). Additive, isolated.
+app.include_router(capture_coord.master)
+app.include_router(capture_coord.slave)
 app.include_router(rq1.router)
 app.include_router(round_plans.router)
 

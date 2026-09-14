@@ -121,6 +121,14 @@ def _hand_to_lead_rear(hand: Hand, stance: str | None) -> LeadOrRear | None:
     return None
 
 
+# Frame-rate normalization + jitter guard (kept in sync with punchDetector.ts). The
+# gates were tuned at ~30 fps; a high-fps phone (50–60 fps) over-fires, so ignore
+# frames that arrive too soon. Measured: a 54 fps phone went 60→39 vs 40 true; a
+# 30 fps phone stayed at 30.
+DEFAULT_MIN_FRAME_DT_MS = 25.0
+DEFAULT_MAX_VELOCITY_MS = 12.0  # reject physically-impossible peak velocities (jitter)
+
+
 @dataclass
 class ExtensionCyclePunchDetector:
     """Streaming detector — feed `PoseFrame`s, get `PunchEvent`s on completed cycles.
@@ -147,11 +155,14 @@ class ExtensionCyclePunchDetector:
     up_start_below_m: float = DEFAULT_UP_START_BELOW_M
     up_window_ms: float = DEFAULT_UP_WINDOW_MS
     opp_hand_suppress_ms: float = DEFAULT_OPP_HAND_SUPPRESS_MS
+    min_frame_dt_ms: float = DEFAULT_MIN_FRAME_DT_MS
+    max_velocity_ms: float = DEFAULT_MAX_VELOCITY_MS
 
     _left: _HandCycle = field(default_factory=_HandCycle, init=False)
     _right: _HandCycle = field(default_factory=_HandCycle, init=False)
     _last_fire_t: float | None = field(default=None, init=False)
     _last_fire_hand: Hand | None = field(default=None, init=False)
+    _last_frame_t: float | None = field(default=None, init=False)
 
     @property
     def near_misses(self) -> list[dict[str, str | float]]:
@@ -159,12 +170,22 @@ class ExtensionCyclePunchDetector:
         return []
 
     def feed(self, frame: PoseFrame) -> list[PunchEvent]:
+        # Frame-rate normalization — ignore frames that arrive too soon (high-fps phones).
+        if (
+            self._last_frame_t is not None
+            and (frame.t_ms - self._last_frame_t) < self.min_frame_dt_ms
+        ):
+            return []
+        self._last_frame_t = frame.t_ms
+
         ev_l = self._step(frame, "left", LM_LEFT_WRIST, LM_LEFT_SHOULDER, LM_LEFT_ELBOW, self._left)
         ev_r = self._step(
             frame, "right", LM_RIGHT_WRIST, LM_RIGHT_SHOULDER, LM_RIGHT_ELBOW, self._right
         )
         events: list[PunchEvent] = []
         for ev in (e for e in (ev_l, ev_r) if e is not None):
+            if ev.velocity_ms > self.max_velocity_ms:
+                continue  # jitter teleport, not a real punch
             if (
                 self._last_fire_t is not None
                 and self._last_fire_hand is not None

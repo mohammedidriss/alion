@@ -9,6 +9,8 @@ import { FighterBackLink } from "@/components/FighterBackLink";
 import { HrvPanel } from "@/components/HrvPanel";
 import { IMUPanel } from "@/components/IMUPanel";
 import { getPairedDevice, PolarH10Card } from "@/components/PolarH10Card";
+import { MulticamPanel } from "@/components/MulticamPanel";
+import { MulticamRecordings } from "@/components/MulticamRecordings";
 import { DetectorComparisonCard } from "@/components/DetectorComparisonCard";
 import { LiveAdviceCard } from "@/components/LiveAdviceCard";
 import { RoundBreakdownCard } from "@/components/RoundBreakdownCard";
@@ -573,6 +575,13 @@ export default function SessionPage({ params }: { params: { id: string } }) {
       </header>
 
       {err && <p className="text-sm text-red-400">{err}</p>}
+
+      {/* Multi-camera capture (ADR-010): connect phones + one synchronized start.
+          Shown for every session state so cameras can join before you start. */}
+      <MulticamPanel sessionId={session.id} />
+
+      {/* Persistent per-device recordings — scanned from disk, so past sessions render too. */}
+      <MulticamRecordings sessionId={session.id} />
 
       {/* Browser capture — shown when server has no CV, for live_webcam sessions
           that are pending OR failed-due-to-missing-CV. */}

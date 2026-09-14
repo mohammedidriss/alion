@@ -150,12 +150,21 @@ function confidence(
   return Math.max(0.05, Math.min(1, 0.5 * ampTerm + 0.5 * spdTerm) * Math.max(0.2, visibility));
 }
 
+// Frame-rate normalization: the gates were tuned at ~30 fps, so a high-fps phone
+// (50–60 fps) over-fires. Ignore frames closer than this — caps the effective rate
+// while leaving ~30 fps streams untouched. (Measured: a 54 fps phone went 60→39 vs
+// 40 true; a 30 fps phone stayed at 30.)
+const MIN_FRAME_DT_MS = 25;
+// Reject physically-impossible peak velocities — landmark-jitter teleports, not punches.
+const MAX_VELOCITY_MS = 12;
+
 export class PunchDetector {
   private stance: string | null;
   private left = makeHandCycle();
   private right = makeHandCycle();
   private lastFireT: number | null = null;
   private lastFireHand: Hand | null = null;
+  private lastFrameT: number | null = null;
 
   constructor(stance: string | null = null) {
     this.stance = stance;
@@ -166,6 +175,7 @@ export class PunchDetector {
     this.right = makeHandCycle();
     this.lastFireT = null;
     this.lastFireHand = null;
+    this.lastFrameT = null;
   }
 
   /**
@@ -176,6 +186,10 @@ export class PunchDetector {
    * @param tMs      frame timestamp in milliseconds
    */
   feed(normLms: Landmark[], worldLms: Landmark[] | null | undefined, tMs: number): PunchEvent[] {
+    // Frame-rate normalization — ignore frames that arrive too soon (high-fps phones).
+    if (this.lastFrameT !== null && tMs - this.lastFrameT < MIN_FRAME_DT_MS) return [];
+    this.lastFrameT = tMs;
+
     const lms = worldLms && worldLms.length === 33 ? worldLms : normLms;
     const useWorld = lms === worldLms;
 
@@ -184,6 +198,7 @@ export class PunchDetector {
     const events: PunchEvent[] = [];
     for (const ev of [el, er]) {
       if (!ev) continue;
+      if (ev.velocity_ms > MAX_VELOCITY_MS) continue; // jitter teleport, not a real punch
       if (
         this.lastFireT !== null &&
         this.lastFireHand !== null &&

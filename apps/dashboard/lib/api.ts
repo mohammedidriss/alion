@@ -1,4 +1,8 @@
-const BASE = process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:8000";
+// API calls go same-origin through the Next rewrite ("/api" → the API server),
+// so a phone joining over the LAN (multi-camera, ADR-010) needs no CORS, no
+// separate API host, and only the dashboard's TLS cert. Production sets
+// NEXT_PUBLIC_API_URL to hit the API directly.
+const BASE = process.env.NEXT_PUBLIC_API_URL ?? "/api";
 
 export type Stance = "orthodox" | "southpaw" | "switch";
 export type SessionSource =
@@ -688,6 +692,30 @@ async function req<T>(path: string, init?: RequestInit): Promise<T> {
   return r.json();
 }
 
+// Multi-device capture coordinator (ADR-010).
+export interface MulticamDevice {
+  device_id: string;
+  role: string;
+  label: string;
+  status: string;
+  punches: number;
+}
+export interface MulticamJoinInfo {
+  join_token: string;
+  join_path: string;
+  lan_ip: string;
+}
+export interface MulticamState {
+  command: string;
+  start_at_ms: number | null;
+  server_now_ms: number;
+}
+export interface MulticamStartOut {
+  command: string;
+  start_at_ms: number;
+  devices: number;
+}
+
 export const api = {
   capabilities: () => req<Capabilities>("/health/capabilities"),
   listFighters: (gymId?: string) =>
@@ -761,6 +789,82 @@ export const api = {
     req<HRSample[]>(
       `/v2/sessions/${id}/hrv/samples${limit ? `?limit=${limit}` : ""}`,
     ),
+  // Multi-device capture coordinator (ADR-010): device roster + synchronized start.
+  multicamJoinInfo: (id: string) =>
+    req<MulticamJoinInfo>(`/sessions/${id}/multicam/join-info`, { method: "POST" }),
+  multicamDevices: (id: string) => req<MulticamDevice[]>(`/sessions/${id}/multicam/devices`),
+  multicamStart: (id: string) =>
+    req<MulticamStartOut>(`/sessions/${id}/multicam/start`, { method: "POST" }),
+  multicamStop: (id: string) =>
+    req<MulticamState>(`/sessions/${id}/multicam/stop`, { method: "POST" }),
+  multicamRegister: (id: string, token: string, role: string, label: string) =>
+    req<{ device_id: string }>(`/sessions/${id}/multicam/register`, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ token, role, label }),
+    }),
+  multicamHeartbeat: (
+    id: string,
+    token: string,
+    device_id: string,
+    status: string,
+    punches = 0,
+  ) =>
+    req<MulticamState>(`/sessions/${id}/multicam/heartbeat`, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ token, device_id, status, punches }),
+    }),
+  multicamState: (id: string, token: string) =>
+    req<MulticamState>(`/sessions/${id}/multicam/state?token=${encodeURIComponent(token)}`),
+  multicamUpload: async (id: string, token: string, deviceId: string, blob: Blob) => {
+    const fd = new FormData();
+    fd.append("token", token);
+    fd.append("device_id", deviceId);
+    fd.append("file", blob, blob.type.includes("mp4") ? "clip.mp4" : "clip.webm");
+    const r = await fetch(`${BASE}/sessions/${id}/multicam/upload`, { method: "POST", body: fd });
+    if (!r.ok) throw new Error(`${r.status} ${await r.text()}`);
+    return r.json() as Promise<{ bytes: number; device_id: string }>;
+  },
+  multicamFrame: async (id: string, token: string, deviceId: string, blob: Blob) => {
+    const fd = new FormData();
+    fd.append("token", token);
+    fd.append("device_id", deviceId);
+    fd.append("file", blob, "frame.jpg");
+    await fetch(`${BASE}/sessions/${id}/multicam/frame`, { method: "POST", body: fd }).catch(() => {});
+  },
+  // Upload a phone's pose stream after the round (per-device parquet) for analysis.
+  multicamPose: async (
+    id: string,
+    token: string,
+    deviceId: string,
+    frames: { t_ms: number; landmarks: number[][]; world_landmarks: number[][] | null }[],
+    durationMs?: number,
+  ) => {
+    await fetch(`${BASE}/sessions/${id}/multicam/pose`, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ token, device_id: deviceId, frames, duration_ms: durationMs }),
+    }).catch(() => {});
+  },
+  // Same-origin URLs usable directly as <img>/<video> src (token in the query).
+  multicamFrameUrl: (id: string, token: string, deviceId: string) =>
+    `${BASE}/sessions/${id}/multicam/frame/${deviceId}?token=${encodeURIComponent(token)}`,
+  // Recorded clips are listed from disk (works for past sessions) and fetched with
+  // auth into a blob URL (a plain <video src> can't send the token).
+  multicamClips: (id: string) =>
+    req<{ device_id: string; ext: string; bytes: number }[]>(`/sessions/${id}/multicam/clips`),
+  multicamClipBlobUrl: async (id: string, deviceId: string): Promise<string | null> => {
+    const token =
+      (typeof window !== "undefined" &&
+        (localStorage.getItem("alion.token") ?? sessionStorage.getItem("alion.token"))) ||
+      "";
+    const r = await fetch(`${BASE}/sessions/${id}/multicam/clip/${deviceId}`, {
+      headers: token ? { Authorization: `Bearer ${token}` } : {},
+    });
+    if (!r.ok) return null;
+    return URL.createObjectURL(await r.blob());
+  },
   listSessions: (fighter_id?: string) =>
     req<Session[]>(
       fighter_id ? `/sessions?fighter_id=${fighter_id}` : "/sessions",

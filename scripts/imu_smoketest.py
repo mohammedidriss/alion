@@ -13,6 +13,7 @@ Usage:
   measure — connect, subscribe to the data characteristic, decode the
             accel/gyro/angle stream, and report the sustained Hz + sample values.
 """
+
 from __future__ import annotations
 
 import asyncio
@@ -61,25 +62,35 @@ def decode(buf: bytearray):
 
 
 async def scan(seconds: int = 8) -> None:
-    print(f"Scanning {seconds}s for BLE devices...")
-    devs = await BleakScanner.discover(timeout=seconds)
-    if not devs:
+    print(f"Scanning {seconds}s for BLE devices (name + advertised service UUIDs)...")
+    found = await BleakScanner.discover(timeout=seconds, return_adv=True)
+    if not found:
         print("No BLE devices found at all — is Bluetooth on / permission granted?")
         return
+    # Strongest signal first — the sensor on your desk should be near the top.
+    items = sorted(
+        found.values(), key=lambda da: da[1].rssi if da[1].rssi is not None else -999, reverse=True
+    )
     wt = []
-    for d in devs:
-        name = d.name or "(no name)"
-        mark = ""
-        if d.name and "WT" in d.name.upper():
-            mark, _ = "  <-- WitMotion", wt.append(d)
-        print(f"  {d.address}  {name}{mark}")
+    print(f"  {'rssi':>4}  {'name':28}  service uuids / address")
+    for dev, adv in items:
+        name = adv.local_name or dev.name or "(no name)"
+        svcs = [u.lower() for u in (adv.service_uuids or [])]
+        # WitMotion units either advertise a "WT…" name or the ffe5 service (ffe4 = notify).
+        is_wt = "WT" in name.upper() or any(("ffe5" in u or "ffe4" in u) for u in svcs)
+        if is_wt:
+            wt.append(dev)
+        tail = ",".join(svcs) if svcs else dev.address
+        mark = "  <-- WitMotion?" if is_wt else ""
+        print(f"  {adv.rssi if adv.rssi is not None else 0:>4}  {name:28.28}  {tail}{mark}")
     print()
     if wt:
-        print(f"Found {len(wt)} WitMotion unit(s). Measure the rate with:")
+        print(f"Found {len(wt)} likely WitMotion unit(s). Measure the rate with:")
         for d in wt:
-            print(f"  uv run python scripts/imu_smoketest.py measure {d.address} 15")
+            print(f"  .venv/bin/python scripts/imu_smoketest.py measure {d.address} 15")
     else:
-        print("No 'WT' unit seen. Power the sensor on (charge via USB-C if dead), then retry.")
+        print("Still no WitMotion unit. Most likely it's OFF, dead, or already connected")
+        print("to a phone/app (a connected BLE peripheral stops advertising). See the checklist.")
 
 
 async def measure(address: str, seconds: int = 15) -> None:
