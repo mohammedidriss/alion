@@ -9,10 +9,30 @@ from __future__ import annotations
 
 from datetime import UTC, date, datetime
 from enum import StrEnum
+from typing import Annotated
 from uuid import UUID, uuid4
 
 import sqlalchemy as sa
+from pydantic import PlainSerializer
 from sqlmodel import Field, SQLModel
+
+
+def _iso_utc(dt: datetime) -> str:
+    """Serialize a datetime as ISO-8601 with an explicit UTC offset.
+
+    Timestamps are written as ``datetime.now(UTC)`` but SQLite drops the tzinfo,
+    so they come back naive. Emitting them without a zone makes the browser's
+    ``new Date(...)`` read them as *local* time — showing the UTC clock value as
+    if it were local, off by the viewer's offset. Assume naive == UTC and stamp
+    the offset so every client localizes correctly.
+    """
+    if dt.tzinfo is None:
+        dt = dt.replace(tzinfo=UTC)
+    return dt.astimezone(UTC).isoformat()
+
+
+# Use on response-model datetime fields so the JSON carries a UTC offset.
+UtcDatetime = Annotated[datetime, PlainSerializer(_iso_utc, return_type=str, when_used="json")]
 
 
 class Stance(StrEnum):
@@ -516,8 +536,8 @@ class SessionRead(SQLModel):
     fighter_id: UUID
     source: SessionSourceEnum
     status: SessionStatus
-    started_at: datetime
-    ended_at: datetime | None
+    started_at: UtcDatetime
+    ended_at: UtcDatetime | None
     video_path: str | None
     pose_parquet_path: str | None
     failure_reason: str | None = None
@@ -527,7 +547,7 @@ class SessionRead(SQLModel):
     baseline_rmssd_ms: float | None = None
     baseline_sdnn_ms: float | None = None
     baseline_mean_hr_bpm: float | None = None
-    baseline_recorded_at: datetime | None = None
+    baseline_recorded_at: UtcDatetime | None = None
     round_count: int | None = None
     round_duration_s: int | None = None
     rest_duration_s: int | None = None

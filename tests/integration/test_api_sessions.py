@@ -27,6 +27,24 @@ def test_create_and_list_session(authed_client: TestClient) -> None:
     assert any(s["id"] == sid for s in r.json())
 
 
+def test_session_started_at_serializes_with_utc_offset(authed_client: TestClient) -> None:
+    """started_at must carry an explicit UTC offset. Timestamps are naive UTC in
+    SQLite; without the offset a browser reads them as local time, so the shown
+    time is wrong by the viewer's timezone offset. Guard create + list + detail."""
+    fid = _make_fighter(authed_client)
+    created = authed_client.post("/sessions", json={"fighter_id": fid, "source": "live_webcam"})
+    sid = created.json()["id"]
+
+    def _has_zone(ts: str) -> bool:
+        return ts.endswith("Z") or ts[-6] in "+-"  # ...+00:00 / ...-05:00 / ...Z
+
+    assert _has_zone(created.json()["started_at"]), created.json()["started_at"]
+    detail = authed_client.get(f"/sessions/{sid}").json()
+    assert _has_zone(detail["started_at"]), detail["started_at"]
+    row = next(s for s in authed_client.get("/sessions").json() if s["id"] == sid)
+    assert _has_zone(row["started_at"]), row["started_at"]
+
+
 def test_capture_status_for_idle_session(authed_client: TestClient) -> None:
     fid = _make_fighter(authed_client)
     sid = authed_client.post("/sessions", json={"fighter_id": fid, "source": "live_webcam"}).json()[
