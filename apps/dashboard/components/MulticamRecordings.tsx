@@ -56,10 +56,12 @@ export function MulticamRecordings({ sessionId }: { sessionId: string }) {
                 src={urls[c.device_id]}
                 controls
                 playsInline
-                className="w-full rounded-lg border border-white/10 bg-black"
+                className="aspect-video w-full rounded-lg border border-white/10 bg-black object-contain"
               />
             ) : (
-              <p className="text-xs text-neutral-500">Loading clip…</p>
+              <div className="flex aspect-video w-full items-center justify-center rounded-lg border border-white/10 bg-black text-xs text-neutral-500">
+                Loading clip…
+              </div>
             )}
           </div>
         ))}

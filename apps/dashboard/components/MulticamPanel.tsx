@@ -2,42 +2,41 @@
 
 /**
  * Multi-camera device panel (ADR-010) — the master/coach view. Shows a live grid
- * of every connected camera (≈1 fps preview frames each phone posts), the join QR,
- * one synchronized Start/Stop, and playback of the recorded per-device clips.
+ * of every connected phone camera (≈1 fps preview frames each posts), the laptop as
+ * its own single camera screen, the round timer, and one synchronized Start/Stop.
+ * The join QR lives in <JoinQrCard> under the round-configuration panel.
  */
 
-import { useCallback, useEffect, useState } from "react";
-import { QRCodeSVG } from "qrcode.react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { CameraNode } from "@/components/CameraNode";
-import { api, type MulticamDevice } from "@/lib/api";
+import { RoundTimer } from "@/components/SessionRounds";
+import { api, type MulticamDevice, type Session } from "@/lib/api";
 
-export function MulticamPanel({ sessionId }: { sessionId: string }) {
-  const [joinUrl, setJoinUrl] = useState<string | null>(null);
+export function MulticamPanel({
+  session,
+  defaultLaptop = false,
+}: {
+  session: Session;
+  defaultLaptop?: boolean;
+}) {
+  const sessionId = session.id;
   const [token, setToken] = useState<string | null>(null);
   const [devices, setDevices] = useState<MulticamDevice[]>([]);
   const [tick, setTick] = useState(0);
   const [busy, setBusy] = useState(false);
-  const [copied, setCopied] = useState(false);
-  const [laptopOn, setLaptopOn] = useState(false);
+  const [laptopOn, setLaptopOn] = useState(defaultLaptop);
+  const [laptopDeviceId, setLaptopDeviceId] = useState<string | null>(null);
+  const [captureStartMs, setCaptureStartMs] = useState<number | null>(null);
+  const [paused, setPaused] = useState(false);
+  const pausedAccumRef = useRef(0); // total paused ms, subtracted from timer elapsed
+  const pauseStartRef = useRef<number | null>(null);
   const [msg, setMsg] = useState<string | null>(null);
 
   useEffect(() => {
     api
       .multicamJoinInfo(sessionId)
-      .then((ji) => {
-        setToken(ji.join_token);
-        const loc = window.location;
-        const isLocal = loc.hostname === "localhost" || loc.hostname === "127.0.0.1";
-        // Use whatever origin the coach is on — a tunnel URL, or the LAN IP. Only
-        // fall back to the server's LAN IP when the coach opened it via localhost.
-        if (isLocal && ji.lan_ip) {
-          const port = loc.port ? `:${loc.port}` : "";
-          setJoinUrl(`${loc.protocol}//${ji.lan_ip}${port}${ji.join_path}`);
-        } else {
-          setJoinUrl(`${loc.origin}${ji.join_path}`);
-        }
-      })
-      .catch(() => setMsg("Could not fetch the join link."));
+      .then((ji) => setToken(ji.join_token))
+      .catch(() => setMsg("Could not connect cameras to this session."));
   }, [sessionId]);
 
   useEffect(() => {
@@ -66,6 +65,10 @@ export function MulticamPanel({ sessionId }: { sessionId: string }) {
     setMsg(null);
     try {
       const r = await api.multicamStart(sessionId);
+      pausedAccumRef.current = 0;
+      pauseStartRef.current = null;
+      setPaused(false);
+      setCaptureStartMs(Date.now());
       setMsg(`Recording ${r.devices} camera(s) together…`);
     } catch {
       setMsg("Connect at least one camera first.");
@@ -74,135 +77,183 @@ export function MulticamPanel({ sessionId }: { sessionId: string }) {
     }
   }, [sessionId]);
 
-  const stop = useCallback(async () => {
-    await api.multicamStop(sessionId).catch(() => {});
-    setMsg("Stopped — clips uploading. They appear under “Camera recordings” below.");
+  const pause = useCallback(async () => {
+    await api.multicamPause(sessionId).catch(() => {});
+    pauseStartRef.current = Date.now();
+    setPaused(true);
+    setMsg("Paused — press Resume to continue the same clip.");
   }, [sessionId]);
 
-  const copy = useCallback(() => {
-    if (!joinUrl) return;
-    navigator.clipboard?.writeText(joinUrl).then(() => {
-      setCopied(true);
-      setTimeout(() => setCopied(false), 1500);
-    });
-  }, [joinUrl]);
+  const resume = useCallback(async () => {
+    await api.multicamResume(sessionId).catch(() => {});
+    if (pauseStartRef.current != null) {
+      pausedAccumRef.current += Date.now() - pauseStartRef.current;
+      pauseStartRef.current = null;
+    }
+    setPaused(false);
+    setMsg("Recording…");
+  }, [sessionId]);
 
-  const cams = devices.filter((d) => d.role === "camera");
-  const maxPunches = cams.reduce((m, c) => Math.max(m, c.punches), 0);
+  const stop = useCallback(async () => {
+    await api.multicamStop(sessionId).catch(() => {});
+    setCaptureStartMs(null);
+    setPaused(false);
+    pauseStartRef.current = null;
+    pausedAccumRef.current = 0;
+    setMsg("Match ended — clips saved. See “Camera recordings” below.");
+  }, [sessionId]);
+
+  const allCams = devices.filter((d) => d.role === "camera");
+  // The laptop shows as its own <CameraNode> below, so keep it out of the grid —
+  // but still count it toward the connected total and the consensus punch count.
+  const cams = allCams.filter((d) => d.device_id !== laptopDeviceId);
+  const maxPunches = allCams.reduce((m, c) => Math.max(m, c.punches), 0);
+  const canStart = allCams.length > 0 || laptopOn;
+  const capturing = captureStartMs !== null;
+  const activeMs = capturing
+    ? Math.max(
+        0,
+        Date.now() -
+          captureStartMs -
+          pausedAccumRef.current -
+          (pauseStartRef.current != null ? Date.now() - pauseStartRef.current : 0),
+      )
+    : 0;
 
   return (
     <div className="rounded-2xl border border-white/10 p-4 space-y-4">
       <div className="flex items-center justify-between">
         <h3 className="font-semibold">Cameras</h3>
         <span className="text-xs text-neutral-500">
-          {cams.length} connected
+          {allCams.length} connected
           {maxPunches > 0 && <span className="text-emerald-400"> · ~{maxPunches} punches</span>}
         </span>
       </div>
 
-      {/* Live grid — one tile per camera, refreshed ~1×/s */}
-      {cams.length > 0 && token && (
-        <div className="grid grid-cols-2 gap-2 sm:grid-cols-3">
-          {cams.map((d) => (
-            <div
-              key={d.device_id}
-              className="relative aspect-video overflow-hidden rounded-xl border border-white/10 bg-black"
-            >
-              {/* eslint-disable-next-line @next/next/no-img-element */}
-              <img
-                src={`${api.multicamFrameUrl(sessionId, token, d.device_id)}&t=${tick}`}
-                alt={d.label}
-                className="h-full w-full object-cover"
-                onError={(e) => {
-                  (e.currentTarget as HTMLImageElement).style.visibility = "hidden";
-                }}
-                onLoad={(e) => {
-                  (e.currentTarget as HTMLImageElement).style.visibility = "visible";
-                }}
-              />
-              <div className="absolute inset-x-0 bottom-0 flex items-center justify-between bg-black/60 px-2 py-1 text-[11px]">
-                <span>📷 {d.label}</span>
-                <span className="flex items-center gap-2">
-                  {d.punches > 0 && (
-                    <span className="font-semibold text-emerald-400">{d.punches}👊</span>
-                  )}
-                  <StatusDot status={d.status} />
-                </span>
-              </div>
-            </div>
-          ))}
-        </div>
-      )}
-
-      {/* Join QR */}
-      <div className="space-y-2">
-        <p className="text-xs text-neutral-400">Scan on each phone (same Wi-Fi) to add a camera:</p>
-        {joinUrl ? (
-          <div className="flex items-center gap-3">
-            <div className="shrink-0 rounded-lg bg-white p-2">
-              <QRCodeSVG value={joinUrl} size={104} />
-            </div>
-            <div className="min-w-0 flex-1 space-y-1.5">
-              <code className="block truncate rounded-lg bg-black/40 px-2 py-1.5 text-xs text-neutral-300">
-                {joinUrl}
-              </code>
-              <button
-                onClick={copy}
-                className="rounded-lg border border-white/10 px-3 py-1.5 text-xs hover:bg-white/5"
-              >
-                {copied ? "Copied" : "Copy link"}
-              </button>
-            </div>
-          </div>
+      {/* Controls above the grid: Start → Pause/Resume + Stop (Stop ends & saves). */}
+      <div className="flex flex-wrap items-center gap-2">
+        {!capturing ? (
+          <button
+            onClick={start}
+            disabled={busy || !canStart}
+            className="rounded-xl bg-emerald-500 px-4 py-2 text-sm font-semibold text-black hover:bg-emerald-400 disabled:opacity-40"
+          >
+            Start all cameras
+          </button>
         ) : (
-          <p className="text-xs text-neutral-500">…</p>
+          <>
+            {paused ? (
+              <button
+                onClick={resume}
+                className="rounded-xl bg-emerald-500 px-4 py-2 text-sm font-semibold text-black hover:bg-emerald-400"
+              >
+                ▶ Resume
+              </button>
+            ) : (
+              <button
+                onClick={pause}
+                className="rounded-xl bg-amber-500 px-4 py-2 text-sm font-semibold text-black hover:bg-amber-400"
+              >
+                ❚❚ Pause
+              </button>
+            )}
+            <button
+              onClick={stop}
+              className="rounded-xl bg-red-600 px-4 py-2 text-sm font-semibold text-white hover:bg-red-500"
+            >
+              ■ Stop &amp; save
+            </button>
+          </>
         )}
+        {msg && <span className="text-xs text-neutral-400">{msg}</span>}
       </div>
 
-      {/* Add THIS device (the laptop) as a camera — no link needed. */}
-      {token &&
-        (laptopOn ? (
-          <div className="rounded-xl border border-emerald-500/30 bg-emerald-500/[0.04] p-3">
-            <div className="mb-2 flex items-center justify-between">
-              <span className="text-xs font-medium text-emerald-300">This laptop · camera</span>
-              <button
-                onClick={() => setLaptopOn(false)}
-                className="text-xs text-neutral-400 hover:text-neutral-200"
-              >
-                remove
-              </button>
-            </div>
-            <CameraNode sessionId={sessionId} token={token} defaultLabel="laptop" />
+      {/* Round timer — runs off the round-configuration panel (round_count ×
+          round_duration_s); paused time is subtracted so it freezes on Pause. */}
+      {capturing && <RoundTimer session={session} durationMs={activeMs} isPaused={paused} />}
+
+      {/* Fixed 2×2 grid: top-left is always the laptop; the other three are phones. */}
+      <div className="grid grid-cols-2 gap-2">
+        {/* Slot 0 — laptop (always top-left) */}
+        {laptopOn && token ? (
+          <div className="relative">
+            <CameraNode
+              sessionId={sessionId}
+              token={token}
+              defaultLabel="laptop"
+              tile
+              onDeviceId={setLaptopDeviceId}
+            />
+            <button
+              onClick={() => {
+                setLaptopOn(false);
+                setLaptopDeviceId(null);
+              }}
+              className="absolute right-1 top-1 rounded bg-black/70 px-1.5 py-0.5 text-[10px] text-neutral-300 hover:text-white"
+            >
+              Disable
+            </button>
           </div>
         ) : (
           <button
             onClick={() => setLaptopOn(true)}
-            className="w-full rounded-lg border border-dashed border-white/15 px-3 py-2 text-xs text-neutral-300 hover:bg-white/5"
+            className="flex aspect-video w-full flex-col items-center justify-center gap-1 rounded-xl border border-dashed border-white/15 text-xs text-neutral-400 hover:bg-white/5"
           >
-            ➕ Use this laptop as a camera
+            <span className="text-lg">💻</span>
+            Enable laptop camera
           </button>
-        ))}
+        )}
 
-      {cams.length === 0 && !laptopOn && (
-        <p className="text-xs text-neutral-500">No cameras yet — scan the code on a phone.</p>
-      )}
-
-      <div className="flex flex-wrap gap-2">
-        <button
-          onClick={start}
-          disabled={busy || cams.length === 0}
-          className="rounded-xl bg-emerald-500 px-4 py-2 text-sm font-semibold text-black hover:bg-emerald-400 disabled:opacity-40"
-        >
-          Start all cameras
-        </button>
-        <button
-          onClick={stop}
-          className="rounded-xl border border-white/10 px-4 py-2 text-sm hover:bg-white/5"
-        >
-          Stop
-        </button>
+        {/* Slots 1–3 — phone cameras, or empty placeholders */}
+        {[0, 1, 2].map((i) => {
+          const d = cams[i];
+          if (d && token) {
+            return (
+              <div
+                key={d.device_id}
+                className="relative aspect-video w-full overflow-hidden rounded-xl border border-white/10 bg-black"
+              >
+                {/* eslint-disable-next-line @next/next/no-img-element */}
+                <img
+                  src={`${api.multicamFrameUrl(sessionId, token, d.device_id)}&t=${tick}`}
+                  alt={d.label}
+                  className="h-full w-full object-cover"
+                  onError={(e) => {
+                    (e.currentTarget as HTMLImageElement).style.visibility = "hidden";
+                  }}
+                  onLoad={(e) => {
+                    (e.currentTarget as HTMLImageElement).style.visibility = "visible";
+                  }}
+                />
+                <div className="absolute inset-x-0 bottom-0 flex items-center justify-between bg-black/60 px-2 py-1 text-[11px]">
+                  <span className="truncate">📷 {d.label}</span>
+                  <span className="flex items-center gap-2">
+                    {d.punches > 0 && (
+                      <span className="font-semibold text-emerald-400">{d.punches}👊</span>
+                    )}
+                    <StatusDot status={d.status} />
+                  </span>
+                </div>
+              </div>
+            );
+          }
+          return (
+            <div
+              key={`empty-${i}`}
+              className="flex aspect-video w-full flex-col items-center justify-center gap-1 rounded-xl border border-dashed border-white/10 text-[11px] text-neutral-500"
+            >
+              <span className="text-base">📷</span>
+              Scan QR to add
+            </div>
+          );
+        })}
       </div>
-      {msg && <p className="text-xs text-neutral-400">{msg}</p>}
+
+      {cams.length > 3 && (
+        <p className="text-xs text-neutral-500">
+          +{cams.length - 3} more camera(s) connected (grid shows 4).
+        </p>
+      )}
     </div>
   );
 }

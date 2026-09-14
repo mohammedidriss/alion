@@ -21,10 +21,16 @@ export function CameraNode({
   sessionId,
   token,
   defaultLabel = "front",
+  tile = false,
+  onDeviceId,
 }: {
   sessionId: string;
   token: string;
   defaultLabel?: string;
+  /** Render as a single grid tile (video + overlay only) — used for the laptop
+   *  inside the coach's 2×2 cameras grid. */
+  tile?: boolean;
+  onDeviceId?: (deviceId: string) => void;
 }) {
   const videoRef = useRef<HTMLVideoElement>(null);
   const deviceIdRef = useRef<string | null>(null);
@@ -37,6 +43,9 @@ export function CameraNode({
   const detectorRef = useRef<PunchDetector>(new PunchDetector(null));
   const rafRef = useRef<number>(0);
   const punchCountRef = useRef(0);
+  const pausedRef = useRef(false); // gates the pose loop while the coach has paused
+  const pauseStartRef = useRef<number | null>(null); // when the current pause began
+  const pausedAccumRef = useRef(0); // total paused ms, subtracted from elapsed
   const poseRef = useRef<
     { t_ms: number; landmarks: number[][]; world_landmarks: number[][] | null }[]
   >([]);
@@ -50,6 +59,7 @@ export function CameraNode({
   const [elapsed, setElapsed] = useState(0);
   const [uploaded, setUploaded] = useState(false);
   const [punchCount, setPunchCount] = useState(0);
+  const [paused, setPaused] = useState(false);
   const [err, setErr] = useState<string | null>(null);
 
   // Open the camera + register as a device.
@@ -87,6 +97,7 @@ export function CameraNode({
         if (cancelled) return;
         const { device_id } = await api.multicamRegister(sessionId, token, "camera", defaultLabel);
         deviceIdRef.current = device_id;
+        onDeviceId?.(device_id);
         setPhase("ready");
       } catch (e) {
         setErr(e instanceof Error ? e.message : "Could not register with the session.");
@@ -108,8 +119,11 @@ export function CameraNode({
       const did = deviceIdRef.current;
       if (!did) return;
       try {
-        const status =
-          phase === "recording" ? "recording" : phase === "stopped" ? "ready" : "ready";
+        const status = pausedRef.current
+          ? "paused"
+          : phase === "recording"
+            ? "recording"
+            : "ready";
         const st = await api.multicamHeartbeat(sessionId, token, did, status, punchCountRef.current);
         offsetRef.current = st.server_now_ms - Date.now();
         if (st.command === "start" && st.start_at_ms != null) {
@@ -121,6 +135,24 @@ export function CameraNode({
           } else if (!recStartRef.current) {
             recStartRef.current = localStart;
             setPhase("recording");
+          }
+          // Pause / resume — the coach toggles st.paused. Hold or continue the SAME
+          // clip and freeze the punch loop, without ending the recording.
+          const wantPaused = !!st.paused;
+          if (recStartRef.current && wantPaused !== pausedRef.current) {
+            pausedRef.current = wantPaused;
+            setPaused(wantPaused);
+            const rec = recorderRef.current;
+            if (wantPaused) {
+              pauseStartRef.current = Date.now();
+              if (rec && rec.state === "recording") rec.pause();
+            } else {
+              if (pauseStartRef.current != null) {
+                pausedAccumRef.current += Date.now() - pauseStartRef.current;
+                pauseStartRef.current = null;
+              }
+              if (rec && rec.state === "paused") rec.resume();
+            }
           }
         } else if (st.command === "stop") {
           recStartRef.current = null;
@@ -138,11 +170,15 @@ export function CameraNode({
     };
   }, [phase, sessionId, token]);
 
-  // Recording elapsed timer.
+  // Recording elapsed timer — paused time is subtracted so it freezes on Pause.
   useEffect(() => {
     if (phase !== "recording") return;
     const id = setInterval(() => {
-      if (recStartRef.current) setElapsed((Date.now() - recStartRef.current) / 1000);
+      if (!recStartRef.current) return;
+      const inPause = pauseStartRef.current != null ? Date.now() - pauseStartRef.current : 0;
+      setElapsed(
+        (Date.now() - recStartRef.current - pausedAccumRef.current - inPause) / 1000,
+      );
     }, 200);
     return () => clearInterval(id);
   }, [phase]);
@@ -150,6 +186,11 @@ export function CameraNode({
   // Real capture: start MediaRecorder on the synchronized start, upload on stop.
   useEffect(() => {
     if (phase === "recording" && streamRef.current && !recorderRef.current) {
+      // Fresh recording — clear any pause bookkeeping from a prior run.
+      pausedRef.current = false;
+      pauseStartRef.current = null;
+      pausedAccumRef.current = 0;
+      setPaused(false);
       try {
         if (typeof MediaRecorder === "undefined") {
           setRecInfo("MediaRecorder not supported on this browser");
@@ -269,6 +310,7 @@ export function CameraNode({
     let lastFrame = -1;
     const loop = () => {
       rafRef.current = requestAnimationFrame(loop);
+      if (pausedRef.current) return; // frozen while paused — no detection or pose
       if (video.readyState < 2 || video.currentTime === lastFrame) return;
       lastFrame = video.currentTime;
       let res;
@@ -315,6 +357,51 @@ export function CameraNode({
     [sessionId, token],
   );
 
+  // Tile mode: just the video filling a grid cell, with a bottom overlay — matches
+  // the phone frame-tiles so the laptop sits in the coach's 2×2 grid at the same size.
+  if (tile) {
+    return (
+      <div className="relative aspect-video w-full overflow-hidden rounded-xl border border-white/10 bg-black">
+        <video ref={videoRef} autoPlay playsInline muted className="h-full w-full object-cover" />
+        {noCamera && (
+          <div className="absolute inset-0 grid place-items-center p-2 text-center text-[10px] leading-tight text-neutral-400">
+            camera unavailable
+          </div>
+        )}
+        {phase === "countdown" && countdown != null && (
+          <div className="absolute inset-0 grid place-items-center bg-black/50">
+            <span className="text-5xl font-bold text-white tabular-nums">{countdown}</span>
+          </div>
+        )}
+        {recInfo && (
+          <div className="absolute left-1 top-1 max-w-[92%] truncate rounded bg-black/70 px-1.5 py-0.5 text-[10px] text-amber-300">
+            {recInfo}
+          </div>
+        )}
+        <div className="absolute inset-x-0 bottom-0 flex items-center justify-between bg-black/60 px-2 py-1 text-[11px]">
+          <span className="truncate">💻 {label}</span>
+          <span className="flex items-center gap-2">
+            {(phase === "recording" || phase === "stopped") && punchCount > 0 && (
+              <span className="font-semibold text-emerald-400">{punchCount}👊</span>
+            )}
+            {phase === "recording" ? (
+              paused ? (
+                <span className="font-semibold text-amber-300">❚❚ paused</span>
+              ) : (
+                <span className="flex items-center gap-1 font-semibold text-red-300">
+                  <span className="h-2 w-2 animate-pulse rounded-full bg-red-500" />
+                  {elapsed.toFixed(0)}s
+                </span>
+              )
+            ) : (
+              <StatusBadge phase={phase} />
+            )}
+          </span>
+        </div>
+      </div>
+    );
+  }
+
   return (
     <div className="space-y-4">
       <div className="flex items-center justify-between">
@@ -349,9 +436,19 @@ export function CameraNode({
           </div>
         )}
         {phase === "recording" && (
-          <div className="absolute left-3 top-3 flex items-center gap-2 rounded-full bg-red-600/90 px-3 py-1 text-sm font-semibold text-white">
-            <span className="h-2.5 w-2.5 animate-pulse rounded-full bg-white" /> REC{" "}
-            {elapsed.toFixed(1)}s
+          <div
+            className={`absolute left-3 top-3 flex items-center gap-2 rounded-full px-3 py-1 text-sm font-semibold text-white ${
+              paused ? "bg-amber-600/90" : "bg-red-600/90"
+            }`}
+          >
+            {paused ? (
+              <>❚❚ PAUSED {elapsed.toFixed(1)}s</>
+            ) : (
+              <>
+                <span className="h-2.5 w-2.5 animate-pulse rounded-full bg-white" /> REC{" "}
+                {elapsed.toFixed(1)}s
+              </>
+            )}
           </div>
         )}
       </div>

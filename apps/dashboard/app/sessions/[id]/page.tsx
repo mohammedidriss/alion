@@ -9,6 +9,7 @@ import { HrvPanel } from "@/components/HrvPanel";
 import { IMUPanel } from "@/components/IMUPanel";
 import { getPairedDevice, PolarH10Card } from "@/components/PolarH10Card";
 import { MulticamPanel } from "@/components/MulticamPanel";
+import { JoinQrCard } from "@/components/JoinQrCard";
 import { MulticamRecordings } from "@/components/MulticamRecordings";
 import { DetectorComparisonCard } from "@/components/DetectorComparisonCard";
 import { LiveAdviceCard } from "@/components/LiveAdviceCard";
@@ -575,15 +576,21 @@ export default function SessionPage({ params }: { params: { id: string } }) {
 
       {err && <p className="text-sm text-red-400">{err}</p>}
 
-      {/* Multi-camera capture (ADR-010): connect phones + one synchronized start.
-          Shown for every session state so cameras can join before you start. */}
-      <MulticamPanel sessionId={session.id} />
-
-      {/* Round config for a pending browser-capture session (server has no CV).
-          Capture itself is now the unified Cameras panel above — laptop + phones. */}
-      {!cvAvailable && session.source === "live_webcam" && session.status === "pending" && (
-        <RoundConfigCard session={session} onChange={setSession} />
+      {/* Capture: round configuration + join QR (left) and the cameras panel (right).
+          Only while the session can still capture — hidden once it's completed. */}
+      {(session.status === "pending" || session.status === "capturing") && (
+        <div className="grid items-start gap-6 lg:grid-cols-[300px_minmax(0,1fr)]">
+          <div className="space-y-6">
+            <RoundConfigCard session={session} onChange={setSession} />
+            <JoinQrCard sessionId={session.id} />
+          </div>
+          <MulticamPanel session={session} defaultLaptop />
+        </div>
       )}
+
+      {/* Recorded per-camera clips — disk-scanned, so they show right after Stop and
+          for any past session. Renders nothing until a session has clips. */}
+      <MulticamRecordings sessionId={session.id} />
 
       {session.status === "failed" && session.failure_reason && cvAvailable && (
         <div className="rounded-lg border border-red-700/60 bg-red-950/40 p-4 text-sm">
@@ -1018,8 +1025,6 @@ export default function SessionPage({ params }: { params: { id: string } }) {
               </section>
             );
           })()}
-
-          <RoundConfigCard session={session} onChange={setSession} />
         </aside>
         <div className="space-y-6">
       {/* HRV panel — above per-round breakdown so live HR is immediately visible.
@@ -1035,9 +1040,6 @@ export default function SessionPage({ params }: { params: { id: string } }) {
           <SessionVideo sessionId={session.id} />
         </div>
       )}
-
-      {/* Per-camera recordings (multi-cam) — disk-scanned, renders for any session. */}
-      <MulticamRecordings sessionId={session.id} />
 
       <RoundBreakdownCard sessionId={session.id} status={session.status} />
 

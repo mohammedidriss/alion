@@ -61,6 +61,38 @@ def test_join_register_roster_start_flow(authed_client: TestClient) -> None:
     assert got["command"] == "stop" and got["start_at_ms"] is None
 
 
+def test_pause_resume_flow(authed_client: TestClient) -> None:
+    sid = _make_session(authed_client)
+    token = authed_client.post(f"/sessions/{sid}/multicam/join-info").json()["join_token"]
+    dev_id = authed_client.post(
+        f"/sessions/{sid}/multicam/register",
+        json={"token": token, "role": "camera", "label": "front"},
+    ).json()["device_id"]
+    authed_client.post(f"/sessions/{sid}/multicam/start")
+
+    # Pause holds recording: paused=True, but the command stays "start" so the clip
+    # is kept open (only Stop finalizes).
+    p = authed_client.post(f"/sessions/{sid}/multicam/pause").json()
+    assert p["paused"] is True and p["command"] == "start"
+    st = authed_client.get(f"/sessions/{sid}/multicam/state", params={"token": token}).json()
+    assert st["paused"] is True and st["command"] == "start"
+
+    # Heartbeat carries the paused flag so the phone can hold its recorder.
+    hb = authed_client.post(
+        f"/sessions/{sid}/multicam/heartbeat",
+        json={"token": token, "device_id": dev_id, "status": "paused"},
+    ).json()
+    assert hb["paused"] is True
+
+    # Resume clears it; the same recording continues.
+    r = authed_client.post(f"/sessions/{sid}/multicam/resume").json()
+    assert r["paused"] is False and r["command"] == "start"
+
+    # Stop ends the match and clears paused.
+    s = authed_client.post(f"/sessions/{sid}/multicam/stop").json()
+    assert s["command"] == "stop" and s.get("paused") is False
+
+
 def test_bad_token_rejected(authed_client: TestClient) -> None:
     sid = _make_session(authed_client)
     authed_client.post(f"/sessions/{sid}/multicam/join-info")

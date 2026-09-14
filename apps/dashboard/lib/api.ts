@@ -709,6 +709,7 @@ export interface MulticamState {
   command: string;
   start_at_ms: number | null;
   server_now_ms: number;
+  paused?: boolean;
 }
 export interface MulticamStartOut {
   command: string;
@@ -795,6 +796,10 @@ export const api = {
   multicamDevices: (id: string) => req<MulticamDevice[]>(`/sessions/${id}/multicam/devices`),
   multicamStart: (id: string) =>
     req<MulticamStartOut>(`/sessions/${id}/multicam/start`, { method: "POST" }),
+  multicamPause: (id: string) =>
+    req<MulticamState>(`/sessions/${id}/multicam/pause`, { method: "POST" }),
+  multicamResume: (id: string) =>
+    req<MulticamState>(`/sessions/${id}/multicam/resume`, { method: "POST" }),
   multicamStop: (id: string) =>
     req<MulticamState>(`/sessions/${id}/multicam/stop`, { method: "POST" }),
   multicamRegister: (id: string, token: string, role: string, label: string) =>

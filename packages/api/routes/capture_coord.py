@@ -79,6 +79,7 @@ class _Coord:
     devices: dict[str, _Device] = field(default_factory=dict)
     command: str = "idle"  # idle | start | stop
     start_at_ms: float | None = None  # scheduled start on the server wall clock
+    paused: bool = False  # coach pressed Pause — nodes hold recording, keep the clip
 
 
 _lock = threading.Lock()
@@ -148,6 +149,7 @@ class CaptureState(BaseModel):
     command: str
     start_at_ms: float | None
     server_now_ms: float
+    paused: bool = False
 
 
 class StartOut(BaseModel):
@@ -207,15 +209,41 @@ def start_capture(session_id: UUID) -> StartOut:
             raise HTTPException(status_code=409, detail="no devices connected")
         c.command = "start"
         c.start_at_ms = _now_ms() + _START_DELAY_MS
+        c.paused = False
         return StartOut(command=c.command, start_at_ms=c.start_at_ms, devices=len(c.devices))
+
+
+@master.post("/{session_id}/multicam/pause", response_model=CaptureState)
+def pause_capture(session_id: UUID) -> CaptureState:
+    """Hold recording on every node — MediaRecorder pauses, the clip is kept, and the
+    round timer freezes. Resume continues the same clip; only Stop finalizes."""
+    with _lock:
+        c = _ensure(session_id)
+        c.paused = True
+        return CaptureState(
+            command=c.command, start_at_ms=c.start_at_ms, server_now_ms=_now_ms(), paused=True
+        )
+
+
+@master.post("/{session_id}/multicam/resume", response_model=CaptureState)
+def resume_capture(session_id: UUID) -> CaptureState:
+    with _lock:
+        c = _ensure(session_id)
+        c.paused = False
+        return CaptureState(
+            command=c.command, start_at_ms=c.start_at_ms, server_now_ms=_now_ms(), paused=False
+        )
 
 
 @master.post("/{session_id}/multicam/stop", response_model=CaptureState)
 def stop_capture(session_id: UUID) -> CaptureState:
+    """End the match: nodes finalize + upload their clips. This is the only command
+    that saves — Pause keeps the clip open for Resume."""
     with _lock:
         c = _ensure(session_id)
         c.command = "stop"
         c.start_at_ms = None
+        c.paused = False
         return CaptureState(command="stop", start_at_ms=None, server_now_ms=_now_ms())
 
 
@@ -245,7 +273,12 @@ def heartbeat(session_id: UUID, body: HeartbeatBody) -> CaptureState:
             dev.status = body.status
             dev.punches = body.punches
             dev.last_seen_ms = _now_ms()
-        return CaptureState(command=c.command, start_at_ms=c.start_at_ms, server_now_ms=_now_ms())
+        return CaptureState(
+            command=c.command,
+            start_at_ms=c.start_at_ms,
+            server_now_ms=_now_ms(),
+            paused=c.paused,
+        )
 
 
 @slave.get("/{session_id}/multicam/state", response_model=CaptureState)
@@ -254,7 +287,12 @@ def capture_state(session_id: UUID, token: str) -> CaptureState:
     estimate the clock offset for a coarse synchronized start."""
     with _lock:
         c = _check_token(session_id, token)
-        return CaptureState(command=c.command, start_at_ms=c.start_at_ms, server_now_ms=_now_ms())
+        return CaptureState(
+            command=c.command,
+            start_at_ms=c.start_at_ms,
+            server_now_ms=_now_ms(),
+            paused=c.paused,
+        )
 
 
 @slave.post("/{session_id}/multicam/upload", response_model=dict)
