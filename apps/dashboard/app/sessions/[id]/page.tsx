@@ -3,7 +3,6 @@
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useEffect, useRef, useState } from "react";
-import { BrowserCapture } from "@/components/BrowserCapture";
 import { EvaluationCard } from "@/components/EvaluationCard";
 import { FighterBackLink } from "@/components/FighterBackLink";
 import { HrvPanel } from "@/components/HrvPanel";
@@ -580,24 +579,10 @@ export default function SessionPage({ params }: { params: { id: string } }) {
           Shown for every session state so cameras can join before you start. */}
       <MulticamPanel sessionId={session.id} />
 
-      {/* Persistent per-device recordings — scanned from disk, so past sessions render too. */}
-      <MulticamRecordings sessionId={session.id} />
-
-      {/* Browser capture — shown when server has no CV, for live_webcam sessions
-          that are pending OR failed-due-to-missing-CV. */}
-      {!cvAvailable && session.source === "live_webcam" &&
-        (session.status === "pending" || session.status === "failed") && (
-        <div className="space-y-5">
-          {/* Round config still shown so user can configure rounds/rest before capture */}
-          {session.status === "pending" && (
-            <RoundConfigCard session={session} onChange={setSession} />
-          )}
-          <BrowserCapture
-            sessionId={id}
-            stance={null}
-            onDone={refresh}
-          />
-        </div>
+      {/* Round config for a pending browser-capture session (server has no CV).
+          Capture itself is now the unified Cameras panel above — laptop + phones. */}
+      {!cvAvailable && session.source === "live_webcam" && session.status === "pending" && (
+        <RoundConfigCard session={session} onChange={setSession} />
       )}
 
       {session.status === "failed" && session.failure_reason && cvAvailable && (
@@ -613,7 +598,7 @@ export default function SessionPage({ params }: { params: { id: string } }) {
           <h2 className="text-lg font-semibold">Session setup</h2>
 
           {/* Camera permission warning — only shown when server-side CV is available.
-              When cvAvailable is false we use BrowserCapture which manages its own camera. */}
+              When cvAvailable is false the Cameras panel manages its own camera. */}
           {cvAvailable && setupSource === "live_webcam" && cameras.length === 0 && cameraReason && (
             <div className="rounded-lg border border-amber-700/60 bg-amber-950/40 p-4 text-sm">
               <p className="font-medium text-amber-200">⚠ Camera not available</p>
@@ -1050,6 +1035,9 @@ export default function SessionPage({ params }: { params: { id: string } }) {
           <SessionVideo sessionId={session.id} />
         </div>
       )}
+
+      {/* Per-camera recordings (multi-cam) — disk-scanned, renders for any session. */}
+      <MulticamRecordings sessionId={session.id} />
 
       <RoundBreakdownCard sessionId={session.id} status={session.status} />
 

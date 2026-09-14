@@ -8,6 +8,7 @@
 
 import { useCallback, useEffect, useState } from "react";
 import { QRCodeSVG } from "qrcode.react";
+import { CameraNode } from "@/components/CameraNode";
 import { api, type MulticamDevice } from "@/lib/api";
 
 export function MulticamPanel({ sessionId }: { sessionId: string }) {
@@ -17,6 +18,7 @@ export function MulticamPanel({ sessionId }: { sessionId: string }) {
   const [tick, setTick] = useState(0);
   const [busy, setBusy] = useState(false);
   const [copied, setCopied] = useState(false);
+  const [laptopOn, setLaptopOn] = useState(false);
   const [msg, setMsg] = useState<string | null>(null);
 
   useEffect(() => {
@@ -157,7 +159,31 @@ export function MulticamPanel({ sessionId }: { sessionId: string }) {
         )}
       </div>
 
-      {cams.length === 0 && (
+      {/* Add THIS device (the laptop) as a camera — no link needed. */}
+      {token &&
+        (laptopOn ? (
+          <div className="rounded-xl border border-emerald-500/30 bg-emerald-500/[0.04] p-3">
+            <div className="mb-2 flex items-center justify-between">
+              <span className="text-xs font-medium text-emerald-300">This laptop · camera</span>
+              <button
+                onClick={() => setLaptopOn(false)}
+                className="text-xs text-neutral-400 hover:text-neutral-200"
+              >
+                remove
+              </button>
+            </div>
+            <CameraNode sessionId={sessionId} token={token} defaultLabel="laptop" />
+          </div>
+        ) : (
+          <button
+            onClick={() => setLaptopOn(true)}
+            className="w-full rounded-lg border border-dashed border-white/15 px-3 py-2 text-xs text-neutral-300 hover:bg-white/5"
+          >
+            ➕ Use this laptop as a camera
+          </button>
+        ))}
+
+      {cams.length === 0 && !laptopOn && (
         <p className="text-xs text-neutral-500">No cameras yet — scan the code on a phone.</p>
       )}
 
