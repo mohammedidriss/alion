@@ -11,6 +11,7 @@ import {
   type SessionStatus,
 } from "@/lib/api";
 import { useAuth } from "@/lib/auth";
+import { SessionCameraPreview } from "@/components/SessionCameraPreview";
 
 const STATUS_TINT: Record<SessionStatus, string> = {
   completed: "bg-emerald-500/15 text-emerald-300",
@@ -251,13 +252,15 @@ export default function SessionsTab({ params }: { params: { id: string } }) {
                   )}
                 </div>
               </div>
-              {s.video_path && (
+              {s.video_path ? (
                 <video
                   src={`${process.env.NEXT_PUBLIC_API_URL}/${s.video_path}`}
                   controls
                   preload="metadata"
                   className="h-32 w-56 shrink-0 rounded-xl bg-black object-cover"
                 />
+              ) : (
+                <SessionCameraPreview sessionId={s.id} />
               )}
             </li>
           ))}
