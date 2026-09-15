@@ -219,7 +219,7 @@ class UserRead(SQLModel):
     profile_id: UUID | None = None
     photo_path: str | None = None
     is_active: bool
-    created_at: datetime
+    created_at: UtcDatetime
 
 
 # ----------------------------------------------------------------------
@@ -267,7 +267,7 @@ class GymRead(SQLModel):
     email: str | None = None
     specialties: str | None = None
     notes: str | None = None
-    created_at: datetime
+    created_at: UtcDatetime
 
 
 class MembershipStatus(StrEnum):
@@ -312,7 +312,7 @@ class GymMembershipRead(SQLModel):
     joined_on: date | None = None
     left_on: date | None = None
     status_note: str | None = None
-    created_at: datetime
+    created_at: UtcDatetime
 
 
 # ----------------------------------------------------------------------
@@ -339,8 +339,8 @@ class CheckInRead(SQLModel):
     member_id: UUID
     member_type: str
     member_name: str = ""  # denormalised
-    checked_in_at: datetime
-    checked_out_at: datetime | None = None
+    checked_in_at: UtcDatetime
+    checked_out_at: UtcDatetime | None = None
     notes: str | None = None
 
 
@@ -374,7 +374,7 @@ class GymManagerRead(SQLModel):
     gym_id: UUID
     gym_name: str  # denormalised
     notes: str | None = None
-    created_at: datetime
+    created_at: UtcDatetime
 
 
 class Fighter(SQLModel, table=True):
@@ -460,7 +460,7 @@ class FighterRead(SQLModel):
     photo_path: str | None = None
     bio: str | None = None
     career_history: str | None = None
-    created_at: datetime
+    created_at: UtcDatetime
 
 
 class WeighIn(SQLModel, table=True):
@@ -481,7 +481,7 @@ class WeighInRead(SQLModel):
     id: int
     fighter_id: UUID
     weight_kg: float
-    recorded_at: datetime
+    recorded_at: UtcDatetime
     notes: str | None = None
 
 
@@ -684,7 +684,7 @@ class RoundPlanRead(SQLModel):
     round_count: int
     round_duration_s: int
     rest_duration_s: int
-    created_at: datetime
+    created_at: UtcDatetime
 
 
 # ----------------------------------------------------------------------
@@ -782,7 +782,7 @@ class RaterScoreRead(SQLModel):
     criterion: str
     score: int
     notes: str | None = None
-    created_at: datetime
+    created_at: UtcDatetime
 
 
 # ----------------------------------------------------------------------
@@ -869,7 +869,7 @@ class CoachRead(SQLModel):
     notable_fighters: str | None = None
     bio: str | None = None
     notes: str | None = None
-    created_at: datetime
+    created_at: UtcDatetime
 
 
 class RefereeCertLevel(StrEnum):
@@ -940,7 +940,7 @@ class RefereeRead(SQLModel):
     notable_bouts: str | None = None
     bio: str | None = None
     notes: str | None = None
-    created_at: datetime
+    created_at: UtcDatetime
 
 
 # ----------------------------------------------------------------------
@@ -995,7 +995,7 @@ class MedicalRecordRead(SQLModel):
     insurance_provider: str | None = None
     insurance_policy: str | None = None
     notes: str | None = None
-    updated_at: datetime
+    updated_at: UtcDatetime
 
 
 class Allergy(SQLModel, table=True):
@@ -1019,7 +1019,7 @@ class AllergyRead(SQLModel):
     substance: str
     severity: AllergySeverity
     notes: str | None = None
-    created_at: datetime
+    created_at: UtcDatetime
 
 
 class Medication(SQLModel, table=True):
@@ -1055,7 +1055,7 @@ class MedicationRead(SQLModel):
     prescribed_by: str | None = None
     is_active: bool
     notes: str | None = None
-    created_at: datetime
+    created_at: UtcDatetime
 
 
 class MedicalCondition(SQLModel, table=True):
@@ -1083,7 +1083,7 @@ class MedicalConditionRead(SQLModel):
     diagnosed_on: date | None = None
     status: ConditionStatus
     notes: str | None = None
-    created_at: datetime
+    created_at: UtcDatetime
 
 
 # ----------------------------------------------------------------------
@@ -1134,7 +1134,7 @@ class FighterTitleRead(SQLModel):
     lost_on: date | None = None
     status: TitleStatus
     notes: str | None = None
-    created_at: datetime
+    created_at: UtcDatetime
 
 
 class FighterSponsor(SQLModel, table=True):
@@ -1165,7 +1165,7 @@ class FighterSponsorRead(SQLModel):
     ended_on: date | None = None
     website: str | None = None
     notes: str | None = None
-    created_at: datetime
+    created_at: UtcDatetime
 
 
 class CoachRole(StrEnum):
@@ -1215,7 +1215,7 @@ class CoachAssignmentRead(SQLModel):
     started_on: date | None = None
     ended_on: date | None = None
     notes: str | None = None
-    created_at: datetime
+    created_at: UtcDatetime
 
 
 # ----------------------------------------------------------------------
@@ -1251,7 +1251,7 @@ class CoachNoteRead(SQLModel):
     coach_name: str  # denormalised for the UI
     coach_photo_path: str | None = None
     content: str
-    created_at: datetime
+    created_at: UtcDatetime
 
 
 # ----------------------------------------------------------------------
@@ -1290,4 +1290,4 @@ class SessionAttachmentRead(SQLModel):
     size_bytes: int
     kind: AttachmentKind
     notes: str | None = None
-    uploaded_at: datetime
+    uploaded_at: UtcDatetime
