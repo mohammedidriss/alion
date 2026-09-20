@@ -97,6 +97,49 @@ for corner assignment; `numPoses: 2` + tracker in the camera node; the IMU-ancho
 attribution step; a bout view. What does **not** change: every stream table, every
 existing single-fighter query, and the entire training-session path.
 
+## Schema sketch
+
+The concrete delta (a sketch to make the migration reviewable, not the final
+DDL). Additive per ADR-005; **no stream table changes**.
+
+```
+Bout (new)
+  id                UUID  pk
+  label             str?             # "Smith v Jones — sparring wk3"
+  scheduled_at      datetime
+  venue             str?
+  round_count       int              # shared round config lives here for a bout
+  round_duration_s  int
+  rest_duration_s   int
+  red_session_id    UUID  fk -> session   # exactly one red …
+  blue_session_id   UUID  fk -> session   # … and one blue
+  winner_corner     enum(red|blue|draw)?  # result, filled post-bout
+  result_method     str?                  # KO / TKO / decision / …
+  created_at        datetime
+
+Session (additive — two new nullable fields)
+  bout_id           UUID? fk -> bout  # null  => training session (today's path)
+  corner            enum(red|blue)?   # this session's side of the bout
+
+BellEvent (new) — the shared round timeline, as offsets from the bout T_0
+  id                UUID  pk
+  bout_id           UUID  fk -> bout
+  round_index       int
+  kind              enum(round_start|round_end|bell)
+  t_ms              float            # offset from the shared SessionClock T_0
+```
+
+Invariants:
+
+- A bout has **exactly two** participant sessions — one `red`, one `blue` — and
+  both anchor their `SessionClock` T_0 to the bout's bell, so their timelines are
+  directly comparable (ADR-006).
+- For a bout, the **round config is authoritative on `Bout`**; the two sessions
+  defer to it (single source). A **training** session keeps its own round config
+  on `Session`, unchanged.
+- `bout_id IS NULL` ⇔ training ⇔ every existing single-fighter query, aggregation,
+  and view is untouched. The bout path is purely additive.
+
 ## Alternatives considered
 
 - **Multi-participant session** (one session, two fighters; add `fighter_id` to
