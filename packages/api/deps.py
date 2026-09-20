@@ -9,6 +9,7 @@ from fastapi import Depends
 from sqlmodel import Session
 
 from store import (
+    BoutRepo,
     CoachNoteRepo,
     CoachRepo,
     ConsensusEventRepo,
@@ -36,6 +37,10 @@ def fighter_repo(session: Session = Depends(db_session)) -> FighterRepo:
 
 def session_repo(session: Session = Depends(db_session)) -> SessionRepo:
     return SessionRepo(session)
+
+
+def bout_repo(session: Session = Depends(db_session)) -> BoutRepo:
+    return BoutRepo(session)
 
 
 def punch_event_repo(session: Session = Depends(db_session)) -> PunchEventRepo:

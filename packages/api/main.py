@@ -15,6 +15,7 @@ from fastapi.staticfiles import StaticFiles
 
 from api.routes import (
     auth,
+    bouts,
     cameras,
     capture_coord,
     coaches,
@@ -177,6 +178,8 @@ app.include_router(capture_coord.master)
 app.include_router(capture_coord.slave)
 app.include_router(rq1.router)
 app.include_router(round_plans.router)
+# Two-fighter bouts (ADR-011) — new endpoints, unversioned.
+app.include_router(bouts.router)
 
 # Profile-type expansion (coaches + referees): unversioned only.
 # These are NEW endpoints; not part of any frozen contract yet.

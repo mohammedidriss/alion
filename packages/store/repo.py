@@ -11,6 +11,9 @@ from sqlmodel import select
 from store.models import (
     Allergy,
     AllergyCreate,
+    Bout,
+    BoutCreate,
+    BoutOutcomeEnum,
     CheckIn,
     Coach,
     CoachAssignment,
@@ -18,6 +21,7 @@ from store.models import (
     CoachCreate,
     CoachNote,
     ConsensusEventRow,
+    CornerEnum,
     Fighter,
     FighterCreate,
     FighterSponsor,
@@ -226,6 +230,85 @@ class SessionRepo:
         self._session.commit()
         self._session.refresh(row)
         return row
+
+
+class BoutRepo:
+    """Two-fighter bouts (ADR-011). A bout owns the shared round config + result; the
+    two participants are the sessions whose `bout_id` points here (one red, one blue).
+    Corner assignment lives here so the one-red-one-blue, two-max, one-bout-per-session
+    rules are enforced in one place."""
+
+    def __init__(self, session: DBSession) -> None:
+        self._session = session
+
+    def create(self, data: BoutCreate) -> Bout:
+        row = Bout(**data.model_dump())
+        self._session.add(row)
+        self._session.commit()
+        self._session.refresh(row)
+        return row
+
+    def get(self, bout_id: UUID) -> Bout | None:
+        return self._session.get(Bout, bout_id)
+
+    def list_all(self) -> list[Bout]:
+        stmt = select(Bout).order_by(Bout.scheduled_at)  # type: ignore[arg-type]
+        return list(self._session.exec(stmt).all())
+
+    def participants(self, bout_id: UUID) -> list[Session]:
+        stmt = select(Session).where(Session.bout_id == bout_id)
+        return list(self._session.exec(stmt).all())
+
+    def assign_corner(self, bout_id: UUID, session_id: UUID, corner: CornerEnum) -> Session | None:
+        """Attach a session to a bout in a corner. Returns the updated session, None if
+        the bout doesn't exist, or raises ValueError on a rule violation (unknown
+        session, corner taken, session already in another bout, or bout already full)."""
+        if self.get(bout_id) is None:
+            return None
+        sess = self._session.get(Session, session_id)
+        if sess is None:
+            raise ValueError("session not found")
+        if sess.bout_id is not None and sess.bout_id != bout_id:
+            raise ValueError("session already belongs to another bout")
+        current = self.participants(bout_id)
+        for p in current:
+            if p.corner == corner and p.id != session_id:
+                raise ValueError(f"{corner.value} corner is already taken")
+        if len([p for p in current if p.id != session_id]) >= 2:
+            raise ValueError("bout already has two participants")
+        sess.bout_id = bout_id
+        sess.corner = corner
+        self._session.add(sess)
+        self._session.commit()
+        self._session.refresh(sess)
+        return sess
+
+    def remove_participant(self, session_id: UUID) -> Session | None:
+        sess = self._session.get(Session, session_id)
+        if sess is None:
+            return None
+        sess.bout_id = None
+        sess.corner = None
+        self._session.add(sess)
+        self._session.commit()
+        self._session.refresh(sess)
+        return sess
+
+    def set_result(
+        self,
+        bout_id: UUID,
+        winner_corner: BoutOutcomeEnum | None,
+        result_method: str | None,
+    ) -> Bout | None:
+        bout = self.get(bout_id)
+        if bout is None:
+            return None
+        bout.winner_corner = winner_corner
+        bout.result_method = result_method
+        self._session.add(bout)
+        self._session.commit()
+        self._session.refresh(bout)
+        return bout
 
 
 class PunchEventRepo:
