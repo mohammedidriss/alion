@@ -485,6 +485,29 @@ class WeighInRead(SQLModel):
     notes: str | None = None
 
 
+class CornerEnum(StrEnum):
+    """A fighter's side in a two-fighter bout (ADR-011)."""
+
+    RED = "red"
+    BLUE = "blue"
+
+
+class BoutOutcomeEnum(StrEnum):
+    """Bout result by corner (or a draw)."""
+
+    RED = "red"
+    BLUE = "blue"
+    DRAW = "draw"
+
+
+class BellEventKindEnum(StrEnum):
+    """A marker on a bout's shared round timeline."""
+
+    ROUND_START = "round_start"
+    ROUND_END = "round_end"
+    BELL = "bell"
+
+
 class Session(SQLModel, table=True):
     id: UUID = Field(default_factory=uuid4, primary_key=True)
     fighter_id: UUID = Field(foreign_key="fighter.id", index=True)
@@ -521,6 +544,14 @@ class Session(SQLModel, table=True):
         default=None,
         sa_column=sa.Column(sa.String, nullable=True),
     )
+    # Two-fighter bout linkage (ADR-011). NULL bout_id => an ordinary single-fighter
+    # training session (today's path, unchanged). When set, this session is one
+    # fighter's side of a bout, tagged red/blue. Additive per ADR-005.
+    bout_id: UUID | None = Field(default=None, foreign_key="bout.id", index=True)
+    corner: CornerEnum | None = Field(
+        default=None,
+        sa_column=sa.Column(sa.String, nullable=True),
+    )
 
 
 class SessionCreate(SQLModel):
@@ -553,6 +584,72 @@ class SessionRead(SQLModel):
     rest_duration_s: int | None = None
     pose_backend: PoseBackendEnum = PoseBackendEnum.MEDIAPIPE
     study_condition: StudyConditionEnum | None = None
+    bout_id: UUID | None = None
+    corner: CornerEnum | None = None
+
+
+class Bout(SQLModel, table=True):
+    """A two-fighter fight (ADR-011). It links two single-fighter sessions — one per
+    corner — and owns what they share: the round configuration and (via BellEvent)
+    the bell/round timeline. The link lives on the session (`Session.bout_id` +
+    `corner`), not duplicated here: a bout's participants are the two sessions whose
+    `bout_id` points at it (one red, one blue)."""
+
+    id: UUID = Field(default_factory=uuid4, primary_key=True)
+    label: str | None = None
+    scheduled_at: datetime = Field(default_factory=lambda: datetime.now(UTC))
+    venue: str | None = None
+    # Shared round config — authoritative for the bout; participant sessions defer.
+    round_count: int = Field(default=3, ge=1, le=24)
+    round_duration_s: int = Field(default=180, ge=1, le=900)
+    rest_duration_s: int = Field(default=60, ge=0, le=600)
+    # Result — filled in after the bout.
+    winner_corner: BoutOutcomeEnum | None = Field(
+        default=None,
+        sa_column=sa.Column(sa.String, nullable=True),
+    )
+    result_method: str | None = None  # KO / TKO / decision / …
+    created_at: datetime = Field(default_factory=lambda: datetime.now(UTC))
+
+
+class BoutCreate(SQLModel):
+    label: str | None = None
+    venue: str | None = None
+    round_count: int = Field(default=3, ge=1, le=24)
+    round_duration_s: int = Field(default=180, ge=1, le=900)
+    rest_duration_s: int = Field(default=60, ge=0, le=600)
+
+
+class BoutRead(SQLModel):
+    id: UUID
+    label: str | None
+    scheduled_at: UtcDatetime
+    venue: str | None
+    round_count: int
+    round_duration_s: int
+    rest_duration_s: int
+    winner_corner: BoutOutcomeEnum | None = None
+    result_method: str | None = None
+    created_at: UtcDatetime
+
+
+class BellEvent(SQLModel, table=True):
+    """A marker on a bout's shared round timeline (ADR-011) — an offset from the bout
+    T_0 (the opening bell) so both fighters' sessions align to it (ADR-006)."""
+
+    id: UUID = Field(default_factory=uuid4, primary_key=True)
+    bout_id: UUID = Field(foreign_key="bout.id", index=True)
+    round_index: int = Field(ge=0)
+    kind: BellEventKindEnum = Field(sa_column=sa.Column(sa.String, nullable=False))
+    t_ms: float
+
+
+class BellEventRead(SQLModel):
+    id: UUID
+    bout_id: UUID
+    round_index: int
+    kind: BellEventKindEnum
+    t_ms: float
 
 
 class LeadOrRearEnum(StrEnum):
