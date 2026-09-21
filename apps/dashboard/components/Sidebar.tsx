@@ -73,6 +73,11 @@ export function Sidebar({ onNavigate }: { onNavigate?: () => void } = {}) {
     navItems.push({ label: "Coaches", href: "/gym-dashboard/coaches", icon: "◈" });
     navItems.push({ label: "Gyms", href: "/gym-dashboard/gyms", icon: "⌂" });
   }
+  // Bouts (ADR-011) — two-fighter fights; for everyone who runs sessions (not admin,
+  // who is restricted from training data).
+  if (activeRole && activeRole !== "admin") {
+    navItems.push({ label: "Bouts", href: "/bouts", icon: "⚔" });
+  }
 
   // Fighter context tabs (when viewing any fighter page)
   // Privacy: admin only sees general info (Dashboard + Team); gym_manager can't see Medical

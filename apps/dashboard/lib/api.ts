@@ -376,6 +376,25 @@ export interface Session {
   rest_duration_s: number | null;
   pose_backend: PoseBackend;
   study_condition: StudyCondition | null;
+  // Two-fighter bout linkage (ADR-011). Null bout_id => a training session.
+  bout_id?: string | null;
+  corner?: Corner | null;
+}
+
+export type Corner = "red" | "blue";
+export type BoutOutcome = "red" | "blue" | "draw";
+
+export interface Bout {
+  id: string;
+  label: string | null;
+  scheduled_at: string;
+  venue: string | null;
+  round_count: number;
+  round_duration_s: number;
+  rest_duration_s: number;
+  winner_corner: BoutOutcome | null;
+  result_method: string | null;
+  created_at: string;
 }
 
 export type AttachmentKind = "video" | "image" | "audio" | "document" | "other";
@@ -880,6 +899,37 @@ export const api = {
       method: "POST",
       headers: { "content-type": "application/json" },
       body: JSON.stringify({ fighter_id, source, pose_backend }),
+    }),
+
+  // Two-fighter bouts (ADR-011).
+  listBouts: () => req<Bout[]>("/bouts"),
+  getBout: (id: string) => req<Bout>(`/bouts/${id}`),
+  createBout: (body: {
+    label?: string | null;
+    venue?: string | null;
+    round_count?: number;
+    round_duration_s?: number;
+    rest_duration_s?: number;
+  }) =>
+    req<Bout>("/bouts", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify(body),
+    }),
+  boutParticipants: (id: string) => req<Session[]>(`/bouts/${id}/participants`),
+  assignBoutCorner: (id: string, session_id: string, corner: Corner) =>
+    req<Session>(`/bouts/${id}/participants`, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ session_id, corner }),
+    }),
+  removeBoutParticipant: (id: string, session_id: string) =>
+    req<Session>(`/bouts/${id}/participants/${session_id}`, { method: "DELETE" }),
+  setBoutResult: (id: string, winner_corner: BoutOutcome | null, result_method: string | null) =>
+    req<Bout>(`/bouts/${id}/result`, {
+      method: "PATCH",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ winner_corner, result_method }),
     }),
   deleteSession: (id: string) =>
     req<void>(`/sessions/${id}`, { method: "DELETE" }),
