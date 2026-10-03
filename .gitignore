@@ -18,6 +18,8 @@ node_modules/
 data/raw/
 data/processed/
 data/photos/
+# IMU wrist mapping — macOS Bluetooth IDs are per-Mac, so this is local config
+data/imu/
 *.db
 *.sqlite
 *.sqlite3
