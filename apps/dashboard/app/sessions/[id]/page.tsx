@@ -513,7 +513,9 @@ export default function SessionPage({ params }: { params: { id: string } }) {
         )}
       </div>
 
-      <header className="flex items-center justify-between">
+      {/* Three columns on wide screens — title + devices | join QR (top middle) |
+          status — so the QR sits centred without growing the header. */}
+      <header className="flex flex-wrap items-center justify-between gap-4 lg:grid lg:grid-cols-[1fr_auto_1fr]">
         <div className="flex items-center gap-4">
           <div>
             <h1 className="text-2xl font-semibold">Session</h1>
@@ -527,10 +529,16 @@ export default function SessionPage({ params }: { params: { id: string } }) {
           </Link>
           <PolarH10Card />
         </div>
+        {/* Join QR — only while cameras can still be added. */}
+        {(session.status === "pending" || session.status === "capturing") ? (
+          <JoinQrCard sessionId={session.id} compact />
+        ) : (
+          <div className="hidden lg:block" />
+        )}
         {/* Status + backend badges — hidden for pending (the setup UI
             below already conveys both). */}
         {session.status !== "pending" && (
-          <div className="flex items-center gap-2">
+          <div className="flex items-center gap-2 lg:justify-self-end">
             {(() => {
               let label: string = session.status;
               let cls = "bg-neutral-800 text-neutral-300";
@@ -578,14 +586,13 @@ export default function SessionPage({ params }: { params: { id: string } }) {
 
       {err && <p className="text-sm text-red-400">{err}</p>}
 
-      {/* Capture: round configuration + join QR (left) and the cameras panel (right).
-          Only while the session can still capture — hidden once it's completed. */}
+      {/* Capture: live reader + round configuration (left) and the cameras panel
+          (right). Only while the session can still capture — hidden once completed. */}
       {(session.status === "pending" || session.status === "capturing") && (
         <div className="grid items-start gap-6 lg:grid-cols-[300px_minmax(0,1fr)]">
           <div className="space-y-6">
             <LiveReader sessionId={session.id} fighterId={session.fighter_id} />
             <RoundConfigCard session={session} onChange={setSession} />
-            <JoinQrCard sessionId={session.id} />
           </div>
           <MulticamPanel session={session} defaultLaptop />
         </div>

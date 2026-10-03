@@ -4,7 +4,7 @@
  * Multi-camera device panel (ADR-010) — the master/coach view. Shows a live grid
  * of every connected phone camera (≈1 fps preview frames each posts), the laptop as
  * its own single camera screen, the round timer, and one synchronized Start/Stop.
- * The join QR lives in <JoinQrCard> under the round-configuration panel.
+ * The join QR lives in <JoinQrCard> (top middle of the session page header).
  *
  * The body sensors ride along. The wrist IMUs, if the pair belongs to this
  * session's fighter, start right after the cameras (t = 0 is the cameras'
