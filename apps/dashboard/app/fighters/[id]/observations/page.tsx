@@ -52,7 +52,7 @@ export default function ObservationsTab({
 
   useEffect(() => {
     api
-      .listSessions(params.id)
+      .listSessions(params.id, { recorded: true })
       .then(setSessions)
       .catch((e) => setErr(String(e)));
     api

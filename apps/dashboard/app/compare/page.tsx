@@ -21,7 +21,7 @@ export default function ComparePage() {
   const [loading, setLoading] = useState(false);
 
   useEffect(() => {
-    api.listSessions().then((s) => {
+    api.listSessions(undefined, { recorded: true }).then((s) => {
       const completed = s.filter((x) => x.status === "completed");
       setSessions(completed);
     });

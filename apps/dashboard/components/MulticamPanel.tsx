@@ -5,10 +5,17 @@
  * of every connected phone camera (≈1 fps preview frames each posts), the laptop as
  * its own single camera screen, the round timer, and one synchronized Start/Stop.
  * The join QR lives in <JoinQrCard> under the round-configuration panel.
+ *
+ * The body sensors ride along. The wrist IMUs, if the pair belongs to this
+ * session's fighter, start right after the cameras (t = 0 is the cameras'
+ * synchronized start) and stop with them; Pause/Resume reach them server-side via
+ * the coordinator. A paired Polar H10 streams heart rate for the same span.
  */
 
 import { useCallback, useEffect, useRef, useState } from "react";
 import { CameraNode } from "@/components/CameraNode";
+import { imuErrorText } from "@/components/ImuSensors";
+import { getPairedDevice } from "@/components/PolarH10Card";
 import { RoundTimer } from "@/components/SessionRounds";
 import { api, type MulticamDevice, type Session } from "@/lib/api";
 
@@ -31,6 +38,15 @@ export function MulticamPanel({
   const pausedAccumRef = useRef(0); // total paused ms, subtracted from timer elapsed
   const pauseStartRef = useRef<number | null>(null);
   const [msg, setMsg] = useState<string | null>(null);
+  const [imuMsg, setImuMsg] = useState<string | null>(null);
+  const [imuMine, setImuMine] = useState(false); // the IMU pair belongs to this fighter
+
+  useEffect(() => {
+    api
+      .imuDevices()
+      .then((d) => setImuMine(d.units.length > 0 && d.owner?.fighter_id === session.fighter_id))
+      .catch(() => setImuMine(false));
+  }, [session.fighter_id]);
 
   useEffect(() => {
     api
@@ -72,10 +88,26 @@ export function MulticamPanel({
       setMsg(`Recording ${r.devices} camera(s) together…`);
     } catch {
       setMsg("Connect at least one camera first.");
-    } finally {
       setBusy(false);
+      return;
     }
-  }, [sessionId]);
+    setImuMsg(null);
+    const problems: string[] = [];
+    const polar = getPairedDevice();
+    await Promise.all([
+      // After multicamStart, so the IMU's t = 0 is the cameras' scheduled start.
+      imuMine &&
+        api
+          .startImuBle(sessionId)
+          .catch((e) => problems.push(`Wrist sensors didn't start: ${imuErrorText(e)}`)),
+      polar &&
+        api
+          .startHrvBle(sessionId, polar.address)
+          .catch((e) => problems.push(`Heart-rate strap didn't start: ${imuErrorText(e)}`)),
+    ]);
+    if (problems.length) setImuMsg(problems.join(" "));
+    setBusy(false);
+  }, [sessionId, imuMine]);
 
   const pause = useCallback(async () => {
     await api.multicamPause(sessionId).catch(() => {});
@@ -95,7 +127,12 @@ export function MulticamPanel({
   }, [sessionId]);
 
   const stop = useCallback(async () => {
-    await api.multicamStop(sessionId).catch(() => {});
+    await Promise.all([
+      api.multicamStop(sessionId).catch(() => {}),
+      // Waits for the last samples to be written; a no-op if the IMU wasn't running.
+      api.stopImuBle(sessionId).catch(() => {}),
+      api.stopHrv(sessionId).catch(() => {}),
+    ]);
     setCaptureStartMs(null);
     setPaused(false);
     pauseStartRef.current = null;
@@ -166,6 +203,7 @@ export function MulticamPanel({
           </>
         )}
         {msg && <span className="text-xs text-neutral-400">{msg}</span>}
+        {imuMsg && <span className="text-xs text-red-300">{imuMsg}</span>}
       </div>
 
       {/* Round timer — runs off the round-configuration panel (round_count ×

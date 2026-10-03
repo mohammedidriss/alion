@@ -21,6 +21,7 @@ from sqlmodel import Session as DBSession
 
 from analyze import compute_score, mean_hr_bpm, rmssd_ms, sdnn_ms
 from api.deps import db_session, fighter_repo, punch_event_repo, resolve_gym_id, session_repo
+from api.routes import capture_coord
 from api.routes.auth import get_current_user, require_current_user
 from api.services import capture_runner
 from capture.hrv import parse_rr_csv
@@ -36,6 +37,7 @@ from store import (
     SessionStatus,
     User,
 )
+from store import Session as SessionRow
 from store.models import (
     PunchEventRead,
     SessionCreate,
@@ -84,11 +86,30 @@ def _purge_stale_pending(repo: SessionRepo) -> int:
     cutoff = datetime.datetime.utcnow() - datetime.timedelta(minutes=10)
     all_sessions = repo.list_all()
     deleted = 0
+    with_video = capture_coord.session_ids_with_video()
     for s in all_sessions:
+        if str(s.id) in with_video:
+            continue  # multi-cam sessions stay "pending" with 0 frames but HAVE video
         if s.status == SessionStatus.PENDING and s.frame_count == 0 and s.started_at < cutoff:
             repo.delete(s.id)
             deleted += 1
     return deleted
+
+
+def _recorded(rows: list[SessionRow]) -> list[SessionRow]:
+    """Sessions where the camera actually recorded: a video on disk (multi-cam clips
+    or an upload), a saved capture, processed frames, or a capture in progress.
+    A session opened and left without recording isn't shown in the session log
+    (and the stale-pending purge deletes it after 10 minutes)."""
+    with_video = capture_coord.session_ids_with_video()
+    return [
+        s
+        for s in rows
+        if str(s.id) in with_video
+        or s.video_path
+        or s.frame_count > 0
+        or s.status in (SessionStatus.CAPTURING, SessionStatus.PROCESSING)
+    ]
 
 
 @router.delete("/stale-pending")
@@ -101,6 +122,7 @@ def delete_stale_pending(repo: SessionRepo = Depends(session_repo)) -> dict[str,
 @router.get("", response_model=list[SessionRead])
 def list_sessions(
     fighter_id: UUID | None = None,
+    recorded: bool = False,
     repo: SessionRepo = Depends(session_repo),
     current_user: User | None = Depends(get_current_user),
     session: DBSession = Depends(db_session),
@@ -117,9 +139,13 @@ def list_sessions(
             gym_fighter_ids = {f.id for f in gym_fighters}
             all_rows = repo.list_for_fighter(fighter_id) if fighter_id else repo.list_all()
             rows = [s for s in all_rows if s.fighter_id in gym_fighter_ids]
+            if recorded:
+                rows = _recorded(rows)
             return [SessionRead.model_validate(s, from_attributes=True) for s in rows]
 
     rows = repo.list_for_fighter(fighter_id) if fighter_id else repo.list_all()
+    if recorded:
+        rows = _recorded(rows)
     return [SessionRead.model_validate(s, from_attributes=True) for s in rows]
 
 

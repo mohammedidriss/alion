@@ -29,6 +29,7 @@ from pydantic import BaseModel
 from api.deps import session_repo
 from api.routes.auth import require_current_user
 from api.routes.pose import PoseFrameIn, _to_landmarks, _to_world
+from api.services import imu_runner
 from contracts import PoseFrame
 from store import SessionRepo
 
@@ -99,6 +100,17 @@ def _check_token(session_id: UUID, token: str) -> _Coord:
     if c is None or token != c.join_token:
         raise HTTPException(status_code=403, detail="invalid or expired join token")
     return c
+
+
+def started_at_ms(session_id: UUID) -> float | None:
+    """When the cameras start/started recording this session (server wall clock, ms),
+    or None if no synchronized start is active. Other streams (IMU) align their
+    t = 0 to this instant so they share the clips' timeline."""
+    with _lock:
+        c = _coords.get(session_id)
+        if c is None or c.command != "start":
+            return None
+        return c.start_at_ms
 
 
 def _live_devices(c: _Coord) -> list[_Device]:
@@ -220,8 +232,10 @@ def pause_capture(session_id: UUID) -> CaptureState:
     with _lock:
         c = _ensure(session_id)
         c.paused = True
+        now = _now_ms()
+        imu_runner.pause(session_id, at_ms=now)  # keep the wrist data on the clip's timeline
         return CaptureState(
-            command=c.command, start_at_ms=c.start_at_ms, server_now_ms=_now_ms(), paused=True
+            command=c.command, start_at_ms=c.start_at_ms, server_now_ms=now, paused=True
         )
 
 
@@ -230,8 +244,10 @@ def resume_capture(session_id: UUID) -> CaptureState:
     with _lock:
         c = _ensure(session_id)
         c.paused = False
+        now = _now_ms()
+        imu_runner.resume(session_id, at_ms=now)
         return CaptureState(
-            command=c.command, start_at_ms=c.start_at_ms, server_now_ms=_now_ms(), paused=False
+            command=c.command, start_at_ms=c.start_at_ms, server_now_ms=now, paused=False
         )
 
 
@@ -400,6 +416,19 @@ class ClipInfo(BaseModel):
     device_id: str
     ext: str
     bytes: int
+
+
+def session_ids_with_video() -> set[str]:
+    """Ids of every session with a recorded video on disk — per-device multi-cam clips
+    (`{session}.{device}.webm`) or a single uploaded video (`{session}.mp4`). One
+    directory scan, so session lists can filter without a lookup per session."""
+    if not _VIDEO_DIR.exists():
+        return set()
+    return {
+        p.name.split(".", 1)[0]
+        for p in _VIDEO_DIR.iterdir()
+        if p.suffix in (".webm", ".mp4") and p.stat().st_size > 0
+    }
 
 
 @master.get("/{session_id}/multicam/clips", response_model=list[ClipInfo])

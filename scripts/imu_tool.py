@@ -170,6 +170,15 @@ async def cmd_scan(secs: int) -> None:
         print("  4. Keep it within ~1 m of the Mac and scan again.")
         return
     units.sort(reverse=True)
+    # Remember the advertised name of units we already know (shown in the portal).
+    devices = _load_devices()
+    renamed = False
+    for _, name, addr in units:
+        if addr in devices and name != "(no name)" and devices[addr].get("name") != name:
+            devices[addr]["name"] = name
+            renamed = True
+    if renamed:
+        DEVICES_FILE.write_text(json.dumps(devices, indent=2) + "\n")
     print(f"\nFound {len(units)} WitMotion unit(s), strongest signal first:")
     for rssi, name, addr in units:
         wrist = _wrist_of(addr)
@@ -401,7 +410,7 @@ def cmd_assign(addr: str, wrist: str) -> None:
     for other, meta in list(devices.items()):  # one unit per wrist
         if other != addr and meta.get("wrist") == wrist:
             del devices[other]
-    devices[addr] = {"wrist": wrist}
+    devices[addr] = {**devices.get(addr, {}), "wrist": wrist}  # keep its owner (fighter_id)
     DEVICES_FILE.parent.mkdir(parents=True, exist_ok=True)
     DEVICES_FILE.write_text(json.dumps(devices, indent=2) + "\n")
     print(f"✓ {addr} → {wrist} wrist   (saved to {DEVICES_FILE.relative_to(REPO)})")

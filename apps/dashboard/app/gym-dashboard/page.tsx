@@ -43,7 +43,7 @@ export default function GymDashboardPage() {
         api.getGym(gymId),
         api.listFighters(gymId),
         api.listCoaches(gymId),
-        api.listSessions(),
+        api.listSessions(undefined, { recorded: true }),
         api.listGyms(),
       ]);
       setGym(g);

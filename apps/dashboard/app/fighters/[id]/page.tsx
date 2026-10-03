@@ -76,7 +76,7 @@ export default function FighterPage({ params }: { params: { id: string } }) {
       const isAdminRole = user?.role === "admin";
       const [f, sList, wList, opts] = await Promise.all([
         api.getFighter(id),
-        isAdminRole ? Promise.resolve([]) : api.listSessions(id),
+        isAdminRole ? Promise.resolve([]) : api.listSessions(id, { recorded: true }),
         isAdminRole ? Promise.resolve([]) : api.listWeighIns(id),
         api.fighterOptions().catch(() => null),
       ]);

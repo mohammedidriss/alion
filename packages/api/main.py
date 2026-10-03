@@ -25,6 +25,8 @@ from api.routes import (
     health,
     hrv,
     imu,
+    imu_ble,
+    live,
     pose,
     referees,
     round_plans,
@@ -167,6 +169,10 @@ app.include_router(hrv.stream_router, prefix="/v2")
 app.include_router(hrv.ble_router, prefix="/v2")
 app.include_router(imu.router, prefix="/v2")
 app.include_router(imu.router)
+# Live wrist IMUs over BLE (WT901 pair) — devices/owner + per-session start/stop/status.
+app.include_router(imu_ble.devices_router, prefix="/v2")
+app.include_router(imu_ble.router, prefix="/v2")
+app.include_router(live.router, prefix="/v2")
 # Pose-stream upload — persists browser-captured landmarks as parquet so
 # browser sessions save pose data (offline eval + RQ2). New endpoint, additive.
 app.include_router(pose.router)

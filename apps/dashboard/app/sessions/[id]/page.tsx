@@ -7,6 +7,7 @@ import { EvaluationCard } from "@/components/EvaluationCard";
 import { FighterBackLink } from "@/components/FighterBackLink";
 import { HrvPanel } from "@/components/HrvPanel";
 import { IMUPanel } from "@/components/IMUPanel";
+import { LiveReader } from "@/components/LiveReader";
 import { getPairedDevice, PolarH10Card } from "@/components/PolarH10Card";
 import { MulticamPanel } from "@/components/MulticamPanel";
 import { JoinQrCard } from "@/components/JoinQrCard";
@@ -283,6 +284,7 @@ export default function SessionPage({ params }: { params: { id: string } }) {
       await Promise.all([
         api.stopCapture(id),
         api.stopHrv(id).catch(() => undefined),
+        api.stopImuBle(id).catch(() => undefined),
       ]);
       await refresh();
     } catch (e) {
@@ -581,6 +583,7 @@ export default function SessionPage({ params }: { params: { id: string } }) {
       {(session.status === "pending" || session.status === "capturing") && (
         <div className="grid items-start gap-6 lg:grid-cols-[300px_minmax(0,1fr)]">
           <div className="space-y-6">
+            <LiveReader sessionId={session.id} fighterId={session.fighter_id} />
             <RoundConfigCard session={session} onChange={setSession} />
             <JoinQrCard sessionId={session.id} />
           </div>

@@ -59,7 +59,7 @@ export default function SessionsTab({ params }: { params: { id: string } }) {
 
   useEffect(() => {
     api
-      .listSessions(params.id)
+      .listSessions(params.id, { recorded: true })
       .then(async (sList) => {
         const enriched = await Promise.all(
           sList.map(async (s) => {

@@ -66,3 +66,20 @@ body {
     padding-bottom: env(safe-area-inset-bottom, 0px);
   }
 }
+
+/* Live reader heart — lub-dub; the duration is set inline to one beat (60 / bpm s). */
+@keyframes alion-heartbeat {
+  0%, 100% { transform: scale(1); }
+  12% { transform: scale(1.2); }
+  24% { transform: scale(1); }
+  36% { transform: scale(1.1); }
+  52% { transform: scale(1); }
+}
+.alion-heartbeat {
+  animation-name: alion-heartbeat;
+  animation-timing-function: ease-in-out;
+  animation-iteration-count: infinite;
+}
+@media (prefers-reduced-motion: reduce) {
+  .alion-heartbeat { animation: none; }
+}

@@ -6,7 +6,13 @@ video). We test the routes around it.
 
 from __future__ import annotations
 
+import datetime
+from pathlib import Path
+from uuid import UUID
+
+import pytest
 from fastapi.testclient import TestClient
+from sqlmodel import Session
 
 
 def _make_fighter(client: TestClient) -> str:
@@ -131,3 +137,58 @@ def test_bulk_events_endpoint(authed_client: TestClient) -> None:
     sess = authed_client.get(f"/sessions/{sid}").json()
     assert sess["status"] == "completed"
     assert sess["duration_ms"] == 5000.0
+
+
+def test_session_log_only_lists_sessions_that_recorded(
+    authed_client: TestClient, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Opening a session and leaving without recording mustn't leave it in the log;
+    once a camera clip lands it shows up — and the stale purge never deletes it."""
+    from api.routes import capture_coord
+
+    monkeypatch.setattr(capture_coord, "_VIDEO_DIR", tmp_path)
+    fid = authed_client.post("/fighters", json={"name": "Log"}).json()["id"]
+    empty = authed_client.post(
+        "/sessions", json={"fighter_id": fid, "source": "live_webcam"}
+    ).json()["id"]
+    filmed = authed_client.post(
+        "/sessions", json={"fighter_id": fid, "source": "live_webcam"}
+    ).json()["id"]
+    (tmp_path / f"{filmed}.a1b2c3d4.webm").write_bytes(b"\x1a\x45\xdf\xa3 clip")
+    (tmp_path / f"{empty}.deadbeef.webm").write_bytes(b"")  # a failed, empty upload
+
+    log = authed_client.get(f"/sessions?fighter_id={fid}&recorded=true").json()
+    assert [s["id"] for s in log] == [filmed]
+    everything = authed_client.get(f"/sessions?fighter_id={fid}").json()
+    assert {s["id"] for s in everything} == {empty, filmed}  # unfiltered view unchanged
+
+
+def test_stale_purge_keeps_pending_sessions_that_have_video(
+    authed_client: TestClient,
+    session: Session,
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Multi-cam sessions stay "pending" with 0 frames after recording; the purge of
+    empty pending sessions must not take their video with it."""
+    from api.routes import capture_coord
+    from store import Session as SessionRow
+
+    monkeypatch.setattr(capture_coord, "_VIDEO_DIR", tmp_path)
+    fid = authed_client.post("/fighters", json={"name": "Purge"}).json()["id"]
+    filmed, empty = (
+        authed_client.post("/sessions", json={"fighter_id": fid, "source": "live_webcam"}).json()[
+            "id"
+        ]
+        for _ in range(2)
+    )
+    (tmp_path / f"{filmed}.a1b2c3d4.webm").write_bytes(b"clip")
+    for sid in (filmed, empty):  # both opened 11 minutes ago, past the purge cutoff
+        row = session.get(SessionRow, UUID(sid))
+        assert row is not None
+        row.started_at = datetime.datetime.utcnow() - datetime.timedelta(minutes=11)
+        session.add(row)
+    session.commit()
+
+    left = {s["id"] for s in authed_client.get(f"/sessions?fighter_id={fid}").json()}
+    assert left == {filmed}

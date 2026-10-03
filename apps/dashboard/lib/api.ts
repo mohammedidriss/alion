@@ -354,6 +354,53 @@ export interface HrvStatus {
   metrics: HRMetricsWindow | null;
 }
 
+// Live wrist IMUs (WT901 pair over BLE) — configured with scripts/imu_tool.py.
+export type ImuHand = "left" | "right";
+
+export interface ImuUnit {
+  hand: ImuHand;
+  address: string;
+  name: string | null;
+}
+
+export interface ImuDevices {
+  units: ImuUnit[];
+  owner: { fighter_id: string; name: string } | null;
+}
+
+export interface ImuUnitStatus {
+  connected: boolean;
+  samples: number;
+  hz: number;
+  battery_v: number | null;
+  battery_pct: number | null;
+  last_g: number;
+  peak_g: number;
+  error: string | null;
+  /** Live: peak |a| per 50 ms over the last 5 s, oldest first. */
+  trace: number[];
+}
+
+export interface ImuBleStatus {
+  running: boolean;
+  paused: boolean;
+  error: string | null;
+  units: Partial<Record<ImuHand, ImuUnitStatus>>;
+}
+
+/** One poll for the session page's watch-style live reader. */
+export interface LiveReading {
+  heart: {
+    streaming: boolean;
+    bpm: number | null;
+    bpm_trace: number[];
+    rmssd_ms: number | null;
+    max_hr: number | null;
+    zone: number | null; // 0–5
+  };
+  imu: ImuBleStatus;
+}
+
 export interface Session {
   id: string;
   fighter_id: string;
@@ -809,6 +856,21 @@ export const api = {
     req<HRSample[]>(
       `/v2/sessions/${id}/hrv/samples${limit ? `?limit=${limit}` : ""}`,
     ),
+  // Live wrist IMUs over BLE.
+  imuDevices: () => req<ImuDevices>("/v2/imu/devices"),
+  setImuOwner: (fighter_id: string) =>
+    req<ImuDevices>("/v2/imu/devices/owner", {
+      method: "PUT",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ fighter_id }),
+    }),
+  checkImuDevices: () => req<ImuBleStatus>("/v2/imu/devices/check", { method: "POST" }),
+  startImuBle: (id: string) =>
+    req<ImuBleStatus>(`/v2/sessions/${id}/imu/ble/start`, { method: "POST" }),
+  stopImuBle: (id: string) =>
+    req<ImuBleStatus>(`/v2/sessions/${id}/imu/ble/stop`, { method: "POST" }),
+  imuBleStatus: (id: string) => req<ImuBleStatus>(`/v2/sessions/${id}/imu/ble/status`),
+  liveReading: (id: string) => req<LiveReading>(`/v2/sessions/${id}/live`),
   // Multi-device capture coordinator (ADR-010): device roster + synchronized start.
   multicamJoinInfo: (id: string) =>
     req<MulticamJoinInfo>(`/sessions/${id}/multicam/join-info`, { method: "POST" }),
@@ -889,10 +951,15 @@ export const api = {
     if (!r.ok) return null;
     return URL.createObjectURL(await r.blob());
   },
-  listSessions: (fighter_id?: string) =>
-    req<Session[]>(
-      fighter_id ? `/sessions?fighter_id=${fighter_id}` : "/sessions",
-    ),
+  /** `recorded: true` = the session log: only sessions where the camera recorded
+   *  (opened-and-left sessions are hidden, then purged after 10 min). */
+  listSessions: (fighter_id?: string, opts?: { recorded?: boolean }) => {
+    const q = new URLSearchParams();
+    if (fighter_id) q.set("fighter_id", fighter_id);
+    if (opts?.recorded) q.set("recorded", "true");
+    const qs = q.toString();
+    return req<Session[]>(qs ? `/sessions?${qs}` : "/sessions");
+  },
   getSession: (id: string) => req<Session>(`/sessions/${id}`),
   createSession: (fighter_id: string, source: SessionSource, pose_backend: PoseBackend = "mediapipe") =>
     req<Session>("/sessions", {

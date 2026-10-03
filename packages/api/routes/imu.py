@@ -196,6 +196,26 @@ def synthesize_imu(
     return imu.replace_for_session(session_id, samples)
 
 
+def _downsample(rows: list[IMUSampleRow], limit: int) -> list[IMUSampleRow]:
+    """Thin to ~`limit` points for the dashboard, keeping each wrist's peaks.
+
+    A plain stride would skip most punch spikes (a punch is ~3 samples at 100 Hz),
+    so each wrist keeps its highest-|a| sample per bucket."""
+    if len(rows) <= limit:
+        return rows
+    by_hand: dict[object, list[IMUSampleRow]] = {}
+    for r in rows:
+        by_hand.setdefault(r.hand, []).append(r)
+    per_hand = max(1, limit // len(by_hand))
+    out: list[IMUSampleRow] = []
+    for hand_rows in by_hand.values():
+        step = math.ceil(len(hand_rows) / per_hand)
+        for i in range(0, len(hand_rows), step):
+            bucket = hand_rows[i : i + step]
+            out.append(max(bucket, key=lambda r: r.ax_g**2 + r.ay_g**2 + r.az_g**2))
+    return sorted(out, key=lambda r: r.t_ms)
+
+
 @router.get("/{session_id}/imu/samples", response_model=list[IMUSampleRead])
 def list_imu_samples(
     session_id: UUID,
@@ -204,11 +224,7 @@ def list_imu_samples(
 ) -> list[IMUSampleRead]:
     if sessions.get(session_id) is None:
         raise HTTPException(status_code=404, detail="session not found")
-    rows = imu.list_for_session(session_id)
-    # Sub-sample to keep dashboard payloads small (max ~2000 points).
-    if len(rows) > 2000:
-        step = math.ceil(len(rows) / 2000)
-        rows = rows[::step]
+    rows = _downsample(imu.list_for_session(session_id), 2000)
     return [
         IMUSampleRead(
             session_id=r.session_id,
