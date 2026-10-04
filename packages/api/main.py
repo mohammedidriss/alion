@@ -19,6 +19,7 @@ from api.routes import (
     cameras,
     capture_coord,
     coaches,
+    dataset_export,
     datasets,
     fighters,
     gym_managers,
@@ -29,6 +30,7 @@ from api.routes import (
     imu_ble,
     live,
     pose,
+    protocol,
     referees,
     round_plans,
     rq1,
@@ -174,6 +176,9 @@ app.include_router(imu.router)
 app.include_router(imu_ble.devices_router, prefix="/v2")
 app.include_router(imu_ble.router, prefix="/v2")
 app.include_router(live.router, prefix="/v2")
+app.include_router(protocol.plan_router, prefix="/v2")
+app.include_router(protocol.router, prefix="/v2")
+app.include_router(dataset_export.router, prefix="/v2")
 # Pose-stream upload — persists browser-captured landmarks as parquet so
 # browser sessions save pose data (offline eval + RQ2). New endpoint, additive.
 app.include_router(pose.router)

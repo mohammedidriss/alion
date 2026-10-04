@@ -395,6 +395,51 @@ export interface ImuBleStatus {
   units: Partial<Record<ImuHand, ImuUnitStatus>>;
 }
 
+// Dataset recording protocol (RQ2) — blocks marked during a take become labels.
+export interface ProtocolBlockSpec {
+  key: string;
+  title: string;
+  kind: "typed" | "negative" | "free";
+  punch_type: string | null;
+  side: "lead" | "rear" | "both" | null;
+  reps: number | null;
+  duration_s: number | null;
+  hint: string;
+}
+
+export interface ProtocolBlock {
+  index: number;
+  key: string;
+  title: string;
+  t_start_ms: number;
+  t_end_ms: number | null;
+  discarded: boolean;
+  detected: number | null;
+  off_hand: number | null;
+}
+
+export interface TakeProtocol {
+  plan: ProtocolBlockSpec[];
+  stance: string | null;
+  lead_hand: "left" | "right";
+  blocks: ProtocolBlock[];
+  active: number | null;
+  labels: { generated_at: string; count: number; stance: string | null } | null;
+  labels_edited: boolean;
+  imu_running: boolean;
+  recording: boolean; // the cameras are rolling — blocks can be started
+}
+
+/** The training manifest written by POST /v2/datasets/{id}/export. */
+export interface DatasetExport {
+  dataset_id: string;
+  path: string;
+  split_strategy: "by_fighter" | "pilot";
+  counts: { takes: number; fighters: number; labels: number };
+  warnings: string[];
+  excluded: { take_id: string; reason: string }[];
+}
+
 /** One poll for the session page's watch-style live reader. */
 export interface LiveReading {
   heart: {
@@ -941,6 +986,25 @@ export const api = {
     req<ImuBleStatus>(`/v2${capBase(id)}/imu/ble/stop`, { method: "POST" }),
   imuBleStatus: (id: CaptureRef) => req<ImuBleStatus>(`/v2${capBase(id)}/imu/ble/status`),
   liveReading: (id: CaptureRef) => req<LiveReading>(`/v2${capBase(id)}/live`),
+  // Dataset protocol on a take (ADR-013).
+  protocol: (takeId: string) => req<TakeProtocol>(`/v2/takes/${takeId}/protocol`),
+  protocolStart: (takeId: string, key: string) =>
+    req<TakeProtocol>(`/v2/takes/${takeId}/protocol/start`, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ key }),
+    }),
+  protocolEnd: (takeId: string) =>
+    req<TakeProtocol>(`/v2/takes/${takeId}/protocol/end`, { method: "POST" }),
+  protocolDiscard: (takeId: string, index: number) =>
+    req<TakeProtocol>(`/v2/takes/${takeId}/protocol/blocks/${index}/discard`, { method: "POST" }),
+  protocolLabels: (takeId: string, overwrite = false) =>
+    req<TakeProtocol>(`/v2/takes/${takeId}/protocol/labels?overwrite=${overwrite}`, {
+      method: "POST",
+    }),
+  // Write {dataset}/export/manifest.json (takes, files, splits) and return it.
+  datasetExport: (datasetId: string) =>
+    req<DatasetExport>(`/v2/datasets/${datasetId}/export`, { method: "POST" }),
   // Multi-device capture coordinator (ADR-010): device roster + synchronized start.
   multicamJoinInfo: (id: CaptureRef) =>
     req<MulticamJoinInfo>(`${capBase(id)}/multicam/join-info`, { method: "POST" }),
