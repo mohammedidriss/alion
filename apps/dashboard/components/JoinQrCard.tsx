@@ -3,13 +3,19 @@
 /**
  * JoinQrCard (ADR-010) — the QR code a phone scans to join the session as a
  * camera. No link text: the QR is the join path; the coach just points a phone
- * at it. `compact` is the slim header version (session page): a small QR that
- * enlarges on click, since a tiny on-screen code is hard for a phone to read.
+ * at it. `compact` is the header version: the QR beside a short label.
+ *
+ * Every code carries a 4-module white border (the QR "quiet zone"): scanners
+ * can't find a code without one, and the CSS padding alone was only ~1 module.
  */
 
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useState } from "react";
 import { QRCodeSVG } from "qrcode.react";
 import { api } from "@/lib/api";
+
+// Big enough for a phone to read straight off a laptop screen (~3.4 px per module
+// for a join link): a 52 px code only decoded at Retina density.
+const QR_PX = 168;
 
 export function JoinQrCard({
   sessionId,
@@ -49,8 +55,8 @@ export function JoinQrCard({
       <p className="text-xs text-neutral-400">Scan on each phone (same Wi-Fi).</p>
       {joinUrl ? (
         <div className="flex justify-center">
-          <div className="rounded-lg bg-white p-2">
-            <QRCodeSVG value={joinUrl} size={148} />
+          <div className="rounded-lg bg-white">
+            <QRCodeSVG value={joinUrl} size={180} marginSize={4} />
           </div>
         </div>
       ) : (
@@ -61,55 +67,25 @@ export function JoinQrCard({
 }
 
 function CompactQr({ joinUrl, err }: { joinUrl: string | null; err: boolean }) {
-  const [big, setBig] = useState(false);
-  const ref = useRef<HTMLDivElement>(null);
-
-  // Close the enlarged code on a click elsewhere or Escape.
-  useEffect(() => {
-    if (!big) return;
-    const onDown = (e: MouseEvent) => {
-      if (ref.current && !ref.current.contains(e.target as Node)) setBig(false);
-    };
-    const onKey = (e: KeyboardEvent) => e.key === "Escape" && setBig(false);
-    document.addEventListener("mousedown", onDown);
-    document.addEventListener("keydown", onKey);
-    return () => {
-      document.removeEventListener("mousedown", onDown);
-      document.removeEventListener("keydown", onKey);
-    };
-  }, [big]);
-
   return (
-    <div ref={ref} className="relative">
-      <div className="flex items-center gap-2.5 rounded-xl border border-white/10 bg-neutral-950/60 py-1 pl-1 pr-3">
-        {joinUrl ? (
-          <button
-            onClick={() => setBig((b) => !b)}
-            className="rounded-md bg-white p-0.5 transition-transform hover:scale-105"
-            title="Click to enlarge"
-            aria-label="Enlarge the camera join QR code"
-          >
-            <QRCodeSVG value={joinUrl} size={52} />
-          </button>
-        ) : (
-          <div className="flex h-[56px] w-[56px] items-center justify-center rounded-md border border-dashed border-white/10 text-[10px] text-neutral-500">
-            {err ? "no link" : "…"}
-          </div>
-        )}
-        <div className="leading-tight">
-          <div className="text-xs font-semibold text-neutral-200">Add a phone camera</div>
-          <div className="mt-0.5 text-[11px] text-neutral-500">Scan · same Wi-Fi</div>
-          <div className="text-[10px] text-neutral-600">click to enlarge</div>
+    <div className="flex items-center gap-3 rounded-2xl border border-white/10 bg-neutral-950/60 p-2 pr-4">
+      {joinUrl ? (
+        <div className="shrink-0 overflow-hidden rounded-lg bg-white">
+          <QRCodeSVG value={joinUrl} size={QR_PX} marginSize={4} />
         </div>
-      </div>
-      {big && joinUrl && (
-        <div className="absolute left-1/2 top-full z-30 mt-2 -translate-x-1/2 rounded-2xl border border-white/10 bg-neutral-900 p-3 shadow-2xl">
-          <div className="rounded-xl bg-white p-3">
-            <QRCodeSVG value={joinUrl} size={220} />
-          </div>
-          <p className="mt-2 text-center text-[11px] text-neutral-400">Click anywhere to close</p>
+      ) : (
+        <div
+          className="flex shrink-0 items-center justify-center rounded-lg border border-dashed border-white/10 text-xs text-neutral-500"
+          style={{ width: QR_PX, height: QR_PX }}
+        >
+          {err ? "Could not build the join link." : "…"}
         </div>
       )}
+      <div className="leading-tight">
+        <div className="text-sm font-semibold text-neutral-200">Add a phone camera</div>
+        <div className="mt-1 text-xs text-neutral-500">Scan with the phone&apos;s camera</div>
+        <div className="text-xs text-neutral-500">Same Wi-Fi as this laptop</div>
+      </div>
     </div>
   );
 }
