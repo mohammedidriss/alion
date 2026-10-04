@@ -14,7 +14,8 @@ export function AppShell({ children }: { children: React.ReactNode }) {
 
   // The camera slave page (ADR-010) is joined by phones with only a session token —
   // it must render with no login and no app chrome.
-  const isCameraSlave = /^\/sessions\/[^/]+\/camera$/.test(pathname);
+  // Sessions and dataset takes (ADR-013) both have a public phone-camera page.
+  const isCameraSlave = /^\/(sessions|takes)\/[^/]+\/camera$/.test(pathname);
 
   useEffect(() => { setSidebarOpen(false); }, [pathname]);
 

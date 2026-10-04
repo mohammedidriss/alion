@@ -4,6 +4,13 @@
 // NEXT_PUBLIC_API_URL to hit the API directly.
 const BASE = process.env.NEXT_PUBLIC_API_URL ?? "/api";
 
+/** A capture target: a training session (its id) or a dataset take (ADR-013). A
+ *  take's capture, sensor and live routes mirror a session's under /takes/{id}. */
+export type CaptureRef = string | { kind: "take"; id: string };
+export function capBase(c: CaptureRef): string {
+  return typeof c === "string" ? `/sessions/${c}` : `/takes/${c.id}`;
+}
+
 export type Stance = "orthodox" | "southpaw" | "switch";
 export type SessionSource =
   | "live_webcam"
@@ -399,6 +406,69 @@ export interface LiveReading {
     zone: number | null; // 0–5
   };
   imu: ImuBleStatus;
+}
+
+// Datasets (ADR-013) — dataset recording kept separate from training sessions.
+export type Consent = "self" | "irb_signed" | "pending" | "withdrawn";
+
+export interface DatasetSummary {
+  id: string;
+  name: string;
+  description: string | null;
+  protocol: string | null;
+  created_at: string;
+  participants: number;
+  takes: number;
+  completed_takes: number;
+}
+
+export interface DatasetParticipant {
+  fighter_id: string;
+  name: string;
+  stance: string | null;
+  consent: Consent;
+  may_record: boolean;
+  consent_date: string | null;
+  irb_ref: string | null;
+  notes: string | null;
+  takes: number; // completed takes
+}
+
+export interface TakeClip {
+  device_id: string;
+  ext: string;
+  bytes: number;
+  start_offset_ms: number | null;
+}
+
+export interface Take {
+  id: string;
+  dataset_id: string;
+  dataset_name: string | null;
+  fighter_id: string;
+  fighter_name: string | null;
+  status: "recording" | "completed" | "discarded";
+  started_at: string;
+  ended_at: string | null;
+  duration_ms: number;
+  notes: string | null;
+  data: {
+    clips?: TakeClip[];
+    imu_rows?: number;
+    hr_rows?: number;
+    labels?: number | null;
+    has_protocol?: boolean;
+  };
+}
+
+export interface DatasetDetail {
+  id: string;
+  name: string;
+  description: string | null;
+  protocol: string | null;
+  created_at: string;
+  participants: DatasetParticipant[];
+  takes: Take[];
 }
 
 export interface Session {
@@ -841,12 +911,12 @@ export const api = {
       headers: { "content-type": "application/json" },
       body: JSON.stringify({ realtime: opts?.realtime ?? false }),
     }),
-  stopHrv: (id: string) =>
-    req<HrvStatus>(`/v2/sessions/${id}/hrv/stop`, { method: "POST" }),
+  stopHrv: (id: CaptureRef) =>
+    req<HrvStatus>(`/v2${capBase(id)}/hrv/stop`, { method: "POST" }),
   scanBleDevices: () =>
     req<{ devices: { name: string; address: string }[] }>("/v2/ble/scan"),
-  startHrvBle: (id: string, address: string) =>
-    req<HrvStatus>(`/v2/sessions/${id}/hrv/ble/start`, {
+  startHrvBle: (id: CaptureRef, address: string) =>
+    req<HrvStatus>(`/v2${capBase(id)}/hrv/ble/start`, {
       method: "POST",
       headers: { "content-type": "application/json" },
       body: JSON.stringify({ address }),
@@ -865,53 +935,53 @@ export const api = {
       body: JSON.stringify({ fighter_id }),
     }),
   checkImuDevices: () => req<ImuBleStatus>("/v2/imu/devices/check", { method: "POST" }),
-  startImuBle: (id: string) =>
-    req<ImuBleStatus>(`/v2/sessions/${id}/imu/ble/start`, { method: "POST" }),
-  stopImuBle: (id: string) =>
-    req<ImuBleStatus>(`/v2/sessions/${id}/imu/ble/stop`, { method: "POST" }),
-  imuBleStatus: (id: string) => req<ImuBleStatus>(`/v2/sessions/${id}/imu/ble/status`),
-  liveReading: (id: string) => req<LiveReading>(`/v2/sessions/${id}/live`),
+  startImuBle: (id: CaptureRef) =>
+    req<ImuBleStatus>(`/v2${capBase(id)}/imu/ble/start`, { method: "POST" }),
+  stopImuBle: (id: CaptureRef) =>
+    req<ImuBleStatus>(`/v2${capBase(id)}/imu/ble/stop`, { method: "POST" }),
+  imuBleStatus: (id: CaptureRef) => req<ImuBleStatus>(`/v2${capBase(id)}/imu/ble/status`),
+  liveReading: (id: CaptureRef) => req<LiveReading>(`/v2${capBase(id)}/live`),
   // Multi-device capture coordinator (ADR-010): device roster + synchronized start.
-  multicamJoinInfo: (id: string) =>
-    req<MulticamJoinInfo>(`/sessions/${id}/multicam/join-info`, { method: "POST" }),
-  multicamDevices: (id: string) => req<MulticamDevice[]>(`/sessions/${id}/multicam/devices`),
-  multicamStart: (id: string) =>
-    req<MulticamStartOut>(`/sessions/${id}/multicam/start`, { method: "POST" }),
-  multicamPause: (id: string) =>
-    req<MulticamState>(`/sessions/${id}/multicam/pause`, { method: "POST" }),
-  multicamResume: (id: string) =>
-    req<MulticamState>(`/sessions/${id}/multicam/resume`, { method: "POST" }),
-  multicamStop: (id: string) =>
-    req<MulticamState>(`/sessions/${id}/multicam/stop`, { method: "POST" }),
+  multicamJoinInfo: (id: CaptureRef) =>
+    req<MulticamJoinInfo>(`${capBase(id)}/multicam/join-info`, { method: "POST" }),
+  multicamDevices: (id: CaptureRef) => req<MulticamDevice[]>(`${capBase(id)}/multicam/devices`),
+  multicamStart: (id: CaptureRef) =>
+    req<MulticamStartOut>(`${capBase(id)}/multicam/start`, { method: "POST" }),
+  multicamPause: (id: CaptureRef) =>
+    req<MulticamState>(`${capBase(id)}/multicam/pause`, { method: "POST" }),
+  multicamResume: (id: CaptureRef) =>
+    req<MulticamState>(`${capBase(id)}/multicam/resume`, { method: "POST" }),
+  multicamStop: (id: CaptureRef) =>
+    req<MulticamState>(`${capBase(id)}/multicam/stop`, { method: "POST" }),
   /** After Stop's clips have landed: mark the session completed (409 if no video). */
-  multicamComplete: (id: string, duration_ms?: number) =>
-    req<{ status: string; clips: number }>(`/sessions/${id}/multicam/complete`, {
+  multicamComplete: (id: CaptureRef, duration_ms?: number) =>
+    req<{ status: string; clips: number }>(`${capBase(id)}/multicam/complete`, {
       method: "POST",
       headers: { "content-type": "application/json" },
       body: JSON.stringify({ duration_ms: duration_ms ?? null }),
     }),
-  multicamRegister: (id: string, token: string, role: string, label: string) =>
-    req<{ device_id: string }>(`/sessions/${id}/multicam/register`, {
+  multicamRegister: (id: CaptureRef, token: string, role: string, label: string) =>
+    req<{ device_id: string }>(`${capBase(id)}/multicam/register`, {
       method: "POST",
       headers: { "content-type": "application/json" },
       body: JSON.stringify({ token, role, label }),
     }),
   multicamHeartbeat: (
-    id: string,
+    id: CaptureRef,
     token: string,
     device_id: string,
     status: string,
     punches = 0,
   ) =>
-    req<MulticamState>(`/sessions/${id}/multicam/heartbeat`, {
+    req<MulticamState>(`${capBase(id)}/multicam/heartbeat`, {
       method: "POST",
       headers: { "content-type": "application/json" },
       body: JSON.stringify({ token, device_id, status, punches }),
     }),
-  multicamState: (id: string, token: string) =>
-    req<MulticamState>(`/sessions/${id}/multicam/state?token=${encodeURIComponent(token)}`),
+  multicamState: (id: CaptureRef, token: string) =>
+    req<MulticamState>(`${capBase(id)}/multicam/state?token=${encodeURIComponent(token)}`),
   multicamUpload: async (
-    id: string,
+    id: CaptureRef,
     token: string,
     deviceId: string,
     blob: Blob,
@@ -922,49 +992,81 @@ export const api = {
     fd.append("device_id", deviceId);
     if (startOffsetMs != null) fd.append("start_offset_ms", String(Math.round(startOffsetMs)));
     fd.append("file", blob, blob.type.includes("mp4") ? "clip.mp4" : "clip.webm");
-    const r = await fetch(`${BASE}/sessions/${id}/multicam/upload`, { method: "POST", body: fd });
+    const r = await fetch(`${BASE}${capBase(id)}/multicam/upload`, { method: "POST", body: fd });
     if (!r.ok) throw new Error(`${r.status} ${await r.text()}`);
     return r.json() as Promise<{ bytes: number; device_id: string }>;
   },
-  multicamFrame: async (id: string, token: string, deviceId: string, blob: Blob) => {
+  multicamFrame: async (id: CaptureRef, token: string, deviceId: string, blob: Blob) => {
     const fd = new FormData();
     fd.append("token", token);
     fd.append("device_id", deviceId);
     fd.append("file", blob, "frame.jpg");
-    await fetch(`${BASE}/sessions/${id}/multicam/frame`, { method: "POST", body: fd }).catch(() => {});
+    await fetch(`${BASE}${capBase(id)}/multicam/frame`, { method: "POST", body: fd }).catch(() => {});
   },
   // Upload a phone's pose stream after the round (per-device parquet) for analysis.
   multicamPose: async (
-    id: string,
+    id: CaptureRef,
     token: string,
     deviceId: string,
     frames: { t_ms: number; landmarks: number[][]; world_landmarks: number[][] | null }[],
     durationMs?: number,
   ) => {
-    await fetch(`${BASE}/sessions/${id}/multicam/pose`, {
+    await fetch(`${BASE}${capBase(id)}/multicam/pose`, {
       method: "POST",
       headers: { "content-type": "application/json" },
       body: JSON.stringify({ token, device_id: deviceId, frames, duration_ms: durationMs }),
     }).catch(() => {});
   },
   // Same-origin URLs usable directly as <img>/<video> src (token in the query).
-  multicamFrameUrl: (id: string, token: string, deviceId: string) =>
-    `${BASE}/sessions/${id}/multicam/frame/${deviceId}?token=${encodeURIComponent(token)}`,
+  multicamFrameUrl: (id: CaptureRef, token: string, deviceId: string) =>
+    `${BASE}${capBase(id)}/multicam/frame/${deviceId}?token=${encodeURIComponent(token)}`,
   // Recorded clips are listed from disk (works for past sessions) and fetched with
   // auth into a blob URL (a plain <video src> can't send the token).
-  multicamClips: (id: string) =>
-    req<{ device_id: string; ext: string; bytes: number }[]>(`/sessions/${id}/multicam/clips`),
-  multicamClipBlobUrl: async (id: string, deviceId: string): Promise<string | null> => {
+  multicamClips: (id: CaptureRef) =>
+    req<{ device_id: string; ext: string; bytes: number }[]>(`${capBase(id)}/multicam/clips`),
+  multicamClipBlobUrl: async (id: CaptureRef, deviceId: string): Promise<string | null> => {
     const token =
       (typeof window !== "undefined" &&
         (localStorage.getItem("alion.token") ?? sessionStorage.getItem("alion.token"))) ||
       "";
-    const r = await fetch(`${BASE}/sessions/${id}/multicam/clip/${deviceId}`, {
+    const r = await fetch(`${BASE}${capBase(id)}/multicam/clip/${deviceId}`, {
       headers: token ? { Authorization: `Bearer ${token}` } : {},
     });
     if (!r.ok) return null;
     return URL.createObjectURL(await r.blob());
   },
+  // ---- Datasets (ADR-013) ----
+  listDatasets: () => req<DatasetSummary[]>("/v2/datasets"),
+  createDataset: (data: { name: string; description?: string; protocol?: string }) =>
+    req<DatasetSummary>("/v2/datasets", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify(data),
+    }),
+  getDataset: (id: string) => req<DatasetDetail>(`/v2/datasets/${id}`),
+  setParticipant: (
+    datasetId: string,
+    data: {
+      fighter_id: string;
+      consent: Consent;
+      consent_date?: string | null;
+      irb_ref?: string | null;
+      notes?: string | null;
+    },
+  ) =>
+    req<DatasetDetail>(`/v2/datasets/${datasetId}/participants`, {
+      method: "PUT",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify(data),
+    }),
+  createTake: (datasetId: string, fighterId: string) =>
+    req<Take>(`/v2/datasets/${datasetId}/takes`, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ fighter_id: fighterId }),
+    }),
+  getTake: (id: string) => req<Take>(`/v2/takes/${id}`),
+  discardTake: (id: string) => req<Take>(`/v2/takes/${id}/discard`, { method: "POST" }),
   /** `recorded: true` = the session log: only sessions where the camera recorded
    *  (opened-and-left sessions are hidden, then purged after 10 min). */
   listSessions: (fighter_id?: string, opts?: { recorded?: boolean }) => {

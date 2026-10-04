@@ -21,7 +21,13 @@ from store.models import (
     CoachCreate,
     CoachNote,
     ConsensusEventRow,
+    ConsentEnum,
     CornerEnum,
+    Dataset,
+    DatasetCreate,
+    DatasetParticipant,
+    DatasetParticipantIn,
+    DatasetTake,
     Fighter,
     FighterCreate,
     FighterSponsor,
@@ -47,6 +53,7 @@ from store.models import (
     SessionCreate,
     SessionStatus,
     Stance,
+    TakeStatusEnum,
     User,
     UserCreate,
     WeighIn,
@@ -1101,3 +1108,105 @@ class CheckInRepo:
             CheckIn.checked_in_at >= first_of_month,
         )
         return len(list(self._session.exec(stmt).all()))
+
+
+class DatasetRepo:
+    """Datasets (ADR-013): datasets, their participants' consent, and takes. Consent
+    is checked here — the one place a take is created — so nothing can record a
+    fighter without `self` or `irb_signed` consent."""
+
+    def __init__(self, session: DBSession) -> None:
+        self._session = session
+
+    # -- datasets --
+    def create(self, data: DatasetCreate) -> Dataset:
+        row = Dataset(**data.model_dump())
+        self._session.add(row)
+        self._session.commit()
+        self._session.refresh(row)
+        return row
+
+    def get(self, dataset_id: UUID) -> Dataset | None:
+        return self._session.get(Dataset, dataset_id)
+
+    def list_all(self) -> list[Dataset]:
+        stmt = select(Dataset).order_by(Dataset.created_at.desc())  # type: ignore[attr-defined]
+        return list(self._session.exec(stmt).all())
+
+    # -- participants --
+    def participants(self, dataset_id: UUID) -> list[DatasetParticipant]:
+        stmt = select(DatasetParticipant).where(DatasetParticipant.dataset_id == dataset_id)
+        return list(self._session.exec(stmt).all())
+
+    def participant(self, dataset_id: UUID, fighter_id: UUID) -> DatasetParticipant | None:
+        stmt = select(DatasetParticipant).where(
+            DatasetParticipant.dataset_id == dataset_id,
+            DatasetParticipant.fighter_id == fighter_id,
+        )
+        return self._session.exec(stmt).first()
+
+    def set_participant(self, dataset_id: UUID, data: DatasetParticipantIn) -> DatasetParticipant:
+        """Add a fighter to the dataset or update their consent. Raises ValueError if a
+        second participant would be `self` (only the researcher records himself)."""
+        if self._session.get(Fighter, data.fighter_id) is None:
+            raise ValueError("fighter not found")
+        if data.consent == ConsentEnum.SELF:
+            others = [
+                p
+                for p in self.participants(dataset_id)
+                if p.consent == ConsentEnum.SELF and p.fighter_id != data.fighter_id
+            ]
+            if others:
+                raise ValueError("another participant is already the self-recording researcher")
+        row = self.participant(dataset_id, data.fighter_id)
+        if row is None:
+            row = DatasetParticipant(dataset_id=dataset_id, **data.model_dump())
+        else:
+            for k, v in data.model_dump().items():
+                setattr(row, k, v)
+        self._session.add(row)
+        self._session.commit()
+        self._session.refresh(row)
+        return row
+
+    # -- takes --
+    def create_take(self, dataset_id: UUID, fighter_id: UUID) -> DatasetTake:
+        """Raises ValueError unless the fighter is a participant whose consent allows
+        recording."""
+        p = self.participant(dataset_id, fighter_id)
+        if p is None:
+            raise ValueError("fighter is not a participant of this dataset")
+        if not ConsentEnum(p.consent).may_record:
+            raise ValueError(f"consent is '{p.consent}' — record only with self or IRB consent")
+        row = DatasetTake(dataset_id=dataset_id, fighter_id=fighter_id)
+        self._session.add(row)
+        self._session.commit()
+        self._session.refresh(row)
+        return row
+
+    def get_take(self, take_id: UUID) -> DatasetTake | None:
+        return self._session.get(DatasetTake, take_id)
+
+    def takes(self, dataset_id: UUID) -> list[DatasetTake]:
+        stmt = (
+            select(DatasetTake)
+            .where(DatasetTake.dataset_id == dataset_id)
+            .order_by(DatasetTake.started_at.desc())  # type: ignore[attr-defined]
+        )
+        return list(self._session.exec(stmt).all())
+
+    def finish_take(
+        self, take_id: UUID, status: TakeStatusEnum, duration_ms: float | None = None
+    ) -> DatasetTake | None:
+        row = self.get_take(take_id)
+        if row is None:
+            return None
+        row.status = status
+        if status == TakeStatusEnum.COMPLETED:
+            row.ended_at = datetime.now(UTC)
+            if duration_ms is not None:
+                row.duration_ms = duration_ms
+        self._session.add(row)
+        self._session.commit()
+        self._session.refresh(row)
+        return row

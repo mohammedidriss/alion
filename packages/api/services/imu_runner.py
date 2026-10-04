@@ -37,6 +37,20 @@ from common import get_logger
 from store import HandEnum, IMUSampleRow
 
 DBFactory = Callable[[], AbstractContextManager[DBSession]]
+# Where stored samples go: the session table, or a dataset take's imu.csv (ADR-013).
+RowWriter = Callable[[list[IMUSampleRow]], None]
+
+
+def db_writer(db_factory: DBFactory) -> RowWriter:
+    """Row writer for a training session: insert into `imusamplerow`."""
+
+    def write(rows: list[IMUSampleRow]) -> None:
+        with db_factory() as db:
+            db.add_all(rows)
+            db.commit()
+
+    return write
+
 
 log = get_logger(__name__)
 
@@ -204,11 +218,13 @@ def start(
     session_id: UUID,
     units: dict[str, str],
     t0_ms: float,
-    db_factory: DBFactory,
+    write_rows: RowWriter,
     *,
     rate_hz: float = 100.0,
 ) -> bool:
-    """Start streaming `units` ({hand: address}) into the session. False if already running."""
+    """Start streaming `units` ({hand: address}) for a capture — a session or a take
+    (`session_id` is the capture id) — handing stored rows to `write_rows`. False if
+    already running."""
     with _lock:
         job = _jobs.get(session_id)
         if job is not None and job.proc.poll() is None:
@@ -226,7 +242,7 @@ def start(
         job = _Job(proc=proc, t0_ms=t0_ms, units={h: UnitState() for h in units})
         job.thread = threading.Thread(
             target=_read_stream,
-            args=(session_id, job, db_factory),
+            args=(session_id, job, write_rows),
             daemon=True,
             name=f"imu-{session_id}",
         )
@@ -309,16 +325,14 @@ def timeline_now_ms(session_id: UUID) -> float | None:
         return job.timeline_ms(time.time() * 1000.0)
 
 
-def _read_stream(session_id: UUID, job: _Job, db_factory: DBFactory) -> None:
+def _read_stream(session_id: UUID, job: _Job, write_rows: RowWriter) -> None:
     buffered: list[IMUSampleRow] = []
     last_flush = time.monotonic()
 
     def flush() -> None:
         nonlocal last_flush
         if buffered:
-            with db_factory() as db:
-                db.add_all(buffered)
-                db.commit()
+            write_rows(list(buffered))
             buffered.clear()
         last_flush = time.monotonic()
 

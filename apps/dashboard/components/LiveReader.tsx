@@ -8,7 +8,7 @@
  */
 
 import { useEffect, useState } from "react";
-import { type ImuHand, type ImuUnitStatus, type LiveReading, api } from "@/lib/api";
+import { type CaptureRef, type ImuHand, type ImuUnitStatus, type LiveReading, api } from "@/lib/api";
 import { getPairedDevice } from "@/components/PolarH10Card";
 import { useAuth } from "@/lib/auth";
 
@@ -26,7 +26,15 @@ const WRIST_COLOR: Record<ImuHand, string> = {
   right: "rgb(34, 197, 94)",
 };
 
-export function LiveReader({ sessionId, fighterId }: { sessionId: string; fighterId: string }) {
+export function LiveReader({
+  sessionId,
+  takeId,
+  fighterId,
+}: {
+  sessionId?: string;
+  takeId?: string; // a dataset take instead of a session (ADR-013)
+  fighterId: string;
+}) {
   const { user } = useAuth();
   const [reading, setReading] = useState<LiveReading | null>(null);
   const [imuMine, setImuMine] = useState(false);
@@ -41,10 +49,11 @@ export function LiveReader({ sessionId, fighterId }: { sessionId: string; fighte
   }, [fighterId]);
 
   useEffect(() => {
+    const cap: CaptureRef = takeId ? { kind: "take", id: takeId } : (sessionId ?? "");
     let alive = true;
     let timer: ReturnType<typeof setTimeout>;
     const poll = async () => {
-      const r = await api.liveReading(sessionId).catch(() => null);
+      const r = await api.liveReading(cap).catch(() => null);
       if (!alive) return;
       if (r) setReading(r);
       const streaming = !!r && (r.heart.streaming || r.imu.running);
@@ -55,7 +64,7 @@ export function LiveReader({ sessionId, fighterId }: { sessionId: string; fighte
       alive = false;
       clearTimeout(timer);
     };
-  }, [sessionId]);
+  }, [sessionId, takeId]);
 
   // HRV is confidential biometric data — admins don't see it (same rule as the HRV tab).
   const showHeart = user?.role !== "admin";

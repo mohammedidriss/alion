@@ -191,7 +191,7 @@ def start_imu(
             yield s
 
     t0 = capture_coord.started_at_ms(session_id) or time.time() * 1000.0
-    imu_runner.start(session_id, units, t0, factory)
+    imu_runner.start(session_id, units, t0, imu_runner.db_writer(factory))
     return session_status(session_id)
 
 

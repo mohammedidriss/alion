@@ -19,6 +19,7 @@ from api.routes import (
     cameras,
     capture_coord,
     coaches,
+    datasets,
     fighters,
     gym_managers,
     gyms,
@@ -182,6 +183,10 @@ app.include_router(video.router)
 # master = coach (authenticated); slave = phone (join-token). Additive, isolated.
 app.include_router(capture_coord.master)
 app.include_router(capture_coord.slave)
+app.include_router(capture_coord.take_master)  # dataset takes (ADR-013)
+app.include_router(capture_coord.take_slave)
+app.include_router(datasets.router)
+app.include_router(datasets.capture)
 app.include_router(rq1.router)
 app.include_router(round_plans.router)
 # Two-fighter bouts (ADR-011) — new endpoints, unversioned.

@@ -9,9 +9,9 @@
  * the coach's session page so the laptop can be a camera without opening a link.
  */
 
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { PunchDetector } from "@/lib/punchDetector";
-import { api } from "@/lib/api";
+import { api, type CaptureRef } from "@/lib/api";
 
 type Phase = "connecting" | "ready" | "countdown" | "recording" | "stopped" | "error";
 
@@ -19,12 +19,15 @@ const LABELS = ["front", "left", "right", "45-left", "45-right", "overhead"];
 
 export function CameraNode({
   sessionId,
+  takeId,
   token,
   defaultLabel = "front",
   tile = false,
   onDeviceId,
 }: {
-  sessionId: string;
+  /** The training session this camera records into — or `takeId` for a dataset take. */
+  sessionId?: string;
+  takeId?: string;
   token: string;
   defaultLabel?: string;
   /** Render as a single grid tile (video + overlay only) — used for the laptop
@@ -32,6 +35,11 @@ export function CameraNode({
   tile?: boolean;
   onDeviceId?: (deviceId: string) => void;
 }) {
+  // Where the clip, pose and heartbeats go — a session, or a dataset take (ADR-013).
+  const cap = useMemo<CaptureRef>(
+    () => (takeId ? { kind: "take", id: takeId } : (sessionId ?? "")),
+    [takeId, sessionId],
+  );
   const videoRef = useRef<HTMLVideoElement>(null);
   const deviceIdRef = useRef<string | null>(null);
   const offsetRef = useRef(0); // server clock − local clock (ms)
@@ -97,7 +105,7 @@ export function CameraNode({
           }
         }
         if (cancelled) return;
-        const { device_id } = await api.multicamRegister(sessionId, token, "camera", defaultLabel);
+        const { device_id } = await api.multicamRegister(cap, token, "camera", defaultLabel);
         deviceIdRef.current = device_id;
         onDeviceId?.(device_id);
         setPhase("ready");
@@ -111,7 +119,7 @@ export function CameraNode({
       stream?.getTracks().forEach((t) => t.stop());
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [sessionId, token]);
+  }, [cap, token]);
 
   // Heartbeat + poll the coach's command; drive the synchronized start.
   useEffect(() => {
@@ -126,7 +134,7 @@ export function CameraNode({
           : phase === "recording"
             ? "recording"
             : "ready";
-        const st = await api.multicamHeartbeat(sessionId, token, did, status, punchCountRef.current);
+        const st = await api.multicamHeartbeat(cap, token, did, status, punchCountRef.current);
         offsetRef.current = st.server_now_ms - Date.now();
         if (st.command === "start" && st.start_at_ms != null) {
           const localStart = st.start_at_ms - offsetRef.current;
@@ -186,7 +194,7 @@ export function CameraNode({
       alive = false;
       clearInterval(id);
     };
-  }, [phase, sessionId, token]);
+  }, [phase, cap, token]);
 
   useEffect(
     () => () => {
@@ -260,7 +268,7 @@ export function CameraNode({
         setRecInfo(`uploading ${(blob.size / 1_000_000).toFixed(1)} MB…`);
         try {
           if (did) {
-            await api.multicamUpload(sessionId, token, did, blob, startOffsetRef.current ?? undefined);
+            await api.multicamUpload(cap, token, did, blob, startOffsetRef.current ?? undefined);
           }
           setUploaded(true);
           setRecInfo(null);
@@ -270,7 +278,7 @@ export function CameraNode({
       };
       rec.stop();
     }
-  }, [phase, sessionId, token]);
+  }, [phase, cap, token]);
 
   // Post a small preview frame ~1×/s so the coach's live grid shows this camera.
   useEffect(() => {
@@ -288,11 +296,11 @@ export function CameraNode({
       if (!ctx) return;
       ctx.drawImage(v, 0, 0, w, h);
       const blob = await new Promise<Blob | null>((res) => canvas.toBlob(res, "image/jpeg", 0.5));
-      if (blob) await api.multicamFrame(sessionId, token, did, blob);
+      if (blob) await api.multicamFrame(cap, token, did, blob);
     };
     const id = setInterval(post, 1000);
     return () => clearInterval(id);
-  }, [phase, sessionId, token]);
+  }, [phase, cap, token]);
 
   // Load MediaPipe pose once the camera is ready (client-side — the server has no CV).
   useEffect(() => {
@@ -383,16 +391,16 @@ export function CameraNode({
     const frames = poseRef.current;
     if (!did || frames.length === 0) return;
     poseRef.current = [];
-    api.multicamPose(sessionId, token, did, frames).catch(() => {});
-  }, [phase, sessionId, token]);
+    api.multicamPose(cap, token, did, frames).catch(() => {});
+  }, [phase, cap, token]);
 
   const relabel = useCallback(
     async (next: string) => {
       setLabel(next);
       const did = deviceIdRef.current;
-      if (did) await api.multicamHeartbeat(sessionId, token, did, "ready").catch(() => {});
+      if (did) await api.multicamHeartbeat(cap, token, did, "ready").catch(() => {});
     },
-    [sessionId, token],
+    [cap, token],
   );
 
   // Tile mode: just the video filling a grid cell, with a bottom overlay — matches

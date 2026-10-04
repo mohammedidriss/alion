@@ -78,6 +78,11 @@ export function Sidebar({ onNavigate }: { onNavigate?: () => void } = {}) {
   if (activeRole && activeRole !== "admin") {
     navItems.push({ label: "Bouts", href: "/bouts", icon: "⚔" });
   }
+  // Datasets (ADR-013) — research recordings, kept apart from training sessions.
+  // IRB data: coaches (the researcher) and fighters only.
+  if (activeRole === "coach" || activeRole === "fighter") {
+    navItems.push({ label: "Datasets", href: "/datasets", icon: "▤" });
+  }
 
   // Fighter context tabs (when viewing any fighter page)
   // Privacy: admin only sees general info (Dashboard + Team); gym_manager can't see Medical

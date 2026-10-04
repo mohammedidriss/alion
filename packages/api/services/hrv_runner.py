@@ -63,12 +63,16 @@ def _run_stream(
     source: Iterable[HRSample],
     *,
     source_label: str,
-    db_factory: DBFactory,
+    db_factory: DBFactory | None,
     stop_event: threading.Event,
     window_ms: float = 60_000.0,
     fail_session_on_error: bool = True,
+    write_rows: Callable[[list[HRSampleRow]], None] | None = None,
 ) -> None:
     """Shared loop for CSV replay and live BLE — consumes any HRSample iterable.
+
+    ``write_rows`` replaces the DB insert — a dataset take streams into its
+    ``hr.csv`` instead of ``hrsamplerow`` (ADR-013).
 
     ``fail_session_on_error`` controls whether an unhandled exception marks the
     *session* as failed.  Set to ``False`` for BLE streams so a device going
@@ -82,10 +86,16 @@ def _run_stream(
     buffered: list[HRSampleRow] = []
     sample_count = 0
 
-    def commit_buffer(db: DBSession) -> None:
-        for row in buffered:
-            db.add(row)
-        db.commit()
+    def flush() -> None:
+        if not buffered:
+            return
+        if write_rows is not None:
+            write_rows(list(buffered))
+        elif db_factory is not None:
+            with db_factory() as db:
+                for row in buffered:
+                    db.add(row)
+                db.commit()
         buffered.clear()
 
     try:
@@ -107,12 +117,9 @@ def _run_stream(
             # Flush every 25 samples to keep memory bounded and let
             # downstream API readers see fresh data.
             if len(buffered) >= 25:
-                with db_factory() as db:
-                    commit_buffer(db)
+                flush()
 
-        # Final flush.
-        with db_factory() as db:
-            commit_buffer(db)
+        flush()  # final flush
 
         log.info(
             "hrv.done",
@@ -124,7 +131,7 @@ def _run_stream(
         )
     except Exception as e:
         log.exception("hrv.failed: %s", e, extra={"_ctx_session_id": str(session_id)})
-        if fail_session_on_error:
+        if fail_session_on_error and db_factory is not None:
             with db_factory() as db:
                 SessionRepo(db).update_status(
                     session_id, SessionStatus.FAILED, end=True, failure_reason=str(e)
@@ -180,9 +187,10 @@ def start_replay(
 def start_ble(
     session_id: UUID,
     address: str,
-    db_factory: DBFactory,
+    db_factory: DBFactory | None,
     *,
     window_ms: float = 60_000.0,
+    write_rows: Callable[[list[HRSampleRow]], None] | None = None,
 ) -> bool:
     """Spawn Polar H10 BLE streaming in a background thread.
 
@@ -211,6 +219,7 @@ def start_ble(
                 "stop_event": stop_event,
                 "window_ms": window_ms,
                 "fail_session_on_error": False,
+                "write_rows": write_rows,
             },
             daemon=True,
             name=f"hrv-ble-{session_id}",

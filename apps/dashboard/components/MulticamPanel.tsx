@@ -10,26 +10,38 @@
  * session's fighter, start right after the cameras (t = 0 is the cameras'
  * synchronized start) and stop with them; Pause/Resume reach them server-side via
  * the coordinator. A paired Polar H10 streams heart rate for the same span.
+ *
+ * Dataset takes (ADR-013) use the same panel with `take` instead of `session`:
+ * everything records into the take's folder, there's no Pause (labels need an
+ * unbroken timeline) and an elapsed timer replaces the round timer.
  */
 
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { CameraNode } from "@/components/CameraNode";
 import { imuErrorText } from "@/components/ImuSensors";
 import { getPairedDevice } from "@/components/PolarH10Card";
 import { RoundTimer } from "@/components/SessionRounds";
-import { api, type MulticamDevice, type Session } from "@/lib/api";
+import { api, type CaptureRef, type MulticamDevice, type Session, type Take } from "@/lib/api";
 
 export function MulticamPanel({
   session,
+  take,
   defaultLaptop = false,
   onFinished,
 }: {
-  session: Session;
+  session?: Session;
+  take?: Take; // a dataset take instead of a session
   defaultLaptop?: boolean;
-  /** Called once Stop has saved the clips and completed the session. */
+  /** Called once Stop has saved the clips and completed the session / take. */
   onFinished?: () => void;
 }) {
-  const sessionId = session.id;
+  const sessionId = session?.id;
+  const takeId = take?.id;
+  const fighterId = session?.fighter_id ?? take?.fighter_id ?? "";
+  const cap = useMemo<CaptureRef>(
+    () => (takeId ? { kind: "take", id: takeId } : (sessionId ?? "")),
+    [takeId, sessionId],
+  );
   const [token, setToken] = useState<string | null>(null);
   const [devices, setDevices] = useState<MulticamDevice[]>([]);
   const [tick, setTick] = useState(0);
@@ -50,22 +62,22 @@ export function MulticamPanel({
   useEffect(() => {
     api
       .imuDevices()
-      .then((d) => setImuMine(d.units.length > 0 && d.owner?.fighter_id === session.fighter_id))
+      .then((d) => setImuMine(d.units.length > 0 && d.owner?.fighter_id === fighterId))
       .catch(() => setImuMine(false));
-  }, [session.fighter_id]);
+  }, [fighterId]);
 
   useEffect(() => {
     api
-      .multicamJoinInfo(sessionId)
+      .multicamJoinInfo(cap)
       .then((ji) => setToken(ji.join_token))
-      .catch(() => setMsg("Could not connect cameras to this session."));
-  }, [sessionId]);
+      .catch(() => setMsg("Could not connect cameras."));
+  }, [cap]);
 
   useEffect(() => {
     let alive = true;
     const poll = () =>
       api
-        .multicamDevices(sessionId)
+        .multicamDevices(cap)
         .then((d) => alive && setDevices(d))
         .catch(() => {});
     const id = setInterval(poll, 1500);
@@ -74,7 +86,7 @@ export function MulticamPanel({
       alive = false;
       clearInterval(id);
     };
-  }, [sessionId]);
+  }, [cap]);
 
   // Refresh the live-grid frames ~1×/s.
   useEffect(() => {
@@ -86,7 +98,7 @@ export function MulticamPanel({
     setBusy(true);
     setMsg(null);
     try {
-      const r = await api.multicamStart(sessionId);
+      const r = await api.multicamStart(cap);
       pausedAccumRef.current = 0;
       pauseStartRef.current = null;
       setPaused(false);
@@ -104,33 +116,33 @@ export function MulticamPanel({
       // After multicamStart, so the IMU's t = 0 is the cameras' scheduled start.
       imuMine &&
         api
-          .startImuBle(sessionId)
+          .startImuBle(cap)
           .catch((e) => problems.push(`Wrist sensors didn't start: ${imuErrorText(e)}`)),
       polar &&
         api
-          .startHrvBle(sessionId, polar.address)
+          .startHrvBle(cap, polar.address)
           .catch((e) => problems.push(`Heart-rate strap didn't start: ${imuErrorText(e)}`)),
     ]);
     if (problems.length) setImuMsg(problems.join(" "));
     setBusy(false);
-  }, [sessionId, imuMine]);
+  }, [cap, imuMine]);
 
   const pause = useCallback(async () => {
-    await api.multicamPause(sessionId).catch(() => {});
+    await api.multicamPause(cap).catch(() => {});
     pauseStartRef.current = Date.now();
     setPaused(true);
     setMsg("Paused — press Resume to continue the same clip.");
-  }, [sessionId]);
+  }, [cap]);
 
   const resume = useCallback(async () => {
-    await api.multicamResume(sessionId).catch(() => {});
+    await api.multicamResume(cap).catch(() => {});
     if (pauseStartRef.current != null) {
       pausedAccumRef.current += Date.now() - pauseStartRef.current;
       pauseStartRef.current = null;
     }
     setPaused(false);
     setMsg("Recording…");
-  }, [sessionId]);
+  }, [cap]);
 
   // Stop & save: end the recording everywhere, wait for each camera's clip to land,
   // then complete the session (which swaps this panel for the recordings view).
@@ -145,23 +157,23 @@ export function MulticamPanel({
     ).length;
     const expected = Math.max(1, recording);
     const before = new Map(
-      (await api.multicamClips(sessionId).catch(() => [])).map((c) => [c.device_id, c.bytes]),
+      (await api.multicamClips(cap).catch(() => [])).map((c) => [c.device_id, c.bytes]),
     );
-    await api.multicamStop(sessionId).catch(() => {});
+    await api.multicamStop(cap).catch(() => {});
     setCaptureStartMs(null);
     setPaused(false);
     pauseStartRef.current = null;
     pausedAccumRef.current = 0;
     // Body sensors shut down in the background — a wrist unit that's off can take
     // seconds to give up connecting, and the clips shouldn't wait on it.
-    void api.stopImuBle(sessionId).catch(() => {});
-    void api.stopHrv(sessionId).catch(() => {});
+    void api.stopImuBle(cap).catch(() => {});
+    void api.stopHrv(cap).catch(() => {});
 
     // A clip is "new" if its device had none before, or its file changed (a re-take
     // overwrites the same device's file). Nodes upload on their next heartbeat.
     let fresh = 0;
     for (let i = 0; i < 40; i++) {
-      const clips = await api.multicamClips(sessionId).catch(() => []);
+      const clips = await api.multicamClips(cap).catch(() => []);
       fresh = clips.filter((c) => before.get(c.device_id) !== c.bytes).length;
       if (fresh >= expected) break;
       setMsg(`Stopping — saving clips… (${fresh}/${expected})`);
@@ -173,7 +185,7 @@ export function MulticamPanel({
       return;
     }
     try {
-      await api.multicamComplete(sessionId, durationMs);
+      await api.multicamComplete(cap, durationMs);
       setMsg(`Saved ${fresh} clip(s).`);
       onFinished?.();
     } catch {
@@ -181,7 +193,7 @@ export function MulticamPanel({
     } finally {
       setStopping(false);
     }
-  }, [sessionId, stopping, onFinished]);
+  }, [cap, stopping, onFinished]);
 
   const allCams = devices.filter((d) => d.role === "camera");
   devicesRef.current = devices;
@@ -224,7 +236,7 @@ export function MulticamPanel({
           </button>
         ) : (
           <>
-            {paused ? (
+            {take ? null : paused ? (
               <button
                 onClick={resume}
                 className="rounded-xl bg-emerald-500 px-4 py-2 text-sm font-semibold text-black hover:bg-emerald-400"
@@ -254,7 +266,16 @@ export function MulticamPanel({
 
       {/* Round timer — runs off the round-configuration panel (round_count ×
           round_duration_s); paused time is subtracted so it freezes on Pause. */}
-      {capturing && <RoundTimer session={session} durationMs={activeMs} isPaused={paused} />}
+      {capturing && session && (
+        <RoundTimer session={session} durationMs={activeMs} isPaused={paused} />
+      )}
+      {/* Takes: a plain elapsed clock (the protocol card paces the blocks). */}
+      {capturing && take && (
+        <div className="flex items-center gap-2 font-mono text-2xl tabular-nums">
+          <span className="h-2.5 w-2.5 animate-pulse rounded-full bg-red-500" />
+          {Math.floor(activeMs / 60000)}:{String(Math.floor(activeMs / 1000) % 60).padStart(2, "0")}
+        </div>
+      )}
 
       {/* Fixed 2×2 grid: top-left is always the laptop; the other three are phones. */}
       <div className="grid grid-cols-2 gap-2">
@@ -263,6 +284,7 @@ export function MulticamPanel({
           <div className="relative">
             <CameraNode
               sessionId={sessionId}
+              takeId={takeId}
               token={token}
               defaultLabel="laptop"
               tile
@@ -299,7 +321,7 @@ export function MulticamPanel({
               >
                 {/* eslint-disable-next-line @next/next/no-img-element */}
                 <img
-                  src={`${api.multicamFrameUrl(sessionId, token, d.device_id)}&t=${tick}`}
+                  src={`${api.multicamFrameUrl(cap, token, d.device_id)}&t=${tick}`}
                   alt={d.label}
                   className="h-full w-full object-cover"
                   onError={(e) => {

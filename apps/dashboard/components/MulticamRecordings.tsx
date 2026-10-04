@@ -7,26 +7,33 @@
  */
 
 import { useEffect, useState } from "react";
-import { api } from "@/lib/api";
+import { api, type CaptureRef } from "@/lib/api";
 
 type Clip = { device_id: string; ext: string; bytes: number };
 
-export function MulticamRecordings({ sessionId }: { sessionId: string }) {
+export function MulticamRecordings({
+  sessionId,
+  takeId,
+}: {
+  sessionId?: string;
+  takeId?: string; // a dataset take instead of a session (ADR-013)
+}) {
   const [clips, setClips] = useState<Clip[]>([]);
   const [urls, setUrls] = useState<Record<string, string>>({});
   const [loaded, setLoaded] = useState(false);
 
   useEffect(() => {
+    const cap: CaptureRef = takeId ? { kind: "take", id: takeId } : (sessionId ?? "");
     let alive = true;
     const made: string[] = [];
     api
-      .multicamClips(sessionId)
+      .multicamClips(cap)
       .then(async (list) => {
         if (!alive) return;
         setClips(list);
         setLoaded(true);
         for (const c of list) {
-          const u = await api.multicamClipBlobUrl(sessionId, c.device_id);
+          const u = await api.multicamClipBlobUrl(cap, c.device_id);
           if (u && alive) {
             made.push(u);
             setUrls((prev) => ({ ...prev, [c.device_id]: u }));
@@ -38,7 +45,7 @@ export function MulticamRecordings({ sessionId }: { sessionId: string }) {
       alive = false;
       made.forEach((u) => URL.revokeObjectURL(u));
     };
-  }, [sessionId]);
+  }, [sessionId, takeId]);
 
   if (!loaded || clips.length === 0) return null; // nothing recorded for this session
 

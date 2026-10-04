@@ -1388,3 +1388,90 @@ class SessionAttachmentRead(SQLModel):
     kind: AttachmentKind
     notes: str | None = None
     uploaded_at: UtcDatetime
+
+
+# ---------------------------------------------------------------------------
+# Datasets (ADR-013) — a recording system separate from training sessions.
+# These tables only index take folders (data/datasets/…) and enforce consent;
+# the recorded data itself lives in the files.
+# ---------------------------------------------------------------------------
+
+
+class ConsentEnum(StrEnum):
+    """A dataset participant's consent. Only `self` (the researcher recording
+    himself) and `irb_signed` may be recorded (ADR-002)."""
+
+    SELF = "self"
+    IRB_SIGNED = "irb_signed"
+    PENDING = "pending"
+    WITHDRAWN = "withdrawn"
+
+    @property
+    def may_record(self) -> bool:
+        return self in (ConsentEnum.SELF, ConsentEnum.IRB_SIGNED)
+
+
+class TakeStatusEnum(StrEnum):
+    RECORDING = "recording"  # created; capture may be running
+    COMPLETED = "completed"  # stopped with video saved
+    DISCARDED = "discarded"  # kept on disk, excluded from the dataset
+
+
+class Dataset(SQLModel, table=True):
+    __tablename__ = "dataset"
+    id: UUID = Field(default_factory=uuid4, primary_key=True)
+    name: str = Field(min_length=1, max_length=120)
+    description: str | None = None
+    protocol: str | None = Field(default=None, max_length=60)  # protocol key, e.g. "rq2-v1"
+    created_at: datetime = Field(default_factory=lambda: datetime.now(UTC))
+
+
+class DatasetCreate(SQLModel):
+    name: str = Field(min_length=1, max_length=120)
+    description: str | None = None
+    protocol: str | None = Field(default=None, max_length=60)
+
+
+class DatasetRead(SQLModel):
+    id: UUID
+    name: str
+    description: str | None = None
+    protocol: str | None = None
+    created_at: UtcDatetime
+
+
+class DatasetParticipant(SQLModel, table=True):
+    __tablename__ = "dataset_participant"
+    __table_args__ = (sa.UniqueConstraint("dataset_id", "fighter_id"),)
+    id: UUID = Field(default_factory=uuid4, primary_key=True)
+    dataset_id: UUID = Field(foreign_key="dataset.id", index=True)
+    fighter_id: UUID = Field(foreign_key="fighter.id", index=True)
+    consent: ConsentEnum = Field(
+        default=ConsentEnum.PENDING, sa_column=sa.Column(sa.String, nullable=False)
+    )
+    consent_date: date | None = None
+    irb_ref: str | None = Field(default=None, max_length=120)
+    notes: str | None = None
+    created_at: datetime = Field(default_factory=lambda: datetime.now(UTC))
+
+
+class DatasetParticipantIn(SQLModel):
+    fighter_id: UUID
+    consent: ConsentEnum = ConsentEnum.PENDING
+    consent_date: date | None = None
+    irb_ref: str | None = Field(default=None, max_length=120)
+    notes: str | None = None
+
+
+class DatasetTake(SQLModel, table=True):
+    __tablename__ = "dataset_take"
+    id: UUID = Field(default_factory=uuid4, primary_key=True)
+    dataset_id: UUID = Field(foreign_key="dataset.id", index=True)
+    fighter_id: UUID = Field(foreign_key="fighter.id", index=True)
+    status: TakeStatusEnum = Field(
+        default=TakeStatusEnum.RECORDING, sa_column=sa.Column(sa.String, nullable=False)
+    )
+    started_at: datetime = Field(default_factory=lambda: datetime.now(UTC))
+    ended_at: datetime | None = None
+    duration_ms: float = Field(default=0.0, ge=0)
+    notes: str | None = None

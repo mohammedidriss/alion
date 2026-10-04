@@ -20,6 +20,7 @@ data/processed/
 data/photos/
 # IMU wrist mapping — macOS Bluetooth IDs are per-Mac, so this is local config
 data/imu/
+data/datasets/
 *.db
 *.sqlite
 *.sqlite3
@@ -53,7 +54,9 @@ models/**/*.task
 data/ml/datasets/
 data/ml/raw/
 data/ml/punch_lstm_v1.pkl
-Datasets/
+# Root-level raw dataset folder only — unanchored, it also hid apps/dashboard/app/datasets/
+# (git on macOS matches case-insensitively).
+/Datasets/
 
 # Start/stop script runtime files
 .backend.log

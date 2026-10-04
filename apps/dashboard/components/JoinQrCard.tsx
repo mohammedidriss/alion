@@ -13,9 +13,11 @@ import { api } from "@/lib/api";
 
 export function JoinQrCard({
   sessionId,
+  takeId,
   compact = false,
 }: {
-  sessionId: string;
+  sessionId?: string;
+  takeId?: string; // a dataset take instead of a session (ADR-013)
   compact?: boolean;
 }) {
   const [joinUrl, setJoinUrl] = useState<string | null>(null);
@@ -23,7 +25,7 @@ export function JoinQrCard({
 
   useEffect(() => {
     api
-      .multicamJoinInfo(sessionId)
+      .multicamJoinInfo(takeId ? { kind: "take", id: takeId } : (sessionId ?? ""))
       .then((ji) => {
         const loc = window.location;
         const isLocal = loc.hostname === "localhost" || loc.hostname === "127.0.0.1";
@@ -37,7 +39,7 @@ export function JoinQrCard({
         }
       })
       .catch(() => setErr(true));
-  }, [sessionId]);
+  }, [sessionId, takeId]);
 
   if (compact) return <CompactQr joinUrl={joinUrl} err={err} />;
 

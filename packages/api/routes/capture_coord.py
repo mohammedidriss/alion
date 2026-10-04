@@ -11,6 +11,11 @@ synchronized start.
 Two routers, split by trust boundary:
 - `master` (coach, authenticated) — join-info, device roster, start/stop.
 - `slave` (phone, join-token) — register, heartbeat, poll capture state.
+
+The same capture routes also serve dataset takes (ADR-013) under `/takes/{id}`
+(`take_master` / `take_slave`). A take's clips and pose land in its own folder
+(`dataset_store.take_dir`); join and complete are per kind (here for sessions,
+`routes/datasets.py` for takes). Takes can't be paused.
 """
 
 from __future__ import annotations
@@ -30,7 +35,7 @@ from pydantic import BaseModel
 from api.deps import session_repo
 from api.routes.auth import require_current_user
 from api.routes.pose import PoseFrameIn, _to_landmarks, _to_world
-from api.services import imu_runner
+from api.services import dataset_store, imu_runner
 from contracts import PoseFrame
 from store import SessionRepo, SessionStatus
 
@@ -82,6 +87,7 @@ class _Coord:
     command: str = "idle"  # idle | start | stop
     start_at_ms: float | None = None  # scheduled start on the server wall clock
     paused: bool = False  # coach pressed Pause — nodes hold recording, keep the clip
+    last_start_ms: float | None = None  # t = 0 of the latest recording, kept after stop
 
 
 _lock = threading.Lock()
@@ -112,6 +118,45 @@ def started_at_ms(session_id: UUID) -> float | None:
         if c is None or c.command != "start":
             return None
         return c.start_at_ms
+
+
+def last_started_at_ms(capture_id: UUID) -> float | None:
+    """t = 0 of the latest recording (server wall clock, ms), still known after Stop."""
+    with _lock:
+        c = _coords.get(capture_id)
+        return c.last_start_ms if c else None
+
+
+def timeline_now_ms(capture_id: UUID) -> float | None:
+    """Now on the capture's timeline: ms since the cameras' synchronized start, or
+    None before the start or after Stop. Pauses aren't subtracted — use it for
+    dataset takes, which can't be paused (protocol block markers)."""
+    with _lock:
+        c = _coords.get(capture_id)
+        if c is None or c.command != "start" or c.start_at_ms is None:
+            return None
+        now = _now_ms()
+        return now - c.start_at_ms if now >= c.start_at_ms else None
+
+
+def _take_folder(capture_id: UUID) -> Path | None:
+    """The take's folder if this capture is a dataset take, else None (a session).
+    Resolved from disk on every call, so it survives an API reload mid-take."""
+    return dataset_store.take_dir(capture_id)
+
+
+def _clip_file(capture_id: UUID, device_id: str, ext: str) -> Path:
+    folder = _take_folder(capture_id)
+    if folder is not None:
+        return dataset_store.clip_path(folder, device_id, ext)
+    return _VIDEO_DIR / f"{capture_id}.{device_id}{ext}"
+
+
+def _clip_meta_file(capture_id: UUID, device_id: str) -> Path:
+    folder = _take_folder(capture_id)
+    if folder is not None:
+        return dataset_store.clip_meta_path(folder, device_id)
+    return _VIDEO_DIR / f"{capture_id}.{device_id}.json"
 
 
 def _live_devices(c: _Coord) -> list[_Device]:
@@ -175,26 +220,33 @@ class StartOut(BaseModel):
 # Master (coach) routes — authenticated
 # --------------------------------------------------------------------------
 
-master = APIRouter(
-    prefix="/sessions", tags=["capture"], dependencies=[Depends(require_current_user)]
-)
+# Routes shared by sessions and takes are defined on prefix-less routers and mounted
+# under both `/sessions` and `/takes` at the bottom of this module.
+_master = APIRouter()
+_session_master = APIRouter()  # session-only: join-info, complete
 
 
-@master.post("/{session_id}/multicam/join-info", response_model=JoinInfo)
-def join_info(session_id: UUID, sessions: SessionRepo = Depends(session_repo)) -> JoinInfo:
-    """Create/return the join token + camera-page path for the QR/link."""
-    if sessions.get(session_id) is None:
-        raise HTTPException(status_code=404, detail="session not found")
+def join(capture_id: UUID, page_prefix: str) -> JoinInfo:
+    """Join token + camera-page path for the QR (`page_prefix` is "/sessions" or
+    "/takes"). Callers check the capture exists."""
     with _lock:
-        c = _ensure(session_id)
+        c = _ensure(capture_id)
         return JoinInfo(
             join_token=c.join_token,
-            join_path=f"/sessions/{session_id}/camera?token={c.join_token}",
+            join_path=f"{page_prefix}/{capture_id}/camera?token={c.join_token}",
             lan_ip=_lan_ip(),
         )
 
 
-@master.get("/{session_id}/multicam/devices", response_model=list[DeviceOut])
+@_session_master.post("/{session_id}/multicam/join-info", response_model=JoinInfo)
+def join_info(session_id: UUID, sessions: SessionRepo = Depends(session_repo)) -> JoinInfo:
+    """Create/return the join token + camera-page path for the QR/link."""
+    if sessions.get(session_id) is None:
+        raise HTTPException(status_code=404, detail="session not found")
+    return join(session_id, "/sessions")
+
+
+@_master.get("/{session_id}/multicam/devices", response_model=list[DeviceOut])
 def list_devices(session_id: UUID) -> list[DeviceOut]:
     """Live roster for the device panel (stale nodes pruned)."""
     with _lock:
@@ -213,7 +265,7 @@ def list_devices(session_id: UUID) -> list[DeviceOut]:
         ]
 
 
-@master.post("/{session_id}/multicam/start", response_model=StartOut)
+@_master.post("/{session_id}/multicam/start", response_model=StartOut)
 def start_capture(session_id: UUID) -> StartOut:
     """Schedule a synchronized start for every connected node."""
     with _lock:
@@ -222,14 +274,18 @@ def start_capture(session_id: UUID) -> StartOut:
             raise HTTPException(status_code=409, detail="no devices connected")
         c.command = "start"
         c.start_at_ms = _now_ms() + _START_DELAY_MS
+        c.last_start_ms = c.start_at_ms
         c.paused = False
         return StartOut(command=c.command, start_at_ms=c.start_at_ms, devices=len(c.devices))
 
 
-@master.post("/{session_id}/multicam/pause", response_model=CaptureState)
+@_master.post("/{session_id}/multicam/pause", response_model=CaptureState)
 def pause_capture(session_id: UUID) -> CaptureState:
     """Hold recording on every node — MediaRecorder pauses, the clip is kept, and the
     round timer freezes. Resume continues the same clip; only Stop finalizes."""
+    if _take_folder(session_id) is not None:
+        # A node applies a pause up to one heartbeat late, which would blur labels.
+        raise HTTPException(status_code=409, detail="dataset takes can't be paused")
     with _lock:
         c = _ensure(session_id)
         c.paused = True
@@ -240,7 +296,7 @@ def pause_capture(session_id: UUID) -> CaptureState:
         )
 
 
-@master.post("/{session_id}/multicam/resume", response_model=CaptureState)
+@_master.post("/{session_id}/multicam/resume", response_model=CaptureState)
 def resume_capture(session_id: UUID) -> CaptureState:
     with _lock:
         c = _ensure(session_id)
@@ -252,7 +308,7 @@ def resume_capture(session_id: UUID) -> CaptureState:
         )
 
 
-@master.post("/{session_id}/multicam/stop", response_model=CaptureState)
+@_master.post("/{session_id}/multicam/stop", response_model=CaptureState)
 def stop_capture(session_id: UUID) -> CaptureState:
     """End the match: nodes finalize + upload their clips. This is the only command
     that saves — Pause keeps the clip open for Resume."""
@@ -268,7 +324,7 @@ class CompleteBody(BaseModel):
     duration_ms: float | None = None  # active recording time (pauses excluded)
 
 
-@master.post("/{session_id}/multicam/complete", response_model=dict)
+@_session_master.post("/{session_id}/multicam/complete", response_model=dict)
 def complete_capture(
     session_id: UUID, body: CompleteBody, sessions: SessionRepo = Depends(session_repo)
 ) -> dict[str, object]:
@@ -291,10 +347,10 @@ def complete_capture(
 # Slave (phone) routes — join-token authenticated
 # --------------------------------------------------------------------------
 
-slave = APIRouter(prefix="/sessions", tags=["capture"])
+_slave = APIRouter()
 
 
-@slave.post("/{session_id}/multicam/register", response_model=RegisterOut)
+@_slave.post("/{session_id}/multicam/register", response_model=RegisterOut)
 def register_device(session_id: UUID, body: RegisterBody) -> RegisterOut:
     with _lock:
         c = _check_token(session_id, body.token)
@@ -303,7 +359,7 @@ def register_device(session_id: UUID, body: RegisterBody) -> RegisterOut:
         return RegisterOut(device_id=dev.device_id)
 
 
-@slave.post("/{session_id}/multicam/heartbeat", response_model=CaptureState)
+@_slave.post("/{session_id}/multicam/heartbeat", response_model=CaptureState)
 def heartbeat(session_id: UUID, body: HeartbeatBody) -> CaptureState:
     """Keep a device on the roster + report its status; returns the current command."""
     with _lock:
@@ -321,7 +377,7 @@ def heartbeat(session_id: UUID, body: HeartbeatBody) -> CaptureState:
         )
 
 
-@slave.get("/{session_id}/multicam/state", response_model=CaptureState)
+@_slave.get("/{session_id}/multicam/state", response_model=CaptureState)
 def capture_state(session_id: UUID, token: str) -> CaptureState:
     """Poll target: the phone reads command + scheduled start; server_now_ms lets it
     estimate the clock offset for a coarse synchronized start."""
@@ -335,7 +391,7 @@ def capture_state(session_id: UUID, token: str) -> CaptureState:
         )
 
 
-@slave.post("/{session_id}/multicam/upload", response_model=dict)
+@_slave.post("/{session_id}/multicam/upload", response_model=dict)
 async def upload_device_clip(
     session_id: UUID,
     token: str = Form(...),
@@ -354,8 +410,8 @@ async def upload_device_clip(
     with _lock:
         _check_token(session_id, token)
     ext = ".mp4" if "mp4" in (file.content_type or "") else ".webm"
-    _VIDEO_DIR.mkdir(parents=True, exist_ok=True)
-    dest = _VIDEO_DIR / f"{session_id}.{device_id}{ext}"
+    dest = _clip_file(session_id, device_id, ext)
+    dest.parent.mkdir(parents=True, exist_ok=True)
     written = 0
     with dest.open("wb") as out:
         while chunk := await file.read(1024 * 1024):
@@ -365,7 +421,7 @@ async def upload_device_clip(
                 dest.unlink(missing_ok=True)
                 raise HTTPException(status_code=413, detail="clip exceeds size limit")
             out.write(chunk)
-    meta = _VIDEO_DIR / f"{session_id}.{device_id}.json"
+    meta = _clip_meta_file(session_id, device_id)
     if start_offset_ms is not None:
         meta.write_text(json.dumps({"start_offset_ms": start_offset_ms}) + "\n")
     else:
@@ -373,7 +429,7 @@ async def upload_device_clip(
     return {"bytes": written, "device_id": device_id, "path": str(dest)}
 
 
-@slave.post("/{session_id}/multicam/frame", response_model=dict)
+@_slave.post("/{session_id}/multicam/frame", response_model=dict)
 async def post_frame(
     session_id: UUID,
     token: str = Form(...),
@@ -392,7 +448,7 @@ async def post_frame(
     return {"bytes": len(data)}
 
 
-@slave.get("/{session_id}/multicam/frame/{device_id}")
+@_slave.get("/{session_id}/multicam/frame/{device_id}")
 def get_frame(session_id: UUID, device_id: str, token: str) -> Response:
     """Latest preview JPEG for one device — used as an <img> src in the live grid."""
     with _lock:
@@ -414,7 +470,7 @@ class MulticamPoseBody(BaseModel):
 _POSE_DIR = Path("data/processed")
 
 
-@slave.post("/{session_id}/multicam/pose", response_model=dict)
+@_slave.post("/{session_id}/multicam/pose", response_model=dict)
 def upload_device_pose(session_id: UUID, body: MulticamPoseBody) -> dict[str, object]:
     """A phone uploads its pose stream after the round, saved per-device as parquet
     (`{session}.{device}.pose.parquet`) so the camera's detection can be analyzed
@@ -441,8 +497,12 @@ def upload_device_pose(session_id: UUID, body: MulticamPoseBody) -> dict[str, ob
 
     from capture.cv.writer import write_pose_parquet
 
-    _POSE_DIR.mkdir(parents=True, exist_ok=True)
-    path = _POSE_DIR / f"{session_id}.{body.device_id}.pose.parquet"
+    folder = _take_folder(session_id)
+    if folder is not None:
+        path = dataset_store.pose_path(folder, body.device_id)
+    else:
+        path = _POSE_DIR / f"{session_id}.{body.device_id}.pose.parquet"
+    path.parent.mkdir(parents=True, exist_ok=True)
     write_pose_parquet(path, frames)
     return {"frames": len(frames), "path": str(path)}
 
@@ -469,16 +529,19 @@ def session_ids_with_video() -> set[str]:
 
 def _clip_offset(session_id: UUID, device_id: str) -> float | None:
     try:
-        meta = json.loads((_VIDEO_DIR / f"{session_id}.{device_id}.json").read_text())
+        meta = json.loads(_clip_meta_file(session_id, device_id).read_text())
         return float(meta["start_offset_ms"])
     except (OSError, ValueError, KeyError, TypeError):
         return None
 
 
-@master.get("/{session_id}/multicam/clips", response_model=list[ClipInfo])
+@_master.get("/{session_id}/multicam/clips", response_model=list[ClipInfo])
 def list_clips(session_id: UUID) -> list[ClipInfo]:
     """List a session's recorded per-device clips by scanning disk — so they render
     on the session page for ANY session, not just one live in memory."""
+    folder = _take_folder(session_id)
+    if folder is not None:
+        return [ClipInfo(**c) for c in dataset_store.clips(folder)]
     out: list[ClipInfo] = []
     prefix = f"{session_id}."
     if _VIDEO_DIR.exists():
@@ -499,11 +562,27 @@ def list_clips(session_id: UUID) -> list[ClipInfo]:
     return out
 
 
-@master.get("/{session_id}/multicam/clip/{device_id}")
+@_master.get("/{session_id}/multicam/clip/{device_id}")
 def get_clip(session_id: UUID, device_id: str) -> Response:
     """Serve one device's recorded clip for playback (coach-authenticated)."""
     for ext, media in ((".webm", "video/webm"), (".mp4", "video/mp4")):
-        p = _VIDEO_DIR / f"{session_id}.{device_id}{ext}"
+        p = _clip_file(session_id, device_id, ext)
         if p.exists():
             return Response(content=p.read_bytes(), media_type=media)
     raise HTTPException(status_code=404, detail="no clip for this device")
+
+
+# --------------------------------------------------------------------------
+# Mounts — the shared routes under /sessions (training) and /takes (datasets)
+# --------------------------------------------------------------------------
+
+_auth = [Depends(require_current_user)]
+master = APIRouter(prefix="/sessions", tags=["capture"], dependencies=_auth)
+master.include_router(_master)
+master.include_router(_session_master)
+slave = APIRouter(prefix="/sessions", tags=["capture"])
+slave.include_router(_slave)
+take_master = APIRouter(prefix="/takes", tags=["capture"], dependencies=_auth)
+take_master.include_router(_master)
+take_slave = APIRouter(prefix="/takes", tags=["capture"])
+take_slave.include_router(_slave)
