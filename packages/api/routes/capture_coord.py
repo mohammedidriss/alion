@@ -15,6 +15,7 @@ Two routers, split by trust boundary:
 
 from __future__ import annotations
 
+import json
 import secrets
 import socket
 import threading
@@ -340,9 +341,15 @@ async def upload_device_clip(
     token: str = Form(...),
     device_id: str = Form(...),
     file: UploadFile = File(...),
+    start_offset_ms: float | None = Form(None),
 ) -> dict[str, object]:
     """A phone uploads the clip it recorded during the synchronized window, saved
     per-device so the coach ends up with one file per angle. Token-authed (no login).
+
+    `start_offset_ms` is how long after the synchronized start (t = 0) the clip's
+    first frame was recorded, measured on the device. It's kept in a sidecar
+    (`{session}.{device}.json`) so dataset tools can line the video up with the
+    IMU and the labels exactly.
     """
     with _lock:
         _check_token(session_id, token)
@@ -358,6 +365,11 @@ async def upload_device_clip(
                 dest.unlink(missing_ok=True)
                 raise HTTPException(status_code=413, detail="clip exceeds size limit")
             out.write(chunk)
+    meta = _VIDEO_DIR / f"{session_id}.{device_id}.json"
+    if start_offset_ms is not None:
+        meta.write_text(json.dumps({"start_offset_ms": start_offset_ms}) + "\n")
+    else:
+        meta.unlink(missing_ok=True)  # don't let an older recording's offset linger
     return {"bytes": written, "device_id": device_id, "path": str(dest)}
 
 
@@ -439,6 +451,7 @@ class ClipInfo(BaseModel):
     device_id: str
     ext: str
     bytes: int
+    start_offset_ms: float | None = None  # first frame's time after t = 0 (see upload)
 
 
 def session_ids_with_video() -> set[str]:
@@ -454,6 +467,14 @@ def session_ids_with_video() -> set[str]:
     }
 
 
+def _clip_offset(session_id: UUID, device_id: str) -> float | None:
+    try:
+        meta = json.loads((_VIDEO_DIR / f"{session_id}.{device_id}.json").read_text())
+        return float(meta["start_offset_ms"])
+    except (OSError, ValueError, KeyError, TypeError):
+        return None
+
+
 @master.get("/{session_id}/multicam/clips", response_model=list[ClipInfo])
 def list_clips(session_id: UUID) -> list[ClipInfo]:
     """List a session's recorded per-device clips by scanning disk — so they render
@@ -467,7 +488,14 @@ def list_clips(session_id: UUID) -> list[ClipInfo]:
                 continue  # single-cam "{session}.webm" — not a per-device clip
             device_id, ext = rest.rsplit(".", 1)
             if ext in ("webm", "mp4"):
-                out.append(ClipInfo(device_id=device_id, ext=ext, bytes=p.stat().st_size))
+                out.append(
+                    ClipInfo(
+                        device_id=device_id,
+                        ext=ext,
+                        bytes=p.stat().st_size,
+                        start_offset_ms=_clip_offset(session_id, device_id),
+                    )
+                )
     return out
 
 

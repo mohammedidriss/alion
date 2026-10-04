@@ -151,3 +151,35 @@ def test_complete_marks_the_session_done_only_once_video_landed(
     assert r.status_code == 200 and r.json()["clips"] == 1
     row = authed_client.get(f"/sessions/{sid}").json()
     assert row["status"] == "completed" and row["ended_at"] and row["duration_ms"] == 93_500
+
+
+def test_clip_keeps_its_start_offset_for_sync(
+    authed_client: TestClient, tmp_path, monkeypatch
+) -> None:
+    """The device reports how late its first frame was after t = 0; the dataset tools
+    need it to line the clip up with the IMU and the labels."""
+    from api.routes import capture_coord
+
+    monkeypatch.setattr(capture_coord, "_VIDEO_DIR", tmp_path)
+    sid = _make_session(authed_client)
+    token = authed_client.post(f"/sessions/{sid}/multicam/join-info").json()["join_token"]
+    dev = authed_client.post(
+        f"/sessions/{sid}/multicam/register",
+        json={"token": token, "role": "camera", "label": "front"},
+    ).json()["device_id"]
+
+    def upload(**extra: str) -> None:
+        r = authed_client.post(
+            f"/sessions/{sid}/multicam/upload",
+            data={"token": token, "device_id": dev, **extra},
+            files={"file": ("clip.webm", b"\x1a\x45\xdf\xa3clip", "video/webm")},
+        )
+        assert r.status_code == 200
+
+    upload(start_offset_ms="37")
+    clips = authed_client.get(f"/sessions/{sid}/multicam/clips").json()
+    assert [(c["device_id"], c["start_offset_ms"]) for c in clips] == [(dev, 37.0)]
+
+    upload()  # a re-recording from an older client: no stale offset survives
+    clips = authed_client.get(f"/sessions/{sid}/multicam/clips").json()
+    assert [(c["device_id"], c["start_offset_ms"]) for c in clips] == [(dev, None)]

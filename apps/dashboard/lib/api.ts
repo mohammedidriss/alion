@@ -910,10 +910,17 @@ export const api = {
     }),
   multicamState: (id: string, token: string) =>
     req<MulticamState>(`/sessions/${id}/multicam/state?token=${encodeURIComponent(token)}`),
-  multicamUpload: async (id: string, token: string, deviceId: string, blob: Blob) => {
+  multicamUpload: async (
+    id: string,
+    token: string,
+    deviceId: string,
+    blob: Blob,
+    startOffsetMs?: number,
+  ) => {
     const fd = new FormData();
     fd.append("token", token);
     fd.append("device_id", deviceId);
+    if (startOffsetMs != null) fd.append("start_offset_ms", String(Math.round(startOffsetMs)));
     fd.append("file", blob, blob.type.includes("mp4") ? "clip.mp4" : "clip.webm");
     const r = await fetch(`${BASE}/sessions/${id}/multicam/upload`, { method: "POST", body: fd });
     if (!r.ok) throw new Error(`${r.status} ${await r.text()}`);

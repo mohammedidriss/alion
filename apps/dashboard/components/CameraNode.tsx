@@ -35,7 +35,9 @@ export function CameraNode({
   const videoRef = useRef<HTMLVideoElement>(null);
   const deviceIdRef = useRef<string | null>(null);
   const offsetRef = useRef(0); // server clock − local clock (ms)
-  const recStartRef = useRef<number | null>(null);
+  const recStartRef = useRef<number | null>(null); // scheduled start (t = 0), local clock
+  const startTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const startOffsetRef = useRef<number | null>(null); // recorder began this long after t = 0
   const streamRef = useRef<MediaStream | null>(null);
   const recorderRef = useRef<MediaRecorder | null>(null);
   const chunksRef = useRef<Blob[]>([]);
@@ -132,6 +134,18 @@ export function CameraNode({
           if (msLeft > 0) {
             setPhase("countdown");
             setCountdown(Math.ceil(msLeft / 1000));
+            // Begin exactly at the scheduled instant, not on the next 400 ms tick:
+            // every camera's clip and the wrist IMUs then share t = 0 (dataset
+            // labels are matched to video within ±200 ms).
+            if (startTimerRef.current == null && !recStartRef.current) {
+              startTimerRef.current = setTimeout(() => {
+                startTimerRef.current = null;
+                if (!recStartRef.current) {
+                  recStartRef.current = localStart;
+                  setPhase("recording");
+                }
+              }, msLeft);
+            }
           } else if (!recStartRef.current) {
             recStartRef.current = localStart;
             setPhase("recording");
@@ -155,6 +169,10 @@ export function CameraNode({
             }
           }
         } else if (st.command === "stop") {
+          if (startTimerRef.current != null) {
+            clearTimeout(startTimerRef.current);
+            startTimerRef.current = null;
+          }
           recStartRef.current = null;
           setPhase("stopped");
         }
@@ -169,6 +187,13 @@ export function CameraNode({
       clearInterval(id);
     };
   }, [phase, sessionId, token]);
+
+  useEffect(
+    () => () => {
+      if (startTimerRef.current != null) clearTimeout(startTimerRef.current);
+    },
+    [],
+  );
 
   // Recording elapsed timer — paused time is subtracted so it freezes on Pause.
   useEffect(() => {
@@ -190,6 +215,7 @@ export function CameraNode({
       pausedRef.current = false;
       pauseStartRef.current = null;
       pausedAccumRef.current = 0;
+      startOffsetRef.current = null;
       setPaused(false);
       try {
         if (typeof MediaRecorder === "undefined") {
@@ -206,7 +232,14 @@ export function CameraNode({
             if (e.data.size) chunksRef.current.push(e.data);
           };
           rec.onerror = () => setRecInfo("recorder error");
+          // How late the clip's first frame is relative to t = 0 — uploaded with the
+          // clip so the dataset tools can line video up with the IMU exactly.
+          const markStart = () => {
+            if (recStartRef.current != null) startOffsetRef.current = Date.now() - recStartRef.current;
+          };
+          rec.onstart = markStart;
           rec.start(1000); // timeslice — iOS Safari is more reliable emitting chunks
+          markStart(); // fallback if onstart never fires; onstart refines it
           recorderRef.current = rec;
           setRecInfo(`recording (${mime || "default"})`);
         }
@@ -226,7 +259,9 @@ export function CameraNode({
         }
         setRecInfo(`uploading ${(blob.size / 1_000_000).toFixed(1)} MB…`);
         try {
-          if (did) await api.multicamUpload(sessionId, token, did, blob);
+          if (did) {
+            await api.multicamUpload(sessionId, token, did, blob, startOffsetRef.current ?? undefined);
+          }
           setUploaded(true);
           setRecInfo(null);
         } catch (e) {
@@ -306,7 +341,10 @@ export function CameraNode({
     punchCountRef.current = 0;
     setPunchCount(0);
     poseRef.current = [];
-    const startT = performance.now();
+    // Pose frames are stamped on the session timeline (ms since t = 0, paused time
+    // removed) — the same axis as the clip, the IMU samples and the labels. A
+    // monotonic clock anchored once to t = 0 so a wall-clock adjustment can't jump it.
+    const perfAtT0 = performance.now() - (Date.now() - (recStartRef.current ?? Date.now()));
     let lastFrame = -1;
     const loop = () => {
       rafRef.current = requestAnimationFrame(loop);
@@ -322,7 +360,7 @@ export function CameraNode({
       const lms = res.landmarks?.[0];
       if (!lms) return;
       const world = res.worldLandmarks?.[0] ?? null;
-      const tMs = performance.now() - startT;
+      const tMs = performance.now() - perfAtT0 - pausedAccumRef.current;
       poseRef.current.push({
         t_ms: Math.round(tMs),
         landmarks: lms.map((p) => [p.x, p.y, p.z, p.visibility ?? 1]),
