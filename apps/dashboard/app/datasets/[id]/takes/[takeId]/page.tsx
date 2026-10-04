@@ -13,6 +13,7 @@ import { JoinQrCard } from "@/components/JoinQrCard";
 import { LiveReader } from "@/components/LiveReader";
 import { MulticamPanel } from "@/components/MulticamPanel";
 import { MulticamRecordings } from "@/components/MulticamRecordings";
+import { ProtocolCard } from "@/components/ProtocolCard";
 import { api, type Take } from "@/lib/api";
 
 function duration(ms: number): string {
@@ -107,6 +108,8 @@ export default function TakePage({ params }: { params: { id: string; takeId: str
         <div className="grid items-start gap-6 lg:grid-cols-[300px_minmax(0,1fr)]">
           <div className="space-y-6">
             <LiveReader takeId={take.id} fighterId={take.fighter_id} />
+            {/* Protocol blocks: mark each block's start/end while the cameras roll. */}
+            <ProtocolCard takeId={take.id} />
           </div>
           <MulticamPanel take={take} defaultLaptop onFinished={load} />
         </div>
@@ -122,6 +125,8 @@ export default function TakePage({ params }: { params: { id: string; takeId: str
       <MulticamRecordings key={take.status} takeId={take.id} />
 
       {!recording && <TakeData take={take} />}
+      {/* After Stop: the recorded blocks and labels, read-only. */}
+      {!recording && <ProtocolCard takeId={take.id} readOnly />}
     </div>
   );
 }

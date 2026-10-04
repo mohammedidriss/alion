@@ -13,6 +13,7 @@ import {
   api,
   type Consent,
   type DatasetDetail,
+  type DatasetExport,
   type DatasetParticipant,
   type Fighter,
   type Take,
@@ -198,6 +199,10 @@ export default function DatasetPage({ params }: { params: { id: string } }) {
               {kept.filter((t) => t.status === "completed").length} completed
             </span>
           </div>
+          <ExportButton
+            datasetId={ds.id}
+            disabled={!kept.some((t) => t.status === "completed")}
+          />
         </div>
         {takes.length === 0 ? (
           <p className="text-sm text-neutral-500">No takes recorded yet.</p>
@@ -325,6 +330,70 @@ function AddParticipant({
       >
         Add
       </button>
+    </div>
+  );
+}
+
+/** Writes the training manifest (data/datasets/{id}/export/manifest.json) and shows
+ *  what went in: counts, the split strategy, and anything excluded or suspicious. */
+function ExportButton({ datasetId, disabled }: { datasetId: string; disabled: boolean }) {
+  const [busy, setBusy] = useState(false);
+  const [result, setResult] = useState<DatasetExport | null>(null);
+  const [err, setErr] = useState<string | null>(null);
+  const run = async () => {
+    setBusy(true);
+    setErr(null);
+    try {
+      setResult(await api.datasetExport(datasetId));
+    } catch (e) {
+      setErr(errText(e));
+    } finally {
+      setBusy(false);
+    }
+  };
+  return (
+    <div className="w-full sm:w-auto">
+      <button
+        onClick={run}
+        disabled={disabled || busy}
+        title={disabled ? "Record and complete a take first" : undefined}
+        className="rounded-xl border border-violet-400/40 px-3 py-1.5 text-sm text-violet-200 hover:bg-violet-500/10 disabled:opacity-40"
+      >
+        {busy ? "Exporting…" : "⇩ Export for training"}
+      </button>
+      {err && <p className="mt-2 text-xs text-red-300">{err}</p>}
+      {result && (
+        <div className="mt-3 rounded-xl border border-white/10 bg-black/30 p-3 text-xs sm:w-96">
+          <div className="flex flex-wrap gap-x-4 gap-y-1 text-neutral-300">
+            <span>
+              <strong className="text-neutral-100">{result.counts.takes}</strong> takes
+            </span>
+            <span>
+              <strong className="text-neutral-100">{result.counts.fighters}</strong> fighters
+            </span>
+            <span>
+              <strong className="text-neutral-100">{result.counts.labels}</strong> labelled punches
+            </span>
+            <span>
+              split: <strong className="text-neutral-100">{result.split_strategy}</strong>
+            </span>
+          </div>
+          <p className="mt-1 break-all font-mono text-[10px] text-neutral-500">{result.path}</p>
+          {result.excluded.length > 0 && (
+            <p className="mt-2 text-neutral-400">
+              {result.excluded.length} take(s) left out:{" "}
+              {result.excluded.map((x) => x.reason).join("; ")}
+            </p>
+          )}
+          {result.warnings.length > 0 && (
+            <ul className="mt-2 list-disc space-y-0.5 pl-4 text-amber-200">
+              {result.warnings.map((w) => (
+                <li key={w}>{w}</li>
+              ))}
+            </ul>
+          )}
+        </div>
+      )}
     </div>
   );
 }
