@@ -513,13 +513,16 @@ export default function SessionPage({ params }: { params: { id: string } }) {
         )}
       </div>
 
-      {/* Three columns on wide screens — title + devices | join QR (top middle) |
-          status — so the QR sits centred without growing the header. */}
-      <header className="flex flex-wrap items-center justify-between gap-4 lg:grid lg:grid-cols-[1fr_auto_1fr]">
-        <div className="flex items-center gap-4">
+      {/* Three columns on wide screens (1400px+) — title + devices | join QR (top middle)
+          | status — so the QR sits centred; narrower, it flows after the title. */}
+      <header className="flex flex-wrap items-center justify-between gap-4 min-[1400px]:grid min-[1400px]:grid-cols-[1fr_auto_1fr]">
+        {/* Wraps its own items rather than squeezing the title when space is tight. */}
+        <div className="flex flex-wrap items-center gap-x-4 gap-y-2">
           <div>
             <h1 className="text-2xl font-semibold">Session</h1>
-            <p className="font-mono text-xs text-neutral-500">{session.id}</p>
+            <p className="font-mono text-xs text-neutral-500" title={session.id}>
+              {session.id.slice(0, 8)}
+            </p>
           </div>
           <Link
             href={`/sessions/${id}/corner`}
@@ -533,12 +536,12 @@ export default function SessionPage({ params }: { params: { id: string } }) {
         {(session.status === "pending" || session.status === "capturing") ? (
           <JoinQrCard sessionId={session.id} compact />
         ) : (
-          <div className="hidden lg:block" />
+          <div className="hidden min-[1400px]:block" />
         )}
         {/* Status + backend badges — hidden for pending (the setup UI
             below already conveys both). */}
         {session.status !== "pending" && (
-          <div className="flex items-center gap-2 lg:justify-self-end">
+          <div className="flex items-center gap-2 min-[1400px]:justify-self-end">
             {(() => {
               let label: string = session.status;
               let cls = "bg-neutral-800 text-neutral-300";
