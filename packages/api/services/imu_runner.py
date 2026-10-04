@@ -87,6 +87,7 @@ class _Job:
     thread: threading.Thread | None = None
     error: str | None = None
     pauses: list[tuple[float, float | None]] = field(default_factory=list)  # wall ms
+    stopping: bool = False  # stop() asked for it — a kill on the way out isn't an error
 
     def timeline_ms(self, t_wall_ms: float) -> float | None:
         """Wall-clock sample time → video-timeline ms, or None if taken while paused."""
@@ -259,6 +260,7 @@ def stop(session_id: UUID, *, timeout_s: float = 5.0) -> bool:
         job = _jobs.get(session_id)
     if job is None:
         return False
+    job.stopping = True
     if job.proc.poll() is None:
         job.proc.terminate()
         try:
@@ -371,6 +373,6 @@ def _read_stream(session_id: UUID, job: _Job, db_factory: DBFactory) -> None:
                 "macOS denied Bluetooth to the API process. Start the API from your "
                 "Terminal (the one where scripts/imu_tool.py works), then try again."
             )
-        elif code not in (0, -15) and job.error is None:
+        elif code not in (0, -15) and job.error is None and not job.stopping:
             job.error = f"IMU recorder exited unexpectedly (code {code})."
     log.info("imu.done", extra={"_ctx_session_id": str(session_id), "_ctx_exit": code})

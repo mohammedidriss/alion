@@ -130,3 +130,24 @@ def test_device_clip_upload(authed_client: TestClient, tmp_path, monkeypatch) ->
     # The disk-scan clips listing surfaces it (works even without the in-memory roster).
     clips = authed_client.get(f"/sessions/{sid}/multicam/clips").json()
     assert any(c["device_id"] == dev_id and c["ext"] == "webm" for c in clips)
+
+
+def test_complete_marks_the_session_done_only_once_video_landed(
+    authed_client: TestClient, tmp_path, monkeypatch
+) -> None:
+    """Stop & save: the UI completes the session after the clips arrive — never
+    without video (that session would be an empty record)."""
+    from api.routes import capture_coord
+
+    monkeypatch.setattr(capture_coord, "_VIDEO_DIR", tmp_path)
+    sid = _make_session(authed_client)
+
+    r = authed_client.post(f"/sessions/{sid}/multicam/complete", json={"duration_ms": 1000})
+    assert r.status_code == 409  # nothing recorded yet
+    assert authed_client.get(f"/sessions/{sid}").json()["status"] == "pending"
+
+    (tmp_path / f"{sid}.a1b2c3d4.webm").write_bytes(b"\x1a\x45\xdf\xa3clip")
+    r = authed_client.post(f"/sessions/{sid}/multicam/complete", json={"duration_ms": 93_500})
+    assert r.status_code == 200 and r.json()["clips"] == 1
+    row = authed_client.get(f"/sessions/{sid}").json()
+    assert row["status"] == "completed" and row["ended_at"] and row["duration_ms"] == 93_500

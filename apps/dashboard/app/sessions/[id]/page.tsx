@@ -594,13 +594,14 @@ export default function SessionPage({ params }: { params: { id: string } }) {
             <LiveReader sessionId={session.id} fighterId={session.fighter_id} />
             <RoundConfigCard session={session} onChange={setSession} />
           </div>
-          <MulticamPanel session={session} defaultLaptop />
+          <MulticamPanel session={session} defaultLaptop onFinished={refresh} />
         </div>
       )}
 
       {/* Recorded per-camera clips — disk-scanned, so they show right after Stop and
           for any past session. Renders nothing until a session has clips. */}
-      <MulticamRecordings sessionId={session.id} />
+      {/* Keyed on status so the clip list reloads when Stop completes the session. */}
+      <MulticamRecordings key={session.status} sessionId={session.id} />
 
       {session.status === "failed" && session.failure_reason && cvAvailable && (
         <div className="rounded-lg border border-red-700/60 bg-red-950/40 p-4 text-sm">

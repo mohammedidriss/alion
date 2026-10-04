@@ -173,3 +173,34 @@ def test_paused_time_is_cut_from_the_timeline_like_the_video() -> None:
     assert job.timeline_ms(4000.0) is None  # taken while paused → dropped
     assert job.timeline_ms(6000.0) == 3000.0  # after resume: shifted back by 2 s
     assert job.timeline_ms(9000.0) is None  # still paused
+
+
+def test_a_requested_stop_is_not_reported_as_a_crash(
+    authed_client: TestClient, imu_setup: Path, monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    """A unit that's switched off keeps the recorder inside a BLE connect; if it has
+    to be killed on Stop, that's the stop working — not "exited unexpectedly"."""
+    from api.services import imu_runner
+
+    stubborn = tmp_path / "stubborn.py"  # ignores SIGTERM, like a recorder stuck connecting
+    stubborn.write_text(
+        "import signal, time\nsignal.signal(signal.SIGTERM, signal.SIG_IGN)\ntime.sleep(60)\n"
+    )
+    monkeypatch.setattr(imu_runner, "RECORDER_CMD", [sys.executable, str(stubborn)])
+    fid = _fighter(authed_client, "Mohamad")
+    authed_client.put("/v2/imu/devices/owner", json={"fighter_id": fid})
+    sid = _session(authed_client, fid)
+    assert authed_client.post(f"/v2/sessions/{sid}/imu/ble/start").json()["running"]
+    time.sleep(0.3)  # let it install the SIGTERM handler
+
+    monkeypatch.setattr(imu_runner, "stop", _fast_stop(imu_runner.stop))
+    body = authed_client.post(f"/v2/sessions/{sid}/imu/ble/stop").json()
+    assert body["running"] is False
+    assert body["error"] is None
+
+
+def _fast_stop(stop):  # type: ignore[no-untyped-def]
+    def wrapped(session_id, *, timeout_s: float = 5.0):  # type: ignore[no-untyped-def]
+        return stop(session_id, timeout_s=0.5)
+
+    return wrapped

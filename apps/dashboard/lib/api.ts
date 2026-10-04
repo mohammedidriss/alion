@@ -883,6 +883,13 @@ export const api = {
     req<MulticamState>(`/sessions/${id}/multicam/resume`, { method: "POST" }),
   multicamStop: (id: string) =>
     req<MulticamState>(`/sessions/${id}/multicam/stop`, { method: "POST" }),
+  /** After Stop's clips have landed: mark the session completed (409 if no video). */
+  multicamComplete: (id: string, duration_ms?: number) =>
+    req<{ status: string; clips: number }>(`/sessions/${id}/multicam/complete`, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ duration_ms: duration_ms ?? null }),
+    }),
   multicamRegister: (id: string, token: string, role: string, label: string) =>
     req<{ device_id: string }>(`/sessions/${id}/multicam/register`, {
       method: "POST",

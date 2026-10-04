@@ -110,10 +110,17 @@ async def _main(units: dict[str, str], rate: float) -> None:
     loop = asyncio.get_running_loop()
     for sig in (signal.SIGTERM, signal.SIGINT):
         loop.add_signal_handler(sig, stop.set)
-    await asyncio.gather(
-        _watch_parent(stop),
-        *(_run_unit(hand, addr, rate, stop) for hand, addr in units.items()),
-    )
+    tasks = [
+        asyncio.create_task(_watch_parent(stop)),
+        *(asyncio.create_task(_run_unit(hand, addr, rate, stop)) for hand, addr in units.items()),
+    ]
+    await stop.wait()
+    # Cancel rather than wait: a unit that's off leaves its task inside a 20 s
+    # BleakClient connect (or a backoff sleep), and the API kills us after 5 s.
+    # Cancelling a connected unit still disconnects it (BleakClient.__aexit__).
+    for t in tasks:
+        t.cancel()
+    await asyncio.wait(tasks, timeout=3.0)
 
 
 def main() -> None:

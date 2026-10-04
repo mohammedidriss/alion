@@ -22,9 +22,12 @@ import { api, type MulticamDevice, type Session } from "@/lib/api";
 export function MulticamPanel({
   session,
   defaultLaptop = false,
+  onFinished,
 }: {
   session: Session;
   defaultLaptop?: boolean;
+  /** Called once Stop has saved the clips and completed the session. */
+  onFinished?: () => void;
 }) {
   const sessionId = session.id;
   const [token, setToken] = useState<string | null>(null);
@@ -35,8 +38,11 @@ export function MulticamPanel({
   const [laptopDeviceId, setLaptopDeviceId] = useState<string | null>(null);
   const [captureStartMs, setCaptureStartMs] = useState<number | null>(null);
   const [paused, setPaused] = useState(false);
+  const [stopping, setStopping] = useState(false);
   const pausedAccumRef = useRef(0); // total paused ms, subtracted from timer elapsed
   const pauseStartRef = useRef<number | null>(null);
+  const devicesRef = useRef<MulticamDevice[]>([]);
+  const activeMsRef = useRef(0);
   const [msg, setMsg] = useState<string | null>(null);
   const [imuMsg, setImuMsg] = useState<string | null>(null);
   const [imuMine, setImuMine] = useState(false); // the IMU pair belongs to this fighter
@@ -126,21 +132,59 @@ export function MulticamPanel({
     setMsg("Recording…");
   }, [sessionId]);
 
+  // Stop & save: end the recording everywhere, wait for each camera's clip to land,
+  // then complete the session (which swaps this panel for the recordings view).
   const stop = useCallback(async () => {
-    await Promise.all([
-      api.multicamStop(sessionId).catch(() => {}),
-      // Waits for the last samples to be written; a no-op if the IMU wasn't running.
-      api.stopImuBle(sessionId).catch(() => {}),
-      api.stopHrv(sessionId).catch(() => {}),
-    ]);
+    if (stopping) return;
+    setStopping(true);
+    setMsg("Stopping — saving clips…");
+    const durationMs = activeMsRef.current;
+    // Cameras recording right now each upload one clip after the stop command.
+    const recording = devicesRef.current.filter(
+      (d) => d.role === "camera" && (d.status === "recording" || d.status === "paused"),
+    ).length;
+    const expected = Math.max(1, recording);
+    const before = new Map(
+      (await api.multicamClips(sessionId).catch(() => [])).map((c) => [c.device_id, c.bytes]),
+    );
+    await api.multicamStop(sessionId).catch(() => {});
     setCaptureStartMs(null);
     setPaused(false);
     pauseStartRef.current = null;
     pausedAccumRef.current = 0;
-    setMsg("Match ended — clips saved. See “Camera recordings” below.");
-  }, [sessionId]);
+    // Body sensors shut down in the background — a wrist unit that's off can take
+    // seconds to give up connecting, and the clips shouldn't wait on it.
+    void api.stopImuBle(sessionId).catch(() => {});
+    void api.stopHrv(sessionId).catch(() => {});
+
+    // A clip is "new" if its device had none before, or its file changed (a re-take
+    // overwrites the same device's file). Nodes upload on their next heartbeat.
+    let fresh = 0;
+    for (let i = 0; i < 40; i++) {
+      const clips = await api.multicamClips(sessionId).catch(() => []);
+      fresh = clips.filter((c) => before.get(c.device_id) !== c.bytes).length;
+      if (fresh >= expected) break;
+      setMsg(`Stopping — saving clips… (${fresh}/${expected})`);
+      await new Promise((r) => setTimeout(r, 750));
+    }
+    if (fresh === 0) {
+      setStopping(false);
+      setMsg("No video was saved — the cameras didn't record anything.");
+      return;
+    }
+    try {
+      await api.multicamComplete(sessionId, durationMs);
+      setMsg(`Saved ${fresh} clip(s).`);
+      onFinished?.();
+    } catch {
+      setMsg(`Saved ${fresh} clip(s), but the session couldn't be marked complete.`);
+    } finally {
+      setStopping(false);
+    }
+  }, [sessionId, stopping, onFinished]);
 
   const allCams = devices.filter((d) => d.role === "camera");
+  devicesRef.current = devices;
   // The laptop shows as its own <CameraNode> below, so keep it out of the grid —
   // but still count it toward the connected total and the consensus punch count.
   const cams = allCams.filter((d) => d.device_id !== laptopDeviceId);
@@ -156,6 +200,7 @@ export function MulticamPanel({
           (pauseStartRef.current != null ? Date.now() - pauseStartRef.current : 0),
       )
     : 0;
+  activeMsRef.current = activeMs;
 
   return (
     <div className="rounded-2xl border border-white/10 p-4 space-y-4">
@@ -172,7 +217,7 @@ export function MulticamPanel({
         {!capturing ? (
           <button
             onClick={start}
-            disabled={busy || !canStart}
+            disabled={busy || stopping || !canStart}
             className="rounded-xl bg-emerald-500 px-4 py-2 text-sm font-semibold text-black hover:bg-emerald-400 disabled:opacity-40"
           >
             Start all cameras
@@ -196,9 +241,10 @@ export function MulticamPanel({
             )}
             <button
               onClick={stop}
-              className="rounded-xl bg-red-600 px-4 py-2 text-sm font-semibold text-white hover:bg-red-500"
+              disabled={stopping}
+              className="rounded-xl bg-red-600 px-4 py-2 text-sm font-semibold text-white hover:bg-red-500 disabled:cursor-wait disabled:opacity-60"
             >
-              ■ Stop &amp; save
+              {stopping ? "Saving…" : "■ Stop & save"}
             </button>
           </>
         )}

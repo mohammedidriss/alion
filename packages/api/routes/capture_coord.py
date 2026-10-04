@@ -31,7 +31,7 @@ from api.routes.auth import require_current_user
 from api.routes.pose import PoseFrameIn, _to_landmarks, _to_world
 from api.services import imu_runner
 from contracts import PoseFrame
-from store import SessionRepo
+from store import SessionRepo, SessionStatus
 
 # In-memory coordinator state (process-local, MVP). A device unseen for this long
 # drops off the roster; start is scheduled this far ahead so every node begins
@@ -261,6 +261,29 @@ def stop_capture(session_id: UUID) -> CaptureState:
         c.start_at_ms = None
         c.paused = False
         return CaptureState(command="stop", start_at_ms=None, server_now_ms=_now_ms())
+
+
+class CompleteBody(BaseModel):
+    duration_ms: float | None = None  # active recording time (pauses excluded)
+
+
+@master.post("/{session_id}/multicam/complete", response_model=dict)
+def complete_capture(
+    session_id: UUID, body: CompleteBody, sessions: SessionRepo = Depends(session_repo)
+) -> dict[str, object]:
+    """Mark the session completed once Stop's clips have landed.
+
+    Not done in `stop` itself: the session page hides the cameras panel as soon as
+    the session completes, which would unmount the laptop camera mid-upload. The
+    coach UI calls this after it has seen every recording camera's new clip."""
+    if sessions.get(session_id) is None:
+        raise HTTPException(status_code=404, detail="session not found")
+    if not list_clips(session_id):
+        raise HTTPException(status_code=409, detail="no video was saved for this session")
+    if body.duration_ms is not None:
+        sessions.attach_artifacts(session_id, duration_ms=body.duration_ms)
+    sessions.update_status(session_id, SessionStatus.COMPLETED, end=True)
+    return {"status": "completed", "clips": len(list_clips(session_id))}
 
 
 # --------------------------------------------------------------------------
