@@ -13,6 +13,7 @@ import { JoinQrCard } from "@/components/JoinQrCard";
 import { LiveReader } from "@/components/LiveReader";
 import { MulticamPanel } from "@/components/MulticamPanel";
 import { MulticamRecordings } from "@/components/MulticamRecordings";
+import { AutoProtocol } from "@/components/AutoProtocol";
 import { ProtocolCard } from "@/components/ProtocolCard";
 import { api, type Take } from "@/lib/api";
 
@@ -108,8 +109,8 @@ export default function TakePage({ params }: { params: { id: string; takeId: str
         <div className="grid items-start gap-6 lg:grid-cols-[300px_minmax(0,1fr)]">
           <div className="space-y-6">
             <LiveReader takeId={take.id} fighterId={take.fighter_id} />
-            {/* Protocol blocks: mark each block's start/end while the cameras roll. */}
-            <ProtocolCard takeId={take.id} />
+            {/* Protocol blocks — run automatically, or by hand with Start / End. */}
+            <ProtocolArea takeId={take.id} />
           </div>
           <MulticamPanel take={take} defaultLaptop onFinished={load} />
         </div>
@@ -152,5 +153,57 @@ function TakeData({ take }: { take: Take }) {
         ))}
       </dl>
     </section>
+  );
+}
+
+type ProtocolMode = "auto" | "manual";
+const MODE_KEY = "alion.protocolMode";
+
+/** Automatic (hands-free, beep-paced) or manual (Start / End per block). The
+ *  manual card stays visible read-only in automatic mode for the block results. */
+function ProtocolArea({ takeId }: { takeId: string }) {
+  const [mode, setMode] = useState<ProtocolMode>("auto");
+  useEffect(() => {
+    try {
+      const m = localStorage.getItem(MODE_KEY);
+      if (m === "auto" || m === "manual") setMode(m);
+    } catch {
+      /* default */
+    }
+  }, []);
+  const choose = (m: ProtocolMode) => {
+    setMode(m);
+    try {
+      localStorage.setItem(MODE_KEY, m);
+    } catch {
+      /* not persisted */
+    }
+  };
+  return (
+    <div className="space-y-3">
+      <div className="grid grid-cols-2 rounded-xl border border-white/10 p-0.5 text-xs" role="tablist">
+        {(["auto", "manual"] as const).map((m) => (
+          <button
+            key={m}
+            role="tab"
+            aria-selected={mode === m}
+            onClick={() => choose(m)}
+            className={`rounded-lg px-3 py-1.5 font-medium ${
+              mode === m ? "bg-white/10 text-white" : "text-neutral-400 hover:text-neutral-200"
+            }`}
+          >
+            {m === "auto" ? "Automatic" : "Manual (Start / End)"}
+          </button>
+        ))}
+      </div>
+      {mode === "auto" ? (
+        <>
+          <AutoProtocol takeId={takeId} />
+          <ProtocolCard takeId={takeId} readOnly />
+        </>
+      ) : (
+        <ProtocolCard takeId={takeId} />
+      )}
+    </div>
   );
 }
