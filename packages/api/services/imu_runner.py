@@ -298,6 +298,17 @@ def status(session_id: UUID) -> dict[str, Any] | None:
         }
 
 
+def timeline_now_ms(session_id: UUID) -> float | None:
+    """Now, on the session's IMU/video timeline (ms since the cameras' start, paused
+    time removed) — what a stored sample's `t_ms` would read. None when no stream
+    is running or it's paused right now. Used to time dataset-protocol blocks."""
+    with _lock:
+        job = _jobs.get(session_id)
+        if job is None or job.proc.poll() is not None:
+            return None
+        return job.timeline_ms(time.time() * 1000.0)
+
+
 def _read_stream(session_id: UUID, job: _Job, db_factory: DBFactory) -> None:
     buffered: list[IMUSampleRow] = []
     last_flush = time.monotonic()
