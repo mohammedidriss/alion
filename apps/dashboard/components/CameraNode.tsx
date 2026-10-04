@@ -17,6 +17,56 @@ type Phase = "connecting" | "ready" | "countdown" | "recording" | "stopped" | "e
 
 const LABELS = ["front", "left", "right", "45-left", "45-right", "overhead"];
 
+/**
+ * Open the camera, falling back to simpler requests when the preferred one fails.
+ * A phone asks for its back camera at 4:3 (the full sensor, like the native camera
+ * app); the laptop webcam keeps 16:9. Some Android phones refuse a specific size
+ * with "Could not start video source", and a busy or blocked microphone fails the
+ * whole request — so each step asks for less, ending at "any camera, no audio".
+ */
+async function openCamera(laptop: boolean): Promise<MediaStream> {
+  const back = { facingMode: { ideal: "environment" } };
+  const attempts: MediaStreamConstraints[] = laptop
+    ? [
+        { video: { width: { ideal: 1280 }, height: { ideal: 720 }, frameRate: { ideal: 30 } }, audio: true },
+        { video: true, audio: true },
+        { video: true },
+      ]
+    : [
+        {
+          video: { ...back, aspectRatio: { ideal: 4 / 3 }, width: { ideal: 1280 }, height: { ideal: 960 } },
+          audio: true,
+        },
+        { video: back, audio: true },
+        { video: back }, // microphone busy or blocked — video still works
+        { video: true },
+      ];
+  let last: unknown = null;
+  for (const c of attempts) {
+    try {
+      return await navigator.mediaDevices.getUserMedia(c);
+    } catch (e) {
+      last = e;
+      const name = e instanceof Error ? e.name : "";
+      // A refused permission or insecure page won't change with a smaller request.
+      if (name === "NotAllowedError" || name === "SecurityError") break;
+    }
+  }
+  throw last;
+}
+
+/** A camera failure in words a coach can act on. */
+function cameraErrorText(e: unknown): string {
+  const name = e instanceof Error ? e.name : "";
+  if (name === "NotReadableError" || name === "TrackStartError")
+    return "The camera is busy or couldn't start. Close the phone's camera app, video calls and any other tab with this page, then reload.";
+  if (name === "NotAllowedError" || name === "SecurityError")
+    return "Camera permission is blocked. Allow the camera for this site in the browser settings, then reload.";
+  if (name === "NotFoundError" || name === "OverconstrainedError")
+    return "No usable camera was found on this device.";
+  return e instanceof Error ? `${e.name}: ${e.message}` : "camera error";
+}
+
 export function CameraNode({
   sessionId,
   takeId,
@@ -87,10 +137,11 @@ export function CameraNode({
         // context) the device still registers and joins the sync.
         try {
           if (!navigator.mediaDevices?.getUserMedia) throw new Error("no getUserMedia");
-          stream = await navigator.mediaDevices.getUserMedia({
-            video: { width: { ideal: 1280 }, height: { ideal: 720 }, frameRate: { ideal: 30 } },
-            audio: true, // needed later for bell/audio sync
-          });
+          stream = await openCamera(tile);
+          if (cancelled) {
+            stream.getTracks().forEach((t) => t.stop());
+            return;
+          }
           streamRef.current = stream;
           if (!cancelled && videoRef.current) {
             videoRef.current.srcObject = stream;
@@ -99,9 +150,7 @@ export function CameraNode({
         } catch (camErr) {
           if (!cancelled) {
             setNoCamera(true);
-            setCamError(
-              camErr instanceof Error ? `${camErr.name}: ${camErr.message}` : "camera error",
-            );
+            setCamError(cameraErrorText(camErr));
           }
         }
         if (cancelled) return;
@@ -408,7 +457,7 @@ export function CameraNode({
   if (tile) {
     return (
       <div className="relative aspect-video w-full overflow-hidden rounded-xl border border-white/10 bg-black">
-        <video ref={videoRef} autoPlay playsInline muted className="h-full w-full object-cover" />
+        <video ref={videoRef} autoPlay playsInline muted className="h-full w-full object-contain" />
         {noCamera && (
           <div className="absolute inset-0 grid place-items-center p-2 text-center text-[10px] leading-tight text-neutral-400">
             camera unavailable
@@ -455,13 +504,13 @@ export function CameraNode({
         <StatusBadge phase={phase} />
       </div>
 
-      <div className="relative overflow-hidden rounded-2xl border border-white/10 bg-black">
+      <div className="relative min-h-[220px] overflow-hidden rounded-2xl border border-white/10 bg-black">
         <video
           ref={videoRef}
           autoPlay
           playsInline
           muted
-          className="w-full aspect-video object-cover"
+          className="mx-auto max-h-[70vh] w-full object-contain"
         />
         {noCamera && (
           <div className="absolute inset-0 grid place-items-center p-3 text-center text-xs leading-relaxed">
@@ -473,6 +522,13 @@ export function CameraNode({
               ) : (
                 <span className="text-neutral-500">(sync still active)</span>
               )}
+              <br />
+              <button
+                onClick={() => window.location.reload()}
+                className="mt-3 rounded-lg bg-white/10 px-4 py-2 text-sm font-medium text-white hover:bg-white/20"
+              >
+                Try again
+              </button>
             </span>
           </div>
         )}

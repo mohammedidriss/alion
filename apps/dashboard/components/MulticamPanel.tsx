@@ -323,7 +323,7 @@ export function MulticamPanel({
                 <img
                   src={`${api.multicamFrameUrl(cap, token, d.device_id)}&t=${tick}`}
                   alt={d.label}
-                  className="h-full w-full object-cover"
+                  className="h-full w-full object-contain"
                   onError={(e) => {
                     (e.currentTarget as HTMLImageElement).style.visibility = "hidden";
                   }}
