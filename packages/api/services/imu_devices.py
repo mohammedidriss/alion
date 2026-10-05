@@ -47,6 +47,17 @@ def owner_id() -> str | None:
     return owners.pop() if len(owners) == 1 and None not in owners else None
 
 
+def swap_wrists() -> None:
+    """Swap which unit is the left and which the right — the two WT901s look the
+    same, so they get strapped on the wrong wrists; the wrist check fixes it here."""
+    devices = load()
+    for meta in devices.values():
+        if meta.get("wrist") in ("left", "right"):
+            meta["wrist"] = "right" if meta["wrist"] == "left" else "left"
+    DEVICES_FILE.parent.mkdir(parents=True, exist_ok=True)
+    DEVICES_FILE.write_text(json.dumps(devices, indent=2) + "\n")
+
+
 def set_owner(fighter_id: str) -> None:
     devices = load()
     for meta in devices.values():

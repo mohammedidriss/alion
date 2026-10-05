@@ -23,6 +23,9 @@ const FIRST_BEEP_S = 1.0;
 const END_AFTER_LAST_S = 2.0;
 const COUNTDOWN = 3;
 const PREFS_KEY = "alion.autoProtocol";
+// Fastest pace for paced blocks: below ~1 s a punch can't return to guard and the
+// hook/uppercut profiles (0.6–0.7 s refractory) merge neighbours. 1.5 s is the default.
+const MIN_PACE_S = 1.0;
 
 type Phase =
   | { kind: "waiting" }
@@ -43,7 +46,7 @@ function loadPrefs(): { paceS: number; restS: number } {
   try {
     const p = JSON.parse(localStorage.getItem(PREFS_KEY) ?? "{}");
     return {
-      paceS: Number.isFinite(p.paceS) ? p.paceS : 1.5,
+      paceS: Number.isFinite(p.paceS) ? Math.max(MIN_PACE_S, p.paceS) : 1.5, // lifts an old 0.5
       restS: Number.isFinite(p.restS) ? p.restS : 20,
     };
   } catch {
@@ -57,6 +60,9 @@ function remaining(p: TakeProtocol, skipped: Set<string>): ProtocolBlockSpec[] {
   for (const b of p.blocks) if (!b.discarded) latest.set(b.key, b);
   return p.plan.filter((s) => latest.get(s.key)?.t_end_ms == null && !skipped.has(s.key));
 }
+
+// One punch per beep keeps the block's count checkable against its 30 cues.
+const ONE_PER_BEEP = "One punch on each beep, then back to guard";
 
 function describe(spec: ProtocolBlockSpec): string {
   if (spec.reps) return `${spec.reps} punches`;
@@ -172,7 +178,7 @@ export function AutoProtocol({ takeId }: { takeId: string }) {
 
         // Call the block, then 3-2-1.
         setPhase({ kind: "countdown", spec, n: COUNTDOWN });
-        say(`${spec.title}. ${describe(spec)}.`);
+        say(spec.reps ? `${spec.title}. ${ONE_PER_BEEP}.` : `${spec.title}. ${describe(spec)}.`);
         await wait(2200);
         for (let n = COUNTDOWN; n >= 1; n--) {
           if (!alive()) return;
@@ -335,7 +341,7 @@ export function AutoProtocol({ takeId }: { takeId: string }) {
         Math.max(0, Math.floor((now - phase.firstBeepWall) / (phase.paceS * 1000)) + 1),
       );
       big = (
-        <Display title={spec.title} sub={spec.hint || "Punch on each beep"} live>
+        <Display title={spec.title} sub={ONE_PER_BEEP} live>
           <span className="text-6xl font-bold tabular-nums">
             {n}
             <span className="text-2xl text-neutral-500"> / {spec.reps}</span>
@@ -433,12 +439,15 @@ export function AutoProtocol({ takeId }: { takeId: string }) {
             Pace
             <input
               type="number"
-              min={0.5}
+              min={MIN_PACE_S}
               max={4}
               step={0.1}
               value={prefs.paceS}
               onChange={(e) =>
-                setPrefs((p) => ({ ...p, paceS: Math.min(4, Math.max(0.5, Number(e.target.value) || 1.5)) }))
+                setPrefs((p) => ({
+                  ...p,
+                  paceS: Math.min(4, Math.max(MIN_PACE_S, Number(e.target.value) || 1.5)),
+                }))
               }
               className="w-16 rounded-md border border-white/10 bg-black/30 px-2 py-1 text-neutral-200"
             />

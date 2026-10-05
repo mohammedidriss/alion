@@ -192,3 +192,33 @@ def test_stale_purge_keeps_pending_sessions_that_have_video(
 
     left = {s["id"] for s in authed_client.get(f"/sessions?fighter_id={fid}").json()}
     assert left == {filmed}
+
+
+def test_stale_purge_never_deletes_a_session_that_is_recording(
+    authed_client: TestClient,
+    session: Session,
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A multi-cam recording has no video on disk until Stop — a long one used to be
+    purged mid-recording once its session was 10 minutes old."""
+    from api.routes import capture_coord
+    from store import Session as SessionRow
+
+    monkeypatch.setattr(capture_coord, "_VIDEO_DIR", tmp_path / "clips")
+    monkeypatch.setattr(capture_coord, "_STATE_DIR", tmp_path / "capture")
+    fid = authed_client.post("/fighters", json={"name": "Long"}).json()["id"]
+    sid = authed_client.post("/sessions", json={"fighter_id": fid, "source": "live_webcam"}).json()[
+        "id"
+    ]
+    token = authed_client.post(f"/sessions/{sid}/multicam/join-info").json()["join_token"]
+    authed_client.post(f"/sessions/{sid}/multicam/register", json={"token": token})
+    authed_client.post(f"/sessions/{sid}/multicam/start")
+    row = session.get(SessionRow, UUID(sid))
+    assert row is not None
+    row.started_at = datetime.datetime.utcnow() - datetime.timedelta(minutes=25)
+    session.add(row)
+    session.commit()
+
+    listed = {s["id"] for s in authed_client.get(f"/sessions?fighter_id={fid}").json()}
+    assert sid in listed  # still there, mid-recording

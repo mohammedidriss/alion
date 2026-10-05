@@ -33,6 +33,7 @@ class LiveHeart(BaseModel):
     rmssd_ms: float | None = None  # rolling window (hrv_runner)
     max_hr: int | None = None  # age-predicted; None without a date of birth
     zone: int | None = None  # 1–5 by % of max_hr; 0 = below zone 1
+    error: str | None = None  # why the strap's stream failed, e.g. "not found"
 
 
 class LiveOut(BaseModel):
@@ -84,5 +85,6 @@ def live(
         rmssd_ms=round(metrics.rmssd_ms, 1) if metrics else None,
         max_hr=max_hr,
         zone=hr_zone(bpm, max_hr) if bpm is not None and max_hr else None,
+        error=hrv_runner.last_error(session_id),
     )
     return LiveOut(heart=heart, imu=session_status(session_id))

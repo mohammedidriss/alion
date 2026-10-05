@@ -17,6 +17,10 @@ type Phase = "connecting" | "ready" | "countdown" | "recording" | "stopped" | "e
 
 const LABELS = ["front", "left", "right", "45-left", "45-right", "overhead"];
 
+// ~2.5 Mbps: plenty for pose at 1280 px, and a 12-minute protocol take stays near
+// 225 MB (Safari's default bitrate made an iPhone take's clip several times larger).
+const VIDEO_BPS = 2_500_000;
+
 /**
  * Open the camera, falling back to simpler requests when the preferred one fails.
  * A phone asks for its back camera at 4:3 (the full sensor, like the native camera
@@ -74,6 +78,8 @@ export function CameraNode({
   defaultLabel = "front",
   tile = false,
   onDeviceId,
+  onBusy,
+  onLabelChange,
 }: {
   /** The training session this camera records into — or `takeId` for a dataset take. */
   sessionId?: string;
@@ -84,6 +90,11 @@ export function CameraNode({
    *  inside the coach's 2×2 cameras grid. */
   tile?: boolean;
   onDeviceId?: (deviceId: string) => void;
+  /** True while counting down, recording or uploading — a linked phone mustn't
+   *  switch to another capture until this goes false. */
+  onBusy?: (busy: boolean) => void;
+  /** The camera was renamed on this device (a linked phone keeps its studio name in sync). */
+  onLabelChange?: (label: string) => void;
 }) {
   // Where the clip, pose and heartbeats go — a session, or a dataset take (ADR-013).
   const cap = useMemo<CaptureRef>(
@@ -115,12 +126,20 @@ export function CameraNode({
   const [camError, setCamError] = useState<string | null>(null);
   const [recInfo, setRecInfo] = useState<string | null>(null);
   const [label, setLabel] = useState(defaultLabel);
+  const labelRef = useRef(label); // read by the heartbeat loop without restarting it
+  labelRef.current = label;
   const [countdown, setCountdown] = useState<number | null>(null);
   const [elapsed, setElapsed] = useState(0);
   const [uploaded, setUploaded] = useState(false);
+  const [uploading, setUploading] = useState(false);
   const [punchCount, setPunchCount] = useState(0);
   const [paused, setPaused] = useState(false);
   const [err, setErr] = useState<string | null>(null);
+
+  const busy = phase === "countdown" || phase === "recording" || uploading;
+  useEffect(() => {
+    onBusy?.(busy);
+  }, [busy, onBusy]);
 
   // Open the camera + register as a device.
   useEffect(() => {
@@ -183,7 +202,7 @@ export function CameraNode({
           : phase === "recording"
             ? "recording"
             : "ready";
-        const st = await api.multicamHeartbeat(cap, token, did, status, punchCountRef.current);
+        const st = await api.multicamHeartbeat(cap, token, did, status, punchCountRef.current, labelRef.current);
         offsetRef.current = st.server_now_ms - Date.now();
         if (st.command === "start" && st.start_at_ms != null) {
           const localStart = st.start_at_ms - offsetRef.current;
@@ -232,6 +251,30 @@ export function CameraNode({
           }
           recStartRef.current = null;
           setPhase("stopped");
+        } else if (st.command === "discard" && (phase === "countdown" || phase === "recording")) {
+          // The coach deleted this recording: stop, drop the clip, don't upload.
+          if (startTimerRef.current != null) {
+            clearTimeout(startTimerRef.current);
+            startTimerRef.current = null;
+          }
+          const rec = recorderRef.current;
+          recorderRef.current = null;
+          if (rec) {
+            rec.onstop = null;
+            try {
+              rec.stop();
+            } catch {
+              /* already stopped */
+            }
+          }
+          chunksRef.current = [];
+          recStartRef.current = null;
+          pausedRef.current = false;
+          setPaused(false);
+          pauseStartRef.current = null;
+          pausedAccumRef.current = 0;
+          setRecInfo("recording deleted by the coach");
+          setPhase("ready");
         }
       } catch {
         if (alive) setErr("Lost the connection to the session.");
@@ -282,8 +325,8 @@ export function CameraNode({
             MediaRecorder.isTypeSupported?.(m),
           );
           const rec = mime
-            ? new MediaRecorder(streamRef.current, { mimeType: mime })
-            : new MediaRecorder(streamRef.current);
+            ? new MediaRecorder(streamRef.current, { mimeType: mime, videoBitsPerSecond: VIDEO_BPS })
+            : new MediaRecorder(streamRef.current, { videoBitsPerSecond: VIDEO_BPS });
           chunksRef.current = [];
           rec.ondataavailable = (e) => {
             if (e.data.size) chunksRef.current.push(e.data);
@@ -315,6 +358,7 @@ export function CameraNode({
           return;
         }
         setRecInfo(`uploading ${(blob.size / 1_000_000).toFixed(1)} MB…`);
+        setUploading(true);
         try {
           if (did) {
             await api.multicamUpload(cap, token, did, blob, startOffsetRef.current ?? undefined);
@@ -323,6 +367,8 @@ export function CameraNode({
           setRecInfo(null);
         } catch (e) {
           setRecInfo(e instanceof Error ? `upload failed: ${e.message}` : "upload failed");
+        } finally {
+          setUploading(false);
         }
       };
       rec.stop();
@@ -446,11 +492,16 @@ export function CameraNode({
   const relabel = useCallback(
     async (next: string) => {
       setLabel(next);
+      labelRef.current = next;
+      onLabelChange?.(next);
       const did = deviceIdRef.current;
-      if (did) await api.multicamHeartbeat(cap, token, did, "ready").catch(() => {});
+      // The heartbeat carries the new name to the coach's camera list.
+      if (did) await api.multicamHeartbeat(cap, token, did, "ready", 0, next).catch(() => {});
     },
-    [cap, token],
+    [cap, token, onLabelChange],
   );
+  // The device's own name (a phone's model) first, then the angle names.
+  const labelOptions = LABELS.includes(defaultLabel) ? LABELS : [defaultLabel, ...LABELS];
 
   // Tile mode: just the video filling a grid cell, with a bottom overlay — matches
   // the phone frame-tiles so the laptop sits in the coach's 2×2 grid at the same size.
@@ -567,10 +618,11 @@ export function CameraNode({
       {phase === "ready" && (
         <div className="space-y-2">
           <p className="text-sm text-neutral-400">
-            Connected. Pick an angle, then wait for the coach to start — all cameras start together.
+            Connected. Name this camera (its phone name or an angle), then wait for the coach to
+            start — all cameras start together.
           </p>
           <div className="flex flex-wrap gap-2">
-            {LABELS.map((l) => (
+            {labelOptions.map((l) => (
               <button
                 key={l}
                 onClick={() => relabel(l)}

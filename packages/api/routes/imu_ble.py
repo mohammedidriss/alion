@@ -127,6 +127,16 @@ def set_owner(body: ImuOwnerIn, fighters: FighterRepo = Depends(fighter_repo)) -
     return _devices_out(fighters)
 
 
+@devices_router.put("/devices/swap", response_model=ImuDevicesOut)
+def swap_wrists(fighters: FighterRepo = Depends(fighter_repo)) -> ImuDevicesOut:
+    """The wrist check found the units on the wrong wrists: swap the assignment.
+    A stream already running keeps its old labels — restart it (the take page re-arms)."""
+    if len(imu_devices.units_by_hand()) != 2:
+        raise HTTPException(status_code=409, detail="Both wrist units must be assigned first.")
+    imu_devices.swap_wrists()
+    return _devices_out(fighters)
+
+
 @devices_router.post("/devices/check", response_model=ImuBleStatus)
 def check_devices() -> ImuBleStatus:
     """Connect to both wrists for a few seconds — no session, nothing stored — and
@@ -153,6 +163,7 @@ def check_devices() -> ImuBleStatus:
 @router.post("/{session_id}/imu/ble/start", response_model=ImuBleStatus)
 def start_imu(
     session_id: UUID,
+    arm: bool = False,
     sessions: SessionRepo = Depends(session_repo),
     fighters: FighterRepo = Depends(fighter_repo),
     db: DBSession = Depends(db_session),
@@ -190,7 +201,10 @@ def start_imu(
         with DBSession(engine) as s:
             yield s
 
-    t0 = capture_coord.started_at_ms(session_id) or time.time() * 1000.0
+    # arm: connect now (live view), store from the cameras' start (set_t0 at Start).
+    t0 = capture_coord.started_at_ms(session_id) or (
+        imu_runner.ARMED if arm else time.time() * 1000.0
+    )
     imu_runner.start(session_id, units, t0, imu_runner.db_writer(factory))
     return session_status(session_id)
 

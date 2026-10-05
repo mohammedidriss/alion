@@ -156,13 +156,20 @@ def imu_writer(folder: Path) -> Callable[[list[IMUSampleRow]], None]:
     return write
 
 
-def hr_writer(folder: Path, offset_ms: float) -> Callable[[list[HRSampleRow]], None]:
-    """Row sink for `hrv_runner`. The Polar stream counts from its own start, so
-    `offset_ms` (stream start − t0, wall clock) moves it onto the take timeline."""
+def hr_writer(
+    folder: Path, t0_fn: Callable[[], float | None]
+) -> Callable[[list[HRSampleRow]], None]:
+    """Row sink for `hrv_runner` streaming with `wall_clock=True` (each row's t_ms is
+    the beat's arrival, epoch ms). `t0_fn` gives the cameras' start: beats before it
+    — the strap connects before the take starts — aren't stored; later ones land on
+    the take timeline (to about a second, which heart rate needs)."""
     append = _appender(folder / "hr.csv", HR_HEADER)
 
     def write(rows: list[HRSampleRow]) -> None:
-        append([f"{r.t_ms + offset_ms:.1f},{r.rr_ms:.1f},{r.hr_bpm:.1f}" for r in rows])
+        t0 = t0_fn()
+        if t0 is None:
+            return
+        append([f"{r.t_ms - t0:.1f},{r.rr_ms:.1f},{r.hr_bpm:.1f}" for r in rows if r.t_ms >= t0])
 
     return write
 

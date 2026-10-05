@@ -21,6 +21,7 @@ data/photos/
 # IMU wrist mapping — macOS Bluetooth IDs are per-Mac, so this is local config
 data/imu/
 data/datasets/
+data/capture/
 *.db
 *.sqlite
 *.sqlite3

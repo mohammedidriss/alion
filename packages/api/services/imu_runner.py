@@ -224,11 +224,21 @@ def start(
 ) -> bool:
     """Start streaming `units` ({hand: address}) for a capture — a session or a take
     (`session_id` is the capture id) — handing stored rows to `write_rows`. False if
-    already running."""
+    already running.
+
+    The wrist units accept one connection, so the newest capture takes them over:
+    any other capture still streaming is stopped first (its rows so far are kept).
+    Otherwise a capture left running — a discarded take, a closed tab — holds the
+    sensors and this one fails with "device not found"."""
     with _lock:
         job = _jobs.get(session_id)
         if job is not None and job.proc.poll() is None:
             return False
+        others = [sid for sid, j in _jobs.items() if sid != session_id and j.proc.poll() is None]
+    for sid in others:
+        log.info("imu.takeover", extra={"_ctx_session_id": str(session_id), "_ctx_from": str(sid)})
+        stop(sid)
+    with _lock:
         args = [*RECORDER_CMD, "--rate", f"{rate_hz:g}"]
         for hand, addr in units.items():
             args += ["--unit", f"{hand}={addr}"]
@@ -250,6 +260,18 @@ def start(
         job.thread.start()
     log.info("imu.start", extra={"_ctx_session_id": str(session_id)})
     return True
+
+
+ARMED = math.inf  # t0 of an armed stream: connected and live, storing nothing yet
+
+
+def set_t0(session_id: UUID, t0_ms: float) -> None:
+    """The cameras start at `t0_ms`: an armed (pre-connected) stream starts storing
+    from that instant, so wrists and video share t = 0 with no connect delay."""
+    with _lock:
+        job = _jobs.get(session_id)
+        if job is not None and job.proc.poll() is None:
+            job.t0_ms = t0_ms
 
 
 def pause(session_id: UUID, *, at_ms: float | None = None) -> None:

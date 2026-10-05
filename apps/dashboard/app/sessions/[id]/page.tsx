@@ -597,7 +597,31 @@ export default function SessionPage({ params }: { params: { id: string } }) {
             <LiveReader sessionId={session.id} fighterId={session.fighter_id} />
             <RoundConfigCard session={session} onChange={setSession} />
           </div>
-          <MulticamPanel session={session} defaultLaptop onFinished={refresh} />
+          <MulticamPanel
+            session={session}
+            defaultLaptop
+            onFinished={refresh}
+            onDelete={async () => {
+              // Delete for good, then a fresh session for the same fighter with the
+              // same round setup — the linked phones follow it there.
+              await api.deleteSession(session.id);
+              const next = await api.createSession(
+                session.fighter_id,
+                session.source,
+                session.pose_backend ?? "mediapipe",
+              );
+              if (session.round_count != null) {
+                await api
+                  .patchSessionConfig(next.id, {
+                    round_count: session.round_count,
+                    round_duration_s: session.round_duration_s ?? undefined,
+                    rest_duration_s: session.rest_duration_s ?? undefined,
+                  })
+                  .catch(() => {});
+              }
+              router.replace(`/sessions/${next.id}`);
+            }}
+          />
         </div>
       )}
 

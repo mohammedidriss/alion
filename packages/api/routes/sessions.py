@@ -23,7 +23,7 @@ from analyze import compute_score, mean_hr_bpm, rmssd_ms, sdnn_ms
 from api.deps import db_session, fighter_repo, punch_event_repo, resolve_gym_id, session_repo
 from api.routes import capture_coord
 from api.routes.auth import get_current_user, require_current_user
-from api.services import capture_runner
+from api.services import capture_runner, hrv_runner, imu_runner
 from capture.hrv import parse_rr_csv
 from contracts import HRSample
 from store import (
@@ -90,6 +90,8 @@ def _purge_stale_pending(repo: SessionRepo) -> int:
     for s in all_sessions:
         if str(s.id) in with_video:
             continue  # multi-cam sessions stay "pending" with 0 frames but HAVE video
+        if capture_coord.is_active(s.id):
+            continue  # recording now (its clips only upload at Stop) or cameras still around
         if s.status == SessionStatus.PENDING and s.frame_count == 0 and s.started_at < cutoff:
             repo.delete(s.id)
             deleted += 1
@@ -164,6 +166,12 @@ def delete_session_route(session_id: UUID, repo: SessionRepo = Depends(session_r
         raise HTTPException(status_code=404, detail="session not found")
     if capture_runner.is_running(session_id):
         raise HTTPException(status_code=409, detail="capture is running — stop it first")
+    # Multi-cam recording into it ("Delete" mid-recording): cameras drop their clips,
+    # the sensors stop, and any clips already uploaded go with the session.
+    capture_coord.discard_capture(session_id)
+    imu_runner.stop(session_id)
+    hrv_runner.request_stop(session_id)
+    capture_coord.delete_session_clips(session_id)
     # Best-effort artifact cleanup. We don't fail the delete if a file is gone.
     for path_str in (row.video_path, row.pose_parquet_path):
         if path_str:
@@ -869,6 +877,13 @@ class RoundImuBlock(BaseModel):
     peak_g: float | None
     n_impacts: int
     cv_imu_match_rate: float | None  # what fraction of CV punches had a co-located IMU spike
+    # Punches detected on the wrist sensors (analyze.imu_punches) in this round.
+    punch_count: int = 0
+    left: int = 0
+    right: int = 0
+    ppm: float | None = None
+    mean_peak_g: float | None = None
+    impact_score: float | None = None  # Σ punch peaks (g) — the wrist analogue of v × punches
 
 
 class RoundExportItem(BaseModel):
@@ -891,6 +906,9 @@ class RoundExportItem(BaseModel):
 class RoundsExportResponse(BaseModel):
     session_id: UUID
     fighter_id: UUID
+    # Where the round's punch numbers come from: the cameras' punch events, else the
+    # wrist sensors (multi-camera sessions store no camera events yet), else none.
+    punch_source: Literal["camera", "wrist", "none"] = "none"
     started_at: datetime.datetime
     round_count: int
     round_duration_s: int
@@ -929,6 +947,10 @@ def rounds_export(
     imu_samples = list(
         db.exec(_select(IMUSampleRow).where(IMUSampleRow.session_id == session_id)).all()
     )
+    wrist_punches = _wrist_punches(imu_samples)
+    source: Literal["camera", "wrist", "none"] = (
+        "camera" if all_events else "wrist" if wrist_punches else "none"
+    )
 
     items: list[RoundExportItem] = []
     for i in range(rounds_n):
@@ -945,7 +967,12 @@ def rounds_export(
             if start <= e.t_ms < end
         ]
         peak = max((e.velocity_ms for e in round_events), default=None)
-        ppm = (len(round_events) / (round_s / 60.0)) if round_s > 0 else None
+        # Rate over the time actually recorded in this round: a session stopped
+        # mid-round (or a short one) would otherwise divide by the full round.
+        recorded_ms = row.duration_ms or 0.0
+        active_ms = max(0.0, min(end, recorded_ms) - start) if recorded_ms > 0 else round_ms
+        minutes = active_ms / 60_000.0
+        ppm = (len(round_events) / minutes) if minutes > 0 else None
 
         # HRV block
         hr_in_round = [s for s in hr_samples if start <= s.t_ms < end]
@@ -1003,11 +1030,19 @@ def rounds_export(
                     ):
                         matched += 1
                 match_rate = round(matched / len(round_events), 2)
+        wp = [w for w in wrist_punches if start <= w[0] < end]
+        wp_g = [w[2] for w in wp]
         imu_block = RoundImuBlock(
             sample_count=len(imu_in_round),
             peak_g=peak_g_val,
             n_impacts=n_impacts,
             cv_imu_match_rate=match_rate,
+            punch_count=len(wp),
+            left=sum(1 for w in wp if w[1] == "left"),
+            right=sum(1 for w in wp if w[1] == "right"),
+            ppm=round(len(wp) / minutes, 1) if minutes > 0 and wp else None,
+            mean_peak_g=round(sum(wp_g) / len(wp_g), 2) if wp_g else None,
+            impact_score=round(sum(wp_g), 1) if wp_g else None,
         )
 
         cv_block = RoundCvBlock(
@@ -1023,9 +1058,10 @@ def rounds_export(
                 end_ms=end,
                 duration_ms=round_ms,
                 rest_after_ms=rest_s * 1000.0 if i < rounds_n - 1 else 0.0,
-                punch_count=len(round_events),
+                # Wrist-sourced: counts from the sensors; no m/s speed (cameras only).
+                punch_count=len(round_events) if source != "wrist" else imu_block.punch_count,
                 peak_velocity_ms=peak,
-                ppm=ppm,
+                ppm=ppm if source != "wrist" else imu_block.ppm,
                 events=round_events,
                 cv=cv_block,
                 hrv=hrv_block,
@@ -1041,8 +1077,36 @@ def rounds_export(
         round_duration_s=round_s,
         rest_duration_s=rest_s,
         study_condition=row.study_condition,
+        punch_source=source,
         rounds=items,
     )
+
+
+def _wrist_punches(samples: list[Any]) -> list[tuple[float, str, float]]:
+    """(t_ms, hand, peak g) for each punch the wrist sensors saw — the reliable
+    source on multi-camera sessions (the camera detector isn't calibrated for the
+    browser cameras' pose yet)."""
+    import numpy as np
+
+    from analyze.imu_punches import detect_punches as detect_wrist_punches
+
+    out: list[tuple[float, str, float]] = []
+    for hand in ("left", "right"):
+        rows = sorted(
+            (s for s in samples if str(getattr(s.hand, "value", s.hand)) == hand),
+            key=lambda s: s.t_ms,
+        )
+        if len(rows) < 20:
+            continue
+        t = np.array([r.t_ms for r in rows], dtype=float)
+        ev = detect_wrist_punches(
+            t,
+            np.array([r.ax_g for r in rows], dtype=float),
+            np.array([r.ay_g for r in rows], dtype=float),
+            np.array([r.az_g for r in rows], dtype=float),
+        )
+        out += [(float(e.t_ms), hand, float(e.peak_g)) for e in ev]
+    return sorted(out)
 
 
 # ---------------------------------------------------------------------------

@@ -209,3 +209,150 @@ def test_discarded_take_is_excluded_but_kept_on_disk(
     folder = stores["datasets"] / did / "takes" / tid
     assert json.loads((folder / "take.json").read_text())["status"] == "discarded"
     assert authed_client.get("/v2/datasets").json()[0]["takes"] == 0
+
+
+def test_a_new_take_takes_the_wrist_sensors_over_and_discard_releases_them(
+    authed_client: TestClient,
+    stores: dict[str, Path],
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """The units accept one connection: a take left streaming (discarded, tab closed)
+    used to hold them, and the next take failed with "device not found"."""
+    from api.services import imu_devices, imu_runner
+
+    devices = tmp_path / "devices.json"
+    monkeypatch.setattr(imu_devices, "DEVICES_FILE", devices)
+    fake = tmp_path / "fake_recorder.py"
+    fake.write_text(FAKE_RECORDER)
+    monkeypatch.setattr(imu_runner, "RECORDER_CMD", [sys.executable, str(fake)])
+
+    did = _dataset(authed_client)
+    fid = _fighter(authed_client, "Mohamad")
+    devices.write_text(
+        json.dumps(
+            {
+                "AAA": {"wrist": "left", "fighter_id": fid},
+                "BBB": {"wrist": "right", "fighter_id": fid},
+            }
+        )
+    )
+    _participant(authed_client, did, fid, "self")
+    first, second = _take(authed_client, did, fid), _take(authed_client, did, fid)
+
+    assert authed_client.post(f"/v2/takes/{first}/imu/ble/start").json()["running"]
+    # the next take starts while the first is still streaming → it takes the sensors over
+    assert authed_client.post(f"/v2/takes/{second}/imu/ble/start").json()["running"]
+    assert authed_client.get(f"/v2/takes/{first}/imu/ble/status").json()["running"] is False
+    # discarding a take releases whatever it still held
+    authed_client.post(f"/v2/takes/{second}/discard")
+    assert authed_client.get(f"/v2/takes/{second}/imu/ble/status").json()["running"] is False
+    assert not imu_runner.any_running()
+
+
+def test_deleting_a_take_mid_recording_removes_it_and_frees_the_sensors(
+    authed_client: TestClient,
+    stores: dict[str, Path],
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from api.services import imu_devices, imu_runner
+
+    devices = tmp_path / "devices.json"
+    monkeypatch.setattr(imu_devices, "DEVICES_FILE", devices)
+    fake = tmp_path / "fake_recorder.py"
+    fake.write_text(FAKE_RECORDER)
+    monkeypatch.setattr(imu_runner, "RECORDER_CMD", [sys.executable, str(fake)])
+    did = _dataset(authed_client)
+    fid = _fighter(authed_client, "Mohamad")
+    devices.write_text(
+        json.dumps(
+            {
+                "AAA": {"wrist": "left", "fighter_id": fid},
+                "BBB": {"wrist": "right", "fighter_id": fid},
+            }
+        )
+    )
+    _participant(authed_client, did, fid, "self")
+    tid = _take(authed_client, did, fid)
+    token = authed_client.post(f"/takes/{tid}/multicam/join-info").json()["join_token"]
+    dev = authed_client.post(f"/takes/{tid}/multicam/register", json={"token": token}).json()[
+        "device_id"
+    ]
+    authed_client.post(f"/takes/{tid}/multicam/start")
+    assert authed_client.post(f"/v2/takes/{tid}/imu/ble/start").json()["running"]
+
+    assert authed_client.delete(f"/v2/takes/{tid}").status_code == 204
+    assert authed_client.get(f"/v2/takes/{tid}").status_code == 404
+    assert not (stores["datasets"] / did / "takes" / tid).exists()
+    assert not imu_runner.any_running()
+    # the phones are told to drop their clip, not upload it
+    hb = authed_client.post(
+        f"/takes/{tid}/multicam/heartbeat", json={"token": token, "device_id": dev}
+    ).json()
+    assert hb["command"] == "discard"
+
+
+STREAMING_RECORDER = """
+import json, signal, sys, time
+hands = [a.split("=", 1)[0] for p, a in zip(sys.argv, sys.argv[1:]) if p == "--unit"]
+stop = False
+def _stop(*_):
+    global stop
+    stop = True
+signal.signal(signal.SIGTERM, _stop)
+for h in hands:
+    print(json.dumps({"k": "st", "h": h, "connected": True, "battery_v": 4.2}), flush=True)
+while not stop:  # real-time 100 Hz, stamped with the wall clock like the real recorder
+    t = time.time() * 1000
+    for h in hands:
+        print(json.dumps({"k": "s", "h": h, "t": t, "a": [0, 0, 1.0], "g": [0, 0, 0]}), flush=True)
+    time.sleep(0.01)
+"""
+
+
+def test_armed_wrists_connect_early_and_store_from_the_cameras_start(
+    authed_client: TestClient,
+    stores: dict[str, Path],
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """The sensors connect when the take opens (no Bluetooth delay at Start) and
+    begin storing exactly at the cameras' t = 0, together with the video."""
+    from api.routes import capture_coord
+    from api.services import imu_devices, imu_runner
+
+    devices = tmp_path / "devices.json"
+    monkeypatch.setattr(imu_devices, "DEVICES_FILE", devices)
+    rec = tmp_path / "streaming_recorder.py"
+    rec.write_text(STREAMING_RECORDER)
+    monkeypatch.setattr(imu_runner, "RECORDER_CMD", [sys.executable, str(rec)])
+    monkeypatch.setattr(capture_coord, "_START_DELAY_MS", 0.0)
+    did = _dataset(authed_client)
+    fid = _fighter(authed_client, "Mohamad")
+    devices.write_text(
+        json.dumps(
+            {
+                "AAA": {"wrist": "left", "fighter_id": fid},
+                "BBB": {"wrist": "right", "fighter_id": fid},
+            }
+        )
+    )
+    _participant(authed_client, did, fid, "self")
+    tid = _take(authed_client, did, fid)
+
+    # armed: live, connected, nothing stored
+    assert authed_client.post(f"/v2/takes/{tid}/imu/ble/start?arm=true").json()["running"]
+    time.sleep(0.6)
+    st = authed_client.get(f"/v2/takes/{tid}/imu/ble/status").json()
+    assert all(u["connected"] and u["samples"] == 0 for u in st["units"].values())
+
+    # the cameras start → storage begins at their t = 0
+    token = authed_client.post(f"/takes/{tid}/multicam/join-info").json()["join_token"]
+    authed_client.post(f"/takes/{tid}/multicam/register", json={"token": token})
+    authed_client.post(f"/takes/{tid}/multicam/start")
+    time.sleep(0.6)
+    authed_client.post(f"/v2/takes/{tid}/imu/ble/stop")
+    rows = (stores["datasets"] / did / "takes" / tid / "imu.csv").read_text().splitlines()[1:]
+    times = [float(r.split(",", 1)[0]) for r in rows]
+    assert len(times) > 50 and min(times) >= 0.0 and min(times) < 50.0  # starts right at t = 0

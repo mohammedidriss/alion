@@ -22,18 +22,23 @@ import { imuErrorText } from "@/components/ImuSensors";
 import { getPairedDevice } from "@/components/PolarH10Card";
 import { RoundTimer } from "@/components/SessionRounds";
 import { api, type CaptureRef, type MulticamDevice, type Session, type Take } from "@/lib/api";
+import { say, unlockCues } from "@/lib/cues";
 
 export function MulticamPanel({
   session,
   take,
   defaultLaptop = false,
   onFinished,
+  onDelete,
 }: {
   session?: Session;
   take?: Take; // a dataset take instead of a session
   defaultLaptop?: boolean;
   /** Called once Stop has saved the clips and completed the session / take. */
   onFinished?: () => void;
+  /** "Delete": the page deletes this recording (and opens a fresh one). The panel
+   *  has already told the cameras to drop their clips. */
+  onDelete?: () => Promise<void>;
 }) {
   const sessionId = session?.id;
   const takeId = take?.id;
@@ -51,6 +56,8 @@ export function MulticamPanel({
   const [captureStartMs, setCaptureStartMs] = useState<number | null>(null);
   const [paused, setPaused] = useState(false);
   const [stopping, setStopping] = useState(false);
+  const [confirmDelete, setConfirmDelete] = useState(false);
+  const [deleting, setDeleting] = useState(false);
   const pausedAccumRef = useRef(0); // total paused ms, subtracted from timer elapsed
   const pauseStartRef = useRef<number | null>(null);
   const devicesRef = useRef<MulticamDevice[]>([]);
@@ -87,6 +94,53 @@ export function MulticamPanel({
       clearInterval(id);
     };
   }, [cap]);
+
+  // Pre-connect the body sensors as soon as the page is open, so Bluetooth is done
+  // before Start: the wrists (and, on a take, the Polar) stream live but store
+  // nothing until the cameras' t = 0, then everything records together.
+  const [sensors, setSensors] = useState<{ l: boolean | null; r: boolean | null; hr: boolean | null }>({
+    l: null,
+    r: null,
+    hr: null,
+  });
+  useEffect(() => {
+    if (captureStartMs !== null || stopping || deleting) return;
+    const polar = getPairedDevice();
+    if (imuMine) api.startImuBle(cap, { arm: true }).catch(() => {});
+    if (take && polar) api.startHrvBle(cap, polar.address).catch(() => {});
+    let alive = true;
+    const poll = async () => {
+      const r = await api.liveReading(cap).catch(() => null);
+      if (!alive || !r) return;
+      setSensors({
+        l: imuMine ? !!r.imu.units.left?.connected : null,
+        r: imuMine ? !!r.imu.units.right?.connected : null,
+        hr: polar ? r.heart.bpm_trace.length > 0 || r.heart.streaming : null,
+      });
+    };
+    poll();
+    const id = setInterval(poll, 2000);
+    return () => {
+      alive = false;
+      clearInterval(id);
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [cap, imuMine, captureStartMs === null, stopping, deleting]);
+
+  // While recording, bring back a sensor stream that died — e.g. the API restarted
+  // (it reloads on every code save), which ends the wrist recorder and the Polar
+  // thread. They rejoin on the same timeline: t = 0 stays the cameras' start.
+  useEffect(() => {
+    if (captureStartMs === null || stopping) return;
+    const id = setInterval(async () => {
+      const r = await api.liveReading(cap).catch(() => null);
+      if (!r) return;
+      if (imuMine && !r.imu.running) api.startImuBle(cap).catch(() => {});
+      const polar = getPairedDevice();
+      if (polar && !r.heart.streaming) api.startHrvBle(cap, polar.address).catch(() => {});
+    }, 10_000);
+    return () => clearInterval(id);
+  }, [captureStartMs, stopping, cap, imuMine]);
 
   // Refresh the live-grid frames ~1×/s.
   useEffect(() => {
@@ -195,6 +249,33 @@ export function MulticamPanel({
     }
   }, [cap, stopping, onFinished]);
 
+  // Delete: a two-step button (it can't be undone); the confirm lapses after 6 s.
+  useEffect(() => {
+    if (!confirmDelete) return;
+    const id = setTimeout(() => setConfirmDelete(false), 6000);
+    return () => clearTimeout(id);
+  }, [confirmDelete]);
+
+  const deleteRecording = useCallback(async () => {
+    if (!onDelete || deleting) return;
+    setDeleting(true);
+    setConfirmDelete(false);
+    setMsg("Deleting the recording…");
+    await api.multicamDiscard(cap).catch(() => {}); // cameras drop their clips
+    void api.stopImuBle(cap).catch(() => {});
+    void api.stopHrv(cap).catch(() => {});
+    setCaptureStartMs(null);
+    setPaused(false);
+    pauseStartRef.current = null;
+    pausedAccumRef.current = 0;
+    try {
+      await onDelete();
+    } catch (e) {
+      setMsg(`Couldn't delete: ${imuErrorText(e)}`);
+      setDeleting(false);
+    }
+  }, [cap, onDelete, deleting]);
+
   const allCams = devices.filter((d) => d.role === "camera");
   devicesRef.current = devices;
   // The laptop shows as its own <CameraNode> below, so keep it out of the grid —
@@ -258,11 +339,49 @@ export function MulticamPanel({
             >
               {stopping ? "Saving…" : "■ Stop & save"}
             </button>
+            {onDelete &&
+              (confirmDelete ? (
+                <span className="flex items-center gap-1.5 rounded-xl border border-red-500/40 bg-red-950/40 px-2 py-1 text-xs">
+                  <span className="text-red-200">Delete this recording?</span>
+                  <button
+                    onClick={deleteRecording}
+                    className="rounded-lg bg-red-600 px-2.5 py-1 font-semibold text-white hover:bg-red-500"
+                  >
+                    Delete
+                  </button>
+                  <button
+                    onClick={() => setConfirmDelete(false)}
+                    className="rounded-lg px-2 py-1 text-neutral-300 hover:bg-white/10"
+                  >
+                    Keep recording
+                  </button>
+                </span>
+              ) : (
+                <button
+                  onClick={() => setConfirmDelete(true)}
+                  disabled={stopping || deleting}
+                  title="Throw this recording away (nothing is saved) and start a fresh one"
+                  className="rounded-xl border border-red-500/50 px-4 py-2 text-sm font-semibold text-red-300 hover:bg-red-500/10 disabled:opacity-40"
+                >
+                  {deleting ? "Deleting…" : "🗑 Delete"}
+                </button>
+              ))}
           </>
         )}
         {msg && <span className="text-xs text-neutral-400">{msg}</span>}
         {imuMsg && <span className="text-xs text-red-300">{imuMsg}</span>}
       </div>
+
+      {/* Body sensors connect before Start, so they record from the same t = 0. */}
+      {!capturing && (sensors.l !== null || sensors.hr !== null) && (
+        <div className="flex flex-wrap items-center gap-3 text-xs text-neutral-400">
+          <span>Ready to record together:</span>
+          {sensors.l !== null && <SensorDot label="Left wrist" ok={sensors.l} />}
+          {sensors.r !== null && <SensorDot label="Right wrist" ok={sensors.r} />}
+          {sensors.hr !== null && <SensorDot label="Heart rate" ok={sensors.hr} />}
+          {sensors.l && sensors.r && <WristCheck cap={cap} />}
+        </div>
+      )}
 
       {/* Round timer — runs off the round-configuration panel (round_count ×
           round_duration_s); paused time is subtracted so it freezes on Pause. */}
@@ -361,6 +480,78 @@ export function MulticamPanel({
         </p>
       )}
     </div>
+  );
+}
+
+/**
+ * "Which wrist?" — the two WT901 units look identical and get strapped on the
+ * wrong wrists, which flips every label. With the sensors pre-connected, ask the
+ * fighter to shake the LEFT hand and see which unit moved; if it's the one
+ * assigned to the right, offer to swap the assignment (no re-strapping).
+ */
+function WristCheck({ cap }: { cap: CaptureRef }) {
+  type State = "idle" | "shaking" | "ok" | "swapped" | "unclear" | "fixing";
+  const [state, setState] = useState<State>("idle");
+
+  const run = async () => {
+    unlockCues();
+    setState("shaking");
+    say("Shake your left hand now.");
+    await new Promise((r) => setTimeout(r, 3500));
+    const r = await api.liveReading(cap).catch(() => null);
+    // Movement over the last ~3 s: the biggest |a| − 1 g in each wrist's live trace.
+    const moved = (h: "left" | "right") =>
+      Math.max(0, ...(r?.imu.units[h]?.trace ?? []).slice(-60).map((g) => Math.abs(g - 1)));
+    const l = moved("left");
+    const rt = moved("right");
+    if (Math.max(l, rt) < 0.5) setState("unclear");
+    else if (l > rt * 1.5) setState("ok");
+    else if (rt > l * 1.5) setState("swapped");
+    else setState("unclear");
+  };
+
+  const fix = async () => {
+    setState("fixing");
+    await api.swapImuWrists().catch(() => {});
+    // Reconnect so the stream labels its samples with the new wrists.
+    await api.stopImuBle(cap).catch(() => {});
+    await api.startImuBle(cap, { arm: true }).catch(() => {});
+    setState("idle");
+  };
+
+  if (state === "shaking")
+    return <span className="font-semibold text-amber-200">Shake your LEFT hand…</span>;
+  if (state === "ok") return <span className="text-emerald-300">✓ Left sensor is on your left wrist</span>;
+  if (state === "swapped")
+    return (
+      <span className="flex items-center gap-2 text-red-300">
+        The sensors are on the opposite wrists.
+        <button
+          onClick={fix}
+          className="rounded-lg bg-red-600 px-2 py-0.5 font-semibold text-white hover:bg-red-500"
+        >
+          Fix: swap left and right
+        </button>
+      </span>
+    );
+  if (state === "fixing") return <span className="text-neutral-400">Swapping and reconnecting…</span>;
+  return (
+    <button
+      onClick={run}
+      className="rounded-lg border border-white/15 px-2 py-0.5 text-neutral-300 hover:bg-white/5"
+      title="Shake your left hand when asked — catches sensors strapped on the wrong wrists"
+    >
+      {state === "unclear" ? "Couldn't tell — check again" : "Check which wrist is which"}
+    </button>
+  );
+}
+
+function SensorDot({ label, ok }: { label: string; ok: boolean }) {
+  return (
+    <span className={`flex items-center gap-1 ${ok ? "text-emerald-300" : "text-amber-300"}`}>
+      <span className={`h-2 w-2 rounded-full ${ok ? "bg-emerald-500" : "animate-pulse bg-amber-500"}`} />
+      {label} {ok ? "connected" : "connecting…"}
+    </span>
   );
 }
 

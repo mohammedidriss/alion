@@ -94,7 +94,15 @@ export function LiveReader({
           rmssd={heart?.rmssd_ms ?? null}
           zone={heart?.zone ?? null}
           maxHr={heart?.max_hr ?? null}
-          idleText={strapPaired ? "Polar H10 starts with the cameras" : "Pair the Polar H10 to see heart rate"}
+          idleText={
+            heart?.error
+              ? `Polar: ${heartErrorText(heart.error)}`
+              : !strapPaired
+                ? "Pair the Polar H10 (Scan, above) to see heart rate"
+                : imu?.running
+                  ? "Strap paired but not sending — wear it with damp contacts and close the Polar app"
+                  : "Polar H10 starts with the cameras"
+          }
         />
       )}
 
@@ -110,6 +118,15 @@ export function LiveReader({
               </p>
             )}
             {imu?.error && <p className="text-[10px] text-red-400">{imu.error}</p>}
+            {imu?.running &&
+              (["left", "right"] as ImuHand[]).map((hand) => {
+                const u = imu.units[hand];
+                return u && !u.connected && u.error ? (
+                  <p key={hand} className="text-[10px] leading-snug text-red-400">
+                    {hand === "left" ? "Left" : "Right"} wrist: {wristErrorText(u.error)}
+                  </p>
+                ) : null;
+              })}
           </div>
         ) : (
           <p className="text-center text-[10px] text-neutral-600">No wrist sensors on this fighter</p>
@@ -117,6 +134,21 @@ export function LiveReader({
       </div>
     </div>
   );
+}
+
+/** The recorder's BLE error in words: "not found" usually means the unit is off,
+ *  out of range, or still connected to another capture. */
+function heartErrorText(err: string): string {
+  if (/not found|no device/i.test(err))
+    return "strap not found — wear it with damp contacts, and close the Polar app on your phone.";
+  return err;
+}
+
+function wristErrorText(err: string): string {
+  if (/not found/i.test(err))
+    return "not found — is it switched on and nearby? Another take may still hold it; starting this one takes it over within a few seconds.";
+  if (/timeout|timed out/i.test(err)) return "connection timed out — move it closer to the laptop.";
+  return err;
 }
 
 function HeartFace({

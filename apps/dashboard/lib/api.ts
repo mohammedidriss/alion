@@ -440,6 +440,18 @@ export interface DatasetExport {
   excluded: { take_id: string; reason: string }[];
 }
 
+/** Camera studio: phones link once and follow whichever capture is open. */
+export interface Studio {
+  join_path: string; // /camera?studio=…
+  lan_ip: string;
+  active: { kind: "session" | "take"; id: string } | null;
+  phones: { phone_id: string; label: string }[];
+}
+
+export interface StationState {
+  active: { kind: "session" | "take"; id: string; join_token: string } | null;
+}
+
 /** One poll for the session page's watch-style live reader. */
 export interface LiveReading {
   heart: {
@@ -449,6 +461,7 @@ export interface LiveReading {
     rmssd_ms: number | null;
     max_hr: number | null;
     zone: number | null; // 0–5
+    error: string | null; // why the strap's stream failed
   };
   imu: ImuBleStatus;
 }
@@ -706,6 +719,13 @@ export interface RoundImuBlock {
   peak_g: number | null;
   n_impacts: number;
   cv_imu_match_rate: number | null;
+  // Punches the wrist sensors detected in the round.
+  punch_count: number;
+  left: number;
+  right: number;
+  ppm: number | null;
+  mean_peak_g: number | null;
+  impact_score: number | null; // Σ punch peaks (g)
 }
 
 export interface RoundExportItem {
@@ -729,6 +749,8 @@ export interface RoundsExportResponse {
   round_count: number;
   round_duration_s: number;
   rest_duration_s: number;
+  /** Where punch numbers come from: camera events, else the wrist sensors. */
+  punch_source: "camera" | "wrist" | "none";
   rounds: RoundExportItem[];
 }
 
@@ -980,8 +1002,13 @@ export const api = {
       body: JSON.stringify({ fighter_id }),
     }),
   checkImuDevices: () => req<ImuBleStatus>("/v2/imu/devices/check", { method: "POST" }),
-  startImuBle: (id: CaptureRef) =>
-    req<ImuBleStatus>(`/v2${capBase(id)}/imu/ble/start`, { method: "POST" }),
+  /** The wrist check found the units on the wrong wrists: swap left ↔ right. */
+  swapImuWrists: () => req<ImuDevices>("/v2/imu/devices/swap", { method: "PUT" }),
+  /** `arm`: connect now (live view) and store from the cameras' t = 0 at Start. */
+  startImuBle: (id: CaptureRef, opts?: { arm?: boolean }) =>
+    req<ImuBleStatus>(`/v2${capBase(id)}/imu/ble/start${opts?.arm ? "?arm=true" : ""}`, {
+      method: "POST",
+    }),
   stopImuBle: (id: CaptureRef) =>
     req<ImuBleStatus>(`/v2${capBase(id)}/imu/ble/stop`, { method: "POST" }),
   imuBleStatus: (id: CaptureRef) => req<ImuBleStatus>(`/v2${capBase(id)}/imu/ble/status`),
@@ -1005,6 +1032,18 @@ export const api = {
   // Write {dataset}/export/manifest.json (takes, files, splits) and return it.
   datasetExport: (datasetId: string) =>
     req<DatasetExport>(`/v2/datasets/${datasetId}/export`, { method: "POST" }),
+  // Camera studio — linked phones follow the coach's open capture.
+  studio: () => req<Studio>("/v2/studio"),
+  setStudioActive: (kind: "session" | "take", id: string) =>
+    req<Studio>("/v2/studio/active", {
+      method: "PUT",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ kind, id }),
+    }),
+  stationState: (token: string, phoneId: string, label: string) =>
+    req<StationState>(
+      `/studio/state?token=${encodeURIComponent(token)}&phone_id=${encodeURIComponent(phoneId)}&label=${encodeURIComponent(label)}`,
+    ),
   // Multi-device capture coordinator (ADR-010): device roster + synchronized start.
   multicamJoinInfo: (id: CaptureRef) =>
     req<MulticamJoinInfo>(`${capBase(id)}/multicam/join-info`, { method: "POST" }),
@@ -1017,6 +1056,9 @@ export const api = {
     req<MulticamState>(`${capBase(id)}/multicam/resume`, { method: "POST" }),
   multicamStop: (id: CaptureRef) =>
     req<MulticamState>(`${capBase(id)}/multicam/stop`, { method: "POST" }),
+  /** Delete the recording in progress: cameras drop their clips instead of uploading. */
+  multicamDiscard: (id: CaptureRef) =>
+    req<MulticamState>(`${capBase(id)}/multicam/discard`, { method: "POST" }),
   /** After Stop's clips have landed: mark the session completed (409 if no video). */
   multicamComplete: (id: CaptureRef, duration_ms?: number) =>
     req<{ status: string; clips: number }>(`${capBase(id)}/multicam/complete`, {
@@ -1036,11 +1078,12 @@ export const api = {
     device_id: string,
     status: string,
     punches = 0,
+    label?: string, // lets the device re-join the roster if the API restarted
   ) =>
     req<MulticamState>(`${capBase(id)}/multicam/heartbeat`, {
       method: "POST",
       headers: { "content-type": "application/json" },
-      body: JSON.stringify({ token, device_id, status, punches }),
+      body: JSON.stringify({ token, device_id, status, punches, role: "camera", label }),
     }),
   multicamState: (id: CaptureRef, token: string) =>
     req<MulticamState>(`${capBase(id)}/multicam/state?token=${encodeURIComponent(token)}`),
@@ -1131,6 +1174,8 @@ export const api = {
     }),
   getTake: (id: string) => req<Take>(`/v2/takes/${id}`),
   discardTake: (id: string) => req<Take>(`/v2/takes/${id}/discard`, { method: "POST" }),
+  /** Delete a take for good (row, folder, clips) — e.g. a recording that went wrong. */
+  deleteTake: (id: string) => req<void>(`/v2/takes/${id}`, { method: "DELETE" }),
   /** `recorded: true` = the session log: only sessions where the camera recorded
    *  (opened-and-left sessions are hidden, then purged after 10 min). */
   listSessions: (fighter_id?: string, opts?: { recorded?: boolean }) => {

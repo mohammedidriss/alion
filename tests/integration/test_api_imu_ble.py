@@ -204,3 +204,16 @@ def _fast_stop(stop):  # type: ignore[no-untyped-def]
         return stop(session_id, timeout_s=0.5)
 
     return wrapped
+
+
+def test_swapping_the_wrists_flips_the_assignment(
+    authed_client: TestClient, imu_setup: Path
+) -> None:
+    """The units look identical and get strapped on the wrong wrists; the wrist check
+    can flip the assignment instead of re-strapping."""
+    before = {u["hand"]: u["address"] for u in authed_client.get("/v2/imu/devices").json()["units"]}
+    after = authed_client.put("/v2/imu/devices/swap").json()
+    swapped = {u["hand"]: u["address"] for u in after["units"]}
+    assert swapped == {"left": before["right"], "right": before["left"]}
+    saved = json.loads(imu_setup.read_text())
+    assert {m["wrist"] for m in saved.values()} == {"left", "right"}

@@ -13,6 +13,7 @@ session's, under `/takes/{id}` instead of `/sessions/{id}`:
 
 from __future__ import annotations
 
+import shutil
 import time
 from datetime import UTC, datetime
 from typing import Any
@@ -144,6 +145,18 @@ def _folder(take_id: UUID) -> Any:
     if folder is None:
         raise HTTPException(status_code=404, detail="take folder missing on disk")
     return folder
+
+
+def _release_capture(take_id: UUID, *, cameras: bool = False, discard: bool = False) -> None:
+    """Free the wrist sensors and the Polar a take was using, so the next take can
+    connect. `cameras` also stops its cameras (they upload); `discard` makes them
+    drop the clip instead."""
+    imu_runner.stop(take_id)
+    hrv_runner.request_stop(take_id)
+    if discard:
+        capture_coord.discard_capture(take_id)
+    elif cameras:
+        capture_coord.stop_capture(take_id)
 
 
 def _require_recording(take: DatasetTake) -> None:
@@ -290,14 +303,28 @@ def get_take(
     return _take_out(take, fighters, d.name if d else None)
 
 
+@router.delete("/takes/{take_id}", status_code=204)
+def delete_take(take_id: UUID, repo: DatasetRepo = Depends(dataset_repo)) -> None:
+    """Delete a take for good — the coach's "Delete" on a recording that went wrong:
+    the cameras drop their clips, the sensors stop, and the row and folder go."""
+    take = _get_take(take_id, repo)
+    _release_capture(take_id, discard=True)
+    folder = dataset_store.take_dir(take_id)
+    if folder is not None:
+        shutil.rmtree(folder, ignore_errors=True)
+    repo.delete_take(take.id)
+
+
 @router.post("/takes/{take_id}/discard", response_model=TakeOut)
 def discard_take(
     take_id: UUID,
     repo: DatasetRepo = Depends(dataset_repo),
     fighters: FighterRepo = Depends(fighter_repo),
 ) -> TakeOut:
-    """Exclude a take from the dataset. Its files stay on disk."""
+    """Exclude a take from the dataset. Its files stay on disk. Anything still
+    recording into it stops — sensors, Polar and the cameras."""
     take = _get_take(take_id, repo)
+    _release_capture(take_id, cameras=True)
     repo.finish_take(take.id, TakeStatusEnum.DISCARDED)
     folder = dataset_store.take_dir(take_id)
     if folder is not None:
@@ -338,6 +365,7 @@ def take_complete(
         devices=clips,
     )
     repo.finish_take(take.id, TakeStatusEnum.COMPLETED, body.duration_ms)
+    _release_capture(take_id)  # the client stops them too; this makes sure
     return {"status": "completed", "clips": len(clips)}
 
 
@@ -347,7 +375,11 @@ def take_complete(
 
 
 @router.post("/takes/{take_id}/imu/ble/start", response_model=ImuBleStatus)
-def take_imu_start(take_id: UUID, repo: DatasetRepo = Depends(dataset_repo)) -> ImuBleStatus:
+def take_imu_start(
+    take_id: UUID, arm: bool = False, repo: DatasetRepo = Depends(dataset_repo)
+) -> ImuBleStatus:
+    """Stream both wrists into the take. `arm`: connect before the cameras start and
+    store from their t = 0 (the coordinator sets it at Start)."""
     take = _get_take(take_id, repo)
     _require_recording(take)
     folder = _folder(take_id)
@@ -362,7 +394,9 @@ def take_imu_start(take_id: UUID, repo: DatasetRepo = Depends(dataset_repo)) -> 
             status_code=409, detail="The IMU sensors aren't assigned to this fighter."
         )
     if not imu_runner.is_running(take_id):
-        t0 = capture_coord.started_at_ms(take_id) or time.time() * 1000.0
+        t0 = capture_coord.started_at_ms(take_id) or (
+            imu_runner.ARMED if arm else time.time() * 1000.0
+        )
         imu_runner.start(take_id, units, t0, dataset_store.imu_writer(folder))
     return session_status(take_id)
 
@@ -386,16 +420,17 @@ def take_hr_start(
     _require_recording(take)
     folder = _folder(take_id)
     if not hrv_runner.is_running(take_id):
-        # The Polar stream counts from its own start (about now); shift it onto the
-        # take timeline. Off by the BLE connect time — fine for heart rate.
-        now = time.time() * 1000.0
-        t0 = capture_coord.started_at_ms(take_id) or now
+        # Connects whenever asked (often before the cameras start); beats are stored
+        # from the cameras' t = 0, stamped by arrival on the take's timeline.
         hrv_runner.start_ble(
             take_id,
             body.address,
             None,
             window_ms=body.window_ms,
-            write_rows=dataset_store.hr_writer(folder, now - t0),
+            write_rows=dataset_store.hr_writer(
+                folder, lambda: capture_coord.last_started_at_ms(take_id)
+            ),
+            wall_clock=True,
         )
     return HrStatusOut(session_id=take_id, is_running=True)
 
@@ -415,7 +450,11 @@ def take_live(
     """The live reader for a take: same shape as a session's."""
     take = _get_take(take_id, repo)
     folder = dataset_store.take_dir(take_id)
-    trace = [round(b, 1) for b in dataset_store.recent_bpm(folder)] if folder else []
+    # Live beats from the strap (incl. before t = 0, so a pre-connected strap shows),
+    # else what the take stored.
+    live = hrv_runner.recent_bpm(take_id)
+    stored = dataset_store.recent_bpm(folder) if folder else []
+    trace = [round(b, 1) for b in (live or stored)]
     metrics = hrv_runner.latest_metrics(take_id)
     fighter = fighters.get(take.fighter_id)
     max_hr = max_hr_for(fighter.dob if fighter else None)
@@ -427,5 +466,6 @@ def take_live(
         rmssd_ms=round(metrics.rmssd_ms, 1) if metrics else None,
         max_hr=max_hr,
         zone=hr_zone(bpm, max_hr) if bpm is not None and max_hr else None,
+        error=hrv_runner.last_error(take_id),
     )
     return LiveOut(heart=heart, imu=session_status(take_id))

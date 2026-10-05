@@ -1195,6 +1195,14 @@ class DatasetRepo:
         )
         return list(self._session.exec(stmt).all())
 
+    def delete_take(self, take_id: UUID) -> bool:
+        row = self.get_take(take_id)
+        if row is None:
+            return False
+        self._session.delete(row)
+        self._session.commit()
+        return True
+
     def finish_take(
         self, take_id: UUID, status: TakeStatusEnum, duration_ms: float | None = None
     ) -> DatasetTake | None:

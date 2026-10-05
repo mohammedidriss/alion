@@ -26,6 +26,7 @@ export function PolarH10Card() {
   const [devices, setDevices] = useState<BleDevice[]>([]);
   const [scanning, setScanning] = useState(false);
   const [err, setErr] = useState<string | null>(null);
+  const [note, setNote] = useState<string | null>(null);
 
   useEffect(() => {
     setPaired(getPairedDevice());
@@ -34,9 +35,15 @@ export function PolarH10Card() {
   const scan = async () => {
     setScanning(true);
     setErr(null);
+    setNote(null);
     try {
       const res = await api.scanBleDevices();
       setDevices(res.devices);
+      if (res.devices.length === 0) {
+        // An H10 only switches on when its contacts touch damp skin, and a phone's
+        // Polar app can hold its connection.
+        setNote("No strap found — wear it (damp contacts) and close the Polar app on your phone, then Scan again.");
+      }
       if (res.devices.length === 1) {
         pair(res.devices[0]);
       }
@@ -69,6 +76,7 @@ export function PolarH10Card() {
       </span>
 
       {err && <span className="text-[10px] text-red-400">error</span>}
+      {note && <span className="max-w-[16rem] text-[10px] leading-tight text-amber-300">{note}</span>}
 
       {paired ? (
         <>

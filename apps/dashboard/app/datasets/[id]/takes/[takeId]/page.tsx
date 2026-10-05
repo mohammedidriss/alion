@@ -8,11 +8,13 @@
  */
 
 import Link from "next/link";
+import { useRouter } from "next/navigation";
 import { useCallback, useEffect, useState } from "react";
 import { JoinQrCard } from "@/components/JoinQrCard";
 import { LiveReader } from "@/components/LiveReader";
 import { MulticamPanel } from "@/components/MulticamPanel";
 import { MulticamRecordings } from "@/components/MulticamRecordings";
+import { PolarH10Card } from "@/components/PolarH10Card";
 import { AutoProtocol } from "@/components/AutoProtocol";
 import { ProtocolCard } from "@/components/ProtocolCard";
 import { api, type Take } from "@/lib/api";
@@ -23,6 +25,7 @@ function duration(ms: number): string {
 }
 
 export default function TakePage({ params }: { params: { id: string; takeId: string } }) {
+  const router = useRouter();
   const [take, setTake] = useState<Take | null>(null);
   const [err, setErr] = useState<string | null>(null);
   const [confirmDiscard, setConfirmDiscard] = useState(false);
@@ -64,6 +67,8 @@ export default function TakePage({ params }: { params: { id: string; takeId: str
           <div className="flex items-center gap-3">
             <h1 className="text-2xl font-semibold">Take · {take.fighter_name}</h1>
             <span className={`pill ${status}`}>{take.status}</span>
+            {/* Pair the heart-rate strap here — it streams with the cameras. */}
+            {recording && <PolarH10Card />}
           </div>
           <p className="text-xs text-neutral-500">
             {new Date(take.started_at).toLocaleString()} · dataset recording, not a training
@@ -112,7 +117,18 @@ export default function TakePage({ params }: { params: { id: string; takeId: str
             {/* Protocol blocks — run automatically, or by hand with Start / End. */}
             <ProtocolArea takeId={take.id} />
           </div>
-          <MulticamPanel take={take} defaultLaptop onFinished={load} />
+          <MulticamPanel
+            take={take}
+            defaultLaptop
+            onFinished={load}
+            onDelete={async () => {
+              // Delete for good, then a fresh take for the same fighter — the linked
+              // phones follow it there.
+              await api.deleteTake(take.id);
+              const next = await api.createTake(take.dataset_id, take.fighter_id);
+              router.replace(`/datasets/${params.id}/takes/${next.id}`);
+            }}
+          />
         </div>
       )}
 

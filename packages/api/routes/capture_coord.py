@@ -12,6 +12,12 @@ Two routers, split by trust boundary:
 - `master` (coach, authenticated) — join-info, device roster, start/stop.
 - `slave` (phone, join-token) — register, heartbeat, poll capture state.
 
+Survives an API restart (uvicorn --reload restarts on every .py save): the join
+token is derived from the capture id (HMAC with the server secret), so a phone's
+QR stays valid; a phone the restarted server doesn't know re-joins the roster on
+its next heartbeat; and the capture state (command, start time, pause) is kept on
+disk in data/capture/, so a recording carries on with the same t = 0.
+
 The same capture routes also serve dataset takes (ADR-013) under `/takes/{id}`
 (`take_master` / `take_slave`). A take's clips and pose land in its own folder
 (`dataset_store.take_dir`); join and complete are per kind (here for sessions,
@@ -20,8 +26,10 @@ The same capture routes also serve dataset takes (ADR-013) under `/takes/{id}`
 
 from __future__ import annotations
 
+import base64
+import hashlib
+import hmac
 import json
-import secrets
 import socket
 import threading
 import time
@@ -31,11 +39,12 @@ from uuid import UUID, uuid4
 
 from fastapi import APIRouter, Depends, File, Form, HTTPException, Response, UploadFile
 from pydantic import BaseModel
+from sqlmodel import Session as DBSession
 
-from api.deps import session_repo
-from api.routes.auth import require_current_user
+from api.deps import db_session, session_repo
+from api.routes.auth import SECRET_KEY, require_current_user
 from api.routes.pose import PoseFrameIn, _to_landmarks, _to_world
-from api.services import dataset_store, imu_runner
+from api.services import dataset_store, imu_runner, session_analysis
 from contracts import PoseFrame
 from store import SessionRepo, SessionStatus
 
@@ -45,7 +54,9 @@ from store import SessionRepo, SessionStatus
 _STALE_MS = 12_000.0
 _START_DELAY_MS = 3_000.0
 _VIDEO_DIR = Path("data/raw/uploaded")  # per-device clips: {session}.{device}.<ext>
-_MAX_CLIP_BYTES = 300 * 1024 * 1024
+_STATE_DIR = Path("data/capture")  # {capture}.json — command / start time across restarts
+_STATE_MAX_AGE_MS = 6 * 3600 * 1000  # a start older than this is a forgotten capture
+_MAX_CLIP_BYTES = 2 * 1024 * 1024 * 1024  # a 12-min protocol take from a phone can pass 300 MB
 
 
 def _now_ms() -> float:
@@ -94,19 +105,57 @@ _lock = threading.Lock()
 _coords: dict[UUID, _Coord] = {}
 
 
+def _join_token(capture_id: UUID) -> str:
+    """The capture's join token — derived, not random, so the QR a phone scanned
+    stays valid when the API restarts."""
+    mac = hmac.new(SECRET_KEY.encode(), f"multicam-join:{capture_id}".encode(), hashlib.sha256)
+    return base64.urlsafe_b64encode(mac.digest())[:16].decode()
+
+
+def _save_state(capture_id: UUID, c: _Coord) -> None:
+    """Persist what a restart must not forget (call with `_lock` held)."""
+    try:
+        _STATE_DIR.mkdir(parents=True, exist_ok=True)
+        (_STATE_DIR / f"{capture_id}.json").write_text(
+            json.dumps(
+                {
+                    "command": c.command,
+                    "start_at_ms": c.start_at_ms,
+                    "last_start_ms": c.last_start_ms,
+                    "paused": c.paused,
+                }
+            )
+        )
+    except OSError:
+        pass  # best effort — the live recording doesn't depend on it
+
+
+def _load_state(capture_id: UUID, c: _Coord) -> None:
+    try:
+        st = json.loads((_STATE_DIR / f"{capture_id}.json").read_text())
+    except (OSError, ValueError):
+        return
+    c.last_start_ms = st.get("last_start_ms")
+    start_at = st.get("start_at_ms")
+    if st.get("command") == "start" and start_at and _now_ms() - start_at < _STATE_MAX_AGE_MS:
+        c.command, c.start_at_ms, c.paused = "start", start_at, bool(st.get("paused"))
+    elif st.get("command") == "stop":
+        c.command = "stop"
+
+
 def _ensure(session_id: UUID) -> _Coord:
     c = _coords.get(session_id)
     if c is None:
-        c = _Coord(join_token=secrets.token_urlsafe(12))
+        c = _Coord(join_token=_join_token(session_id))
+        _load_state(session_id, c)  # after a restart: pick the recording back up
         _coords[session_id] = c
     return c
 
 
 def _check_token(session_id: UUID, token: str) -> _Coord:
-    c = _coords.get(session_id)
-    if c is None or token != c.join_token:
+    if not hmac.compare_digest(token.encode(), _join_token(session_id).encode()):
         raise HTTPException(status_code=403, detail="invalid or expired join token")
-    return c
+    return _ensure(session_id)
 
 
 def started_at_ms(session_id: UUID) -> float | None:
@@ -118,6 +167,24 @@ def started_at_ms(session_id: UUID) -> float | None:
         if c is None or c.command != "start":
             return None
         return c.start_at_ms
+
+
+def is_active(capture_id: UUID, *, within_ms: float = 15 * 60 * 1000) -> bool:
+    """Recording, or a camera seen recently — the empty-session cleanup must not
+    delete it (a multi-cam session has no video on disk until Stop uploads it)."""
+    now = _now_ms()
+    with _lock:
+        c = _coords.get(capture_id)
+        if c is not None:
+            if c.command == "start" or any(
+                now - d.last_seen_ms < within_ms for d in c.devices.values()
+            ):
+                return True
+    try:
+        st = json.loads((_STATE_DIR / f"{capture_id}.json").read_text())
+    except (OSError, ValueError):
+        return False
+    return st.get("command") == "start" and now - (st.get("start_at_ms") or 0) < _STATE_MAX_AGE_MS
 
 
 def last_started_at_ms(capture_id: UUID) -> float | None:
@@ -201,6 +268,9 @@ class HeartbeatBody(BaseModel):
     device_id: str
     status: str = "ready"
     punches: int = 0
+    # Sent so a device the server no longer knows (API restarted) can re-join.
+    role: str = "camera"
+    label: str | None = None
 
 
 class CaptureState(BaseModel):
@@ -276,6 +346,8 @@ def start_capture(session_id: UUID) -> StartOut:
         c.start_at_ms = _now_ms() + _START_DELAY_MS
         c.last_start_ms = c.start_at_ms
         c.paused = False
+        _save_state(session_id, c)
+        imu_runner.set_t0(session_id, c.start_at_ms)  # pre-connected wrists store from t = 0
         return StartOut(command=c.command, start_at_ms=c.start_at_ms, devices=len(c.devices))
 
 
@@ -289,6 +361,7 @@ def pause_capture(session_id: UUID) -> CaptureState:
     with _lock:
         c = _ensure(session_id)
         c.paused = True
+        _save_state(session_id, c)
         now = _now_ms()
         imu_runner.pause(session_id, at_ms=now)  # keep the wrist data on the clip's timeline
         return CaptureState(
@@ -301,6 +374,7 @@ def resume_capture(session_id: UUID) -> CaptureState:
     with _lock:
         c = _ensure(session_id)
         c.paused = False
+        _save_state(session_id, c)
         now = _now_ms()
         imu_runner.resume(session_id, at_ms=now)
         return CaptureState(
@@ -317,16 +391,51 @@ def stop_capture(session_id: UUID) -> CaptureState:
         c.command = "stop"
         c.start_at_ms = None
         c.paused = False
+        _save_state(session_id, c)
         return CaptureState(command="stop", start_at_ms=None, server_now_ms=_now_ms())
+
+
+@_master.post("/{session_id}/multicam/discard", response_model=CaptureState)
+def discard_capture(session_id: UUID) -> CaptureState:
+    """Delete the recording in progress: nodes stop and drop their clip instead of
+    uploading it (the coach's "Delete")."""
+    with _lock:
+        c = _ensure(session_id)
+        c.command = "discard"
+        c.start_at_ms = None
+        c.paused = False
+        _save_state(session_id, c)
+        return CaptureState(command="discard", start_at_ms=None, server_now_ms=_now_ms())
+
+
+def delete_session_clips(session_id: UUID) -> int:
+    """Remove a session's per-device clips and their sidecars (its delete)."""
+    n = 0
+    if _VIDEO_DIR.exists():
+        for p in _VIDEO_DIR.glob(f"{session_id}.*"):
+            p.unlink(missing_ok=True)
+            n += 1
+    return n
 
 
 class CompleteBody(BaseModel):
     duration_ms: float | None = None  # active recording time (pauses excluded)
 
 
+def _labels(session_id: UUID) -> dict[str, str]:
+    """Device labels: the live roster, else what the clip sidecars recorded."""
+    with _lock:
+        c = _coords.get(session_id)
+        live = {d.device_id: d.label for d in c.devices.values()} if c else {}
+    return {**session_analysis.clip_labels(_VIDEO_DIR, session_id), **live}
+
+
 @_session_master.post("/{session_id}/multicam/complete", response_model=dict)
 def complete_capture(
-    session_id: UUID, body: CompleteBody, sessions: SessionRepo = Depends(session_repo)
+    session_id: UUID,
+    body: CompleteBody,
+    sessions: SessionRepo = Depends(session_repo),
+    db: DBSession = Depends(db_session),
 ) -> dict[str, object]:
     """Mark the session completed once Stop's clips have landed.
 
@@ -339,8 +448,29 @@ def complete_capture(
         raise HTTPException(status_code=409, detail="no video was saved for this session")
     if body.duration_ms is not None:
         sessions.attach_artifacts(session_id, duration_ms=body.duration_ms)
+    # No camera punch events are stored here yet: the camera detector isn't
+    # calibrated for the browser cameras' pose (it reads ~3× too many punches at
+    # impossible speeds), so the per-round numbers come from the wrist sensors
+    # (rounds_export). /multicam/analyze runs it by hand for the calibration work.
     sessions.update_status(session_id, SessionStatus.COMPLETED, end=True)
     return {"status": "completed", "clips": len(list_clips(session_id))}
+
+
+@_session_master.post("/{session_id}/multicam/analyze", response_model=dict)
+def analyze_capture(
+    session_id: UUID,
+    sessions: SessionRepo = Depends(session_repo),
+    db: DBSession = Depends(db_session),
+) -> dict[str, object]:
+    """(Re)detect a multi-camera session's punches from its cameras' pose.
+
+    Experimental — not run automatically until the camera detector is calibrated
+    for the browser cameras (it over-counts on their pose today)."""
+    if sessions.get(session_id) is None:
+        raise HTTPException(status_code=404, detail="session not found")
+    if not session_analysis.pose_files(session_id):
+        raise HTTPException(status_code=409, detail="no camera pose was uploaded for this session")
+    return {"punches": session_analysis.analyze(session_id, db, _labels(session_id))}
 
 
 # --------------------------------------------------------------------------
@@ -365,10 +495,14 @@ def heartbeat(session_id: UUID, body: HeartbeatBody) -> CaptureState:
     with _lock:
         c = _check_token(session_id, body.token)
         dev = c.devices.get(body.device_id)
-        if dev is not None:
-            dev.status = body.status
-            dev.punches = body.punches
-            dev.last_seen_ms = _now_ms()
+        if dev is None:  # the API restarted since this device registered
+            dev = _Device(device_id=body.device_id, role=body.role, label=body.label or body.role)
+            c.devices[body.device_id] = dev
+        if body.label:
+            dev.label = body.label  # renamed on the device (e.g. a phone picking its name)
+        dev.status = body.status
+        dev.punches = body.punches
+        dev.last_seen_ms = _now_ms()
         return CaptureState(
             command=c.command,
             start_at_ms=c.start_at_ms,
@@ -422,10 +556,13 @@ async def upload_device_clip(
                 raise HTTPException(status_code=413, detail="clip exceeds size limit")
             out.write(chunk)
     meta = _clip_meta_file(session_id, device_id)
-    if start_offset_ms is not None:
-        meta.write_text(json.dumps({"start_offset_ms": start_offset_ms}) + "\n")
-    else:
-        meta.unlink(missing_ok=True)  # don't let an older recording's offset linger
+    with _lock:
+        c = _coords.get(session_id)
+        dev = c.devices.get(device_id) if c else None
+        label = dev.label if dev else None
+    # Offset for sync; the label lets a later analysis find the laptop camera. An
+    # older recording's sidecar is always overwritten.
+    meta.write_text(json.dumps({"start_offset_ms": start_offset_ms, "label": label}) + "\n")
     return {"bytes": written, "device_id": device_id, "path": str(dest)}
 
 
@@ -467,9 +604,6 @@ class MulticamPoseBody(BaseModel):
     duration_ms: float | None = None
 
 
-_POSE_DIR = Path("data/processed")
-
-
 @_slave.post("/{session_id}/multicam/pose", response_model=dict)
 def upload_device_pose(session_id: UUID, body: MulticamPoseBody) -> dict[str, object]:
     """A phone uploads its pose stream after the round, saved per-device as parquet
@@ -501,7 +635,7 @@ def upload_device_pose(session_id: UUID, body: MulticamPoseBody) -> dict[str, ob
     if folder is not None:
         path = dataset_store.pose_path(folder, body.device_id)
     else:
-        path = _POSE_DIR / f"{session_id}.{body.device_id}.pose.parquet"
+        path = session_analysis.POSE_DIR / f"{session_id}.{body.device_id}.pose.parquet"
     path.parent.mkdir(parents=True, exist_ok=True)
     write_pose_parquet(path, frames)
     return {"frames": len(frames), "path": str(path)}
