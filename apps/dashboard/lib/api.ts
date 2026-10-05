@@ -740,6 +740,54 @@ export interface RoundExportItem {
   cv: RoundCvBlock;
   hrv: RoundHrvBlock;
   imu: RoundImuBlock;
+  cross_check: RoundCrossCheckBlock | null;
+}
+
+/** The round's punches as the wrist sensors and the cameras settled them. */
+export interface RoundCrossCheckBlock {
+  punch_count: number; // counted
+  confirmed: number; // felt by the wrists and seen by the cameras
+  wrist_only: number;
+  camera_only: number; // counted: a wrist sensor wasn't streaming
+  unconfirmed: number; // camera-only while the wrists streamed — not counted
+  left: number;
+  right: number;
+  agreement: number | null; // confirmed / counted
+  ppm: number | null;
+  speed_ms: number | null; // median camera speed of confirmed punches
+  peak_speed_ms: number | null;
+  mean_peak_g: number | null;
+  impact_score: number | null; // Σ peak g
+}
+
+export type HandsVerdict = "consistent" | "swapped" | "unclear";
+
+export interface CrossCheckCamera {
+  device_id: string;
+  label: string | null;
+  punches: number;
+  offset_ms: number | null; // clock correction applied against the wrists
+  agreement: number | null; // share of its punches the wrists confirm
+  coverage: number | null; // share of the wrist punches it saw
+  hands: HandsVerdict;
+}
+
+export interface CrossCheckSummary {
+  status: "ready" | "running";
+  wrist: boolean;
+  hands: HandsVerdict | null;
+  hands_swapped: boolean;
+  agreement: number | null;
+  counted: number;
+  confirmed: number;
+  wrist_only: number;
+  camera_only: number;
+  unconfirmed: number;
+  cameras: CrossCheckCamera[];
+}
+
+export interface TakeCrossCheck extends CrossCheckSummary {
+  blocks: { key: string; counted: number; confirmed: number; unconfirmed: number }[];
 }
 
 export interface RoundsExportResponse {
@@ -749,8 +797,10 @@ export interface RoundsExportResponse {
   round_count: number;
   round_duration_s: number;
   rest_duration_s: number;
-  /** Where punch numbers come from: camera events, else the wrist sensors. */
-  punch_source: "camera" | "wrist" | "none";
+  /** Where punch numbers come from: wrist sensors × cameras cross-checked, else
+   *  stored camera events, else the wrist sensors alone. */
+  punch_source: "fused" | "camera" | "wrist" | "none";
+  cross_check: CrossCheckSummary | null;
   rounds: RoundExportItem[];
 }
 
@@ -1176,6 +1226,7 @@ export const api = {
   discardTake: (id: string) => req<Take>(`/v2/takes/${id}/discard`, { method: "POST" }),
   /** Delete a take for good (row, folder, clips) — e.g. a recording that went wrong. */
   deleteTake: (id: string) => req<void>(`/v2/takes/${id}`, { method: "DELETE" }),
+  takeCrossCheck: (id: string) => req<TakeCrossCheck | null>(`/v2/takes/${id}/cross-check`),
   /** `recorded: true` = the session log: only sessions where the camera recorded
    *  (opened-and-left sessions are hidden, then purged after 10 min). */
   listSessions: (fighter_id?: string, opts?: { recorded?: boolean }) => {

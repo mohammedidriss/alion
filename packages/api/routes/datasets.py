@@ -13,6 +13,7 @@ session's, under `/takes/{id}` instead of `/sessions/{id}`:
 
 from __future__ import annotations
 
+import json
 import shutil
 import time
 from datetime import UTC, datetime
@@ -20,7 +21,7 @@ from typing import Any
 from uuid import UUID
 
 from fastapi import APIRouter, Depends, HTTPException
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 from sqlmodel import Session as DBSession
 
 from api.deps import db_session, fighter_repo
@@ -29,7 +30,8 @@ from api.routes.auth import require_current_user
 from api.routes.capture_coord import JoinInfo
 from api.routes.imu_ble import ImuBleStatus, session_status
 from api.routes.live import LiveHeart, LiveOut, hr_zone, max_hr_for
-from api.services import dataset_store, hrv_runner, imu_devices, imu_runner
+from api.routes.sessions import CrossCheckCamera, CrossCheckSummary
+from api.services import cross_check, dataset_store, hrv_runner, imu_devices, imu_runner
 from store import (
     DatasetCreate,
     DatasetParticipantIn,
@@ -469,3 +471,67 @@ def take_live(
         error=hrv_runner.last_error(take_id),
     )
     return LiveOut(heart=heart, imu=session_status(take_id))
+
+
+# --------------------------------------------------------------------------
+# Wrist ↔ camera cross-check
+# --------------------------------------------------------------------------
+
+
+class TakeCrossCheckBlock(BaseModel):
+    key: str  # the protocol block (jab, cross, …)
+    counted: int
+    confirmed: int  # felt by the wrists and seen by the cameras
+    unconfirmed: int  # camera-only while the wrists streamed
+
+
+class TakeCrossCheckOut(CrossCheckSummary):
+    blocks: list[TakeCrossCheckBlock] = Field(default_factory=list)
+
+
+@router.get("/takes/{take_id}/cross-check", response_model=TakeCrossCheckOut | None)
+def take_cross_check(
+    take_id: UUID, repo: DatasetRepo = Depends(dataset_repo)
+) -> TakeCrossCheckOut | None:
+    """How the take's wrist sensors and cameras agree — overall, per camera and per
+    protocol block. None when no camera pose was uploaded; status "running" while
+    it's being worked out (it starts when the cameras' pose lands)."""
+    _get_take(take_id, repo)
+    status, xc = cross_check.result("take", take_id)
+    if xc is None:
+        return TakeCrossCheckOut(status="running") if status == "running" else None
+    blocks: list[TakeCrossCheckBlock] = []
+    folder = dataset_store.take_dir(take_id)
+    try:
+        protocol = json.loads((folder / "protocol.json").read_text()) if folder else {}
+    except (OSError, ValueError):
+        protocol = {}
+    for b in protocol.get("blocks") or []:
+        try:
+            lo, hi, key = float(b["t_start_ms"]), float(b["t_end_ms"]), str(b["key"])
+        except (KeyError, TypeError, ValueError):
+            continue
+        ps = [p for p in xc["punches"] if lo <= p["t_ms"] <= hi]
+        blocks.append(
+            TakeCrossCheckBlock(
+                key=key,
+                counted=sum(1 for p in ps if p["counted"]),
+                confirmed=sum(1 for p in ps if p["source"] == "both"),
+                unconfirmed=sum(1 for p in ps if not p["counted"]),
+            )
+        )
+    t = xc["totals"]
+    return TakeCrossCheckOut(
+        status="ready",
+        wrist=bool(xc["wrist"]),
+        hands=xc["hands"],
+        hands_swapped=bool(xc["hands_swapped"]),
+        agreement=xc["agreement"],
+        counted=t["counted"],
+        confirmed=t["confirmed"],
+        wrist_only=t["wrist_only"],
+        camera_only=t["camera_only"],
+        unconfirmed=t["unconfirmed"],
+        cameras=[CrossCheckCamera(**c) for c in xc["cameras"]],
+        blocks=blocks,
+    )

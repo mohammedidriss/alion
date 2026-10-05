@@ -16,14 +16,14 @@ from uuid import UUID
 
 from fastapi import APIRouter, Depends, File, HTTPException, UploadFile, status
 from fastapi.responses import Response, StreamingResponse
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 from sqlmodel import Session as DBSession
 
 from analyze import compute_score, mean_hr_bpm, rmssd_ms, sdnn_ms
 from api.deps import db_session, fighter_repo, punch_event_repo, resolve_gym_id, session_repo
 from api.routes import capture_coord
 from api.routes.auth import get_current_user, require_current_user
-from api.services import capture_runner, hrv_runner, imu_runner
+from api.services import capture_runner, cross_check, hrv_runner, imu_runner
 from capture.hrv import parse_rr_csv
 from contracts import HRSample
 from store import (
@@ -886,6 +886,49 @@ class RoundImuBlock(BaseModel):
     impact_score: float | None = None  # Σ punch peaks (g) — the wrist analogue of v × punches
 
 
+class RoundCrossCheckBlock(BaseModel):
+    """The round's punches as the wrist sensors and the cameras settled them
+    (services.cross_check)."""
+
+    punch_count: int  # counted: felt by the wrists, or seen by the cameras in a sensor dropout
+    confirmed: int  # felt by the wrists and seen by the cameras
+    wrist_only: int
+    camera_only: int  # counted — a wrist sensor wasn't streaming
+    unconfirmed: int  # camera-only while the wrists streamed: not counted
+    left: int
+    right: int
+    agreement: float | None  # confirmed / counted
+    ppm: float | None
+    speed_ms: float | None  # median camera speed of the confirmed punches (relative index)
+    peak_speed_ms: float | None
+    mean_peak_g: float | None
+    impact_score: float | None  # Σ peak g of the counted punches the wrists felt
+
+
+class CrossCheckCamera(BaseModel):
+    device_id: str
+    label: str | None = None
+    punches: int
+    offset_ms: float | None  # clock correction applied against the wrists
+    agreement: float | None  # share of its punches the wrists confirm
+    coverage: float | None  # share of the wrist punches it saw
+    hands: Literal["consistent", "swapped", "unclear"]
+
+
+class CrossCheckSummary(BaseModel):
+    status: Literal["ready", "running"]
+    wrist: bool = False  # the wrist sensors recorded
+    hands: Literal["consistent", "swapped", "unclear"] | None = None
+    hands_swapped: bool = False  # left/right corrected from the cameras
+    agreement: float | None = None
+    counted: int = 0
+    confirmed: int = 0
+    wrist_only: int = 0
+    camera_only: int = 0
+    unconfirmed: int = 0
+    cameras: list[CrossCheckCamera] = Field(default_factory=list)
+
+
 class RoundExportItem(BaseModel):
     round_number: int
     start_ms: float
@@ -901,14 +944,17 @@ class RoundExportItem(BaseModel):
     cv: RoundCvBlock
     hrv: RoundHrvBlock
     imu: RoundImuBlock
+    cross_check: RoundCrossCheckBlock | None = None
 
 
 class RoundsExportResponse(BaseModel):
     session_id: UUID
     fighter_id: UUID
-    # Where the round's punch numbers come from: the cameras' punch events, else the
-    # wrist sensors (multi-camera sessions store no camera events yet), else none.
-    punch_source: Literal["camera", "wrist", "none"] = "none"
+    # Where the round's punch numbers come from: the wrist sensors and the cameras
+    # cross-checked (multi-camera sessions), else the stored camera punch events
+    # (single-camera sessions), else the wrist sensors alone, else none.
+    punch_source: Literal["fused", "camera", "wrist", "none"] = "none"
+    cross_check: CrossCheckSummary | None = None
     started_at: datetime.datetime
     round_count: int
     round_duration_s: int
@@ -948,8 +994,11 @@ def rounds_export(
         db.exec(_select(IMUSampleRow).where(IMUSampleRow.session_id == session_id)).all()
     )
     wrist_punches = _wrist_punches(imu_samples)
-    source: Literal["camera", "wrist", "none"] = (
-        "camera" if all_events else "wrist" if wrist_punches else "none"
+    labels = capture_coord._labels(session_id)
+    xc_status, xc = cross_check.result("session", session_id, db=db, labels=labels)
+    fused = [p for p in xc["punches"] if p["counted"]] if xc else []
+    source: Literal["fused", "camera", "wrist", "none"] = (
+        "fused" if xc else "camera" if all_events else "wrist" if wrist_punches else "none"
     )
 
     items: list[RoundExportItem] = []
@@ -1045,6 +1094,8 @@ def rounds_export(
             impact_score=round(sum(wp_g), 1) if wp_g else None,
         )
 
+        xc_block = _round_cross_check(xc, start, end, minutes) if xc else None
+
         cv_block = RoundCvBlock(
             punch_count=len(round_events),
             peak_velocity_ms=peak,
@@ -1059,15 +1110,44 @@ def rounds_export(
                 duration_ms=round_ms,
                 rest_after_ms=rest_s * 1000.0 if i < rounds_n - 1 else 0.0,
                 # Wrist-sourced: counts from the sensors; no m/s speed (cameras only).
-                punch_count=len(round_events) if source != "wrist" else imu_block.punch_count,
-                peak_velocity_ms=peak,
-                ppm=ppm if source != "wrist" else imu_block.ppm,
+                punch_count=(
+                    xc_block.punch_count
+                    if xc_block
+                    else imu_block.punch_count
+                    if source == "wrist"
+                    else len(round_events)
+                ),
+                peak_velocity_ms=xc_block.peak_speed_ms if xc_block else peak,
+                ppm=xc_block.ppm if xc_block else imu_block.ppm if source == "wrist" else ppm,
                 events=round_events,
                 cv=cv_block,
                 hrv=hrv_block,
                 imu=imu_block,
+                cross_check=xc_block,
             )
         )
+
+    summary: CrossCheckSummary | None = None
+    if xc:
+        summary = CrossCheckSummary(
+            status="ready",
+            wrist=bool(xc["wrist"]),
+            hands=xc["hands"],
+            hands_swapped=bool(xc["hands_swapped"]),
+            agreement=xc["agreement"],
+            counted=len(fused),
+            confirmed=xc["totals"]["confirmed"],
+            wrist_only=xc["totals"]["wrist_only"],
+            camera_only=xc["totals"]["camera_only"],
+            unconfirmed=xc["totals"]["unconfirmed"],
+            # today's camera names (a phone may have been renamed since)
+            cameras=[
+                CrossCheckCamera(**{**c, "label": labels.get(c["device_id"]) or c.get("label")})
+                for c in xc["cameras"]
+            ],
+        )
+    elif xc_status == "running":
+        summary = CrossCheckSummary(status="running")
 
     return RoundsExportResponse(
         session_id=session_id,
@@ -1078,7 +1158,37 @@ def rounds_export(
         rest_duration_s=rest_s,
         study_condition=row.study_condition,
         punch_source=source,
+        cross_check=summary,
         rounds=items,
+    )
+
+
+def _round_cross_check(
+    xc: dict[str, Any], start: float, end: float, minutes: float
+) -> RoundCrossCheckBlock:
+    ps = [p for p in xc["punches"] if start <= p["t_ms"] < end]
+    counted = [p for p in ps if p["counted"]]
+    confirmed = [p for p in counted if p["source"] == "both"]
+    speeds = sorted(p["speed_ms"] for p in confirmed if p["speed_ms"] is not None)
+    gs = [p["peak_g"] for p in counted if p["peak_g"] is not None]
+    return RoundCrossCheckBlock(
+        punch_count=len(counted),
+        confirmed=len(confirmed),
+        wrist_only=sum(1 for p in counted if p["source"] == "wrist"),
+        camera_only=sum(1 for p in counted if p["source"] == "camera"),
+        unconfirmed=sum(1 for p in ps if not p["counted"]),
+        left=sum(1 for p in counted if p["hand"] == "left"),
+        right=sum(1 for p in counted if p["hand"] == "right"),
+        agreement=(
+            round(len(confirmed) / len(counted), 2)
+            if counted and xc["agreement"] is not None
+            else None
+        ),
+        ppm=round(len(counted) / minutes, 1) if minutes > 0 and counted else None,
+        speed_ms=round(float(speeds[len(speeds) // 2]), 2) if speeds else None,
+        peak_speed_ms=speeds[-1] if speeds else None,
+        mean_peak_g=round(sum(gs) / len(gs), 2) if gs else None,
+        impact_score=round(sum(gs), 1) if gs else None,
     )
 
 

@@ -44,7 +44,7 @@ from sqlmodel import Session as DBSession
 from api.deps import db_session, session_repo
 from api.routes.auth import SECRET_KEY, require_current_user
 from api.routes.pose import PoseFrameIn, _to_landmarks, _to_world
-from api.services import dataset_store, imu_runner, session_analysis
+from api.services import cross_check, dataset_store, imu_runner, session_analysis
 from contracts import PoseFrame
 from store import SessionRepo, SessionStatus
 
@@ -448,10 +448,9 @@ def complete_capture(
         raise HTTPException(status_code=409, detail="no video was saved for this session")
     if body.duration_ms is not None:
         sessions.attach_artifacts(session_id, duration_ms=body.duration_ms)
-    # No camera punch events are stored here yet: the camera detector isn't
-    # calibrated for the browser cameras' pose (it reads ~3× too many punches at
-    # impossible speeds), so the per-round numbers come from the wrist sensors
-    # (rounds_export). /multicam/analyze runs it by hand for the calibration work.
+    # No camera punch events are stored here: the per-round numbers come from the
+    # wrist sensors and the cameras cross-checked (services.cross_check, started
+    # by the pose uploads). /multicam/analyze is the old single-camera detector.
     sessions.update_status(session_id, SessionStatus.COMPLETED, end=True)
     return {"status": "completed", "clips": len(list_clips(session_id))}
 
@@ -638,6 +637,11 @@ def upload_device_pose(session_id: UUID, body: MulticamPoseBody) -> dict[str, ob
         path = session_analysis.POSE_DIR / f"{session_id}.{body.device_id}.pose.parquet"
     path.parent.mkdir(parents=True, exist_ok=True)
     write_pose_parquet(path, frames)
+    # Cross-check this camera against the wrists and the other cameras once
+    # every camera's upload has landed (debounced).
+    cross_check.schedule(
+        "take" if folder is not None else "session", session_id, labels=_labels(session_id)
+    )
     return {"frames": len(frames), "path": str(path)}
 
 

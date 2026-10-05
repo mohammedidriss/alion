@@ -17,6 +17,7 @@ import { MulticamRecordings } from "@/components/MulticamRecordings";
 import { PolarH10Card } from "@/components/PolarH10Card";
 import { AutoProtocol } from "@/components/AutoProtocol";
 import { ProtocolCard } from "@/components/ProtocolCard";
+import { TakeCrossCheckCard } from "@/components/TakeCrossCheckCard";
 import { api, type Take } from "@/lib/api";
 
 function duration(ms: number): string {
@@ -142,6 +143,8 @@ export default function TakePage({ params }: { params: { id: string; takeId: str
       <MulticamRecordings key={take.status} takeId={take.id} />
 
       {!recording && <TakeData take={take} />}
+      {/* How the wrist sensors and the cameras agree on this take's punches. */}
+      {take.status === "completed" && <TakeCrossCheckCard takeId={take.id} />}
       {/* After Stop: the recorded blocks and labels, read-only. */}
       {!recording && <ProtocolCard takeId={take.id} readOnly />}
     </div>
