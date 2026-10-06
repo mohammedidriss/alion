@@ -234,3 +234,11 @@ def test_a_take_shows_agreement_per_protocol_block_and_catches_swapped_sensors(
         ("cross", 22, 22),
     ]
     assert (folder / "crosscheck.json").exists()
+    assert xc["labels_swapped"] is False
+
+    # the coach relabels with the wrists swapped: the verdict on the raw sensors
+    # stands, and the card can say the labels are already corrected
+    protocol = json.loads((folder / "protocol.json").read_text())
+    (folder / "protocol.json").write_text(json.dumps({**protocol, "imu_hands_swapped": True}))
+    xc = authed_client.get(f"/v2/takes/{tid}/cross-check").json()
+    assert xc["hands"] == "swapped" and xc["labels_swapped"] is True

@@ -348,7 +348,12 @@ def start_capture(session_id: UUID) -> StartOut:
         c.paused = False
         _save_state(session_id, c)
         imu_runner.set_t0(session_id, c.start_at_ms)  # pre-connected wrists store from t = 0
-        return StartOut(command=c.command, start_at_ms=c.start_at_ms, devices=len(c.devices))
+        out = StartOut(command=c.command, start_at_ms=c.start_at_ms, devices=len(c.devices))
+    folder = _take_folder(session_id)
+    if folder is not None:
+        # A take turns from a draft into a recording here (it joins its dataset's list).
+        dataset_store.update_take_json(folder, t0_ms=out.start_at_ms)
+    return out
 
 
 @_master.post("/{session_id}/multicam/pause", response_model=CaptureState)

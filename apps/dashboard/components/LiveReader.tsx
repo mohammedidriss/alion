@@ -139,8 +139,10 @@ export function LiveReader({
 /** The recorder's BLE error in words: "not found" usually means the unit is off,
  *  out of range, or still connected to another capture. */
 function heartErrorText(err: string): string {
-  if (/not found|no device/i.test(err))
-    return "strap not found — wear it with damp contacts, and close the Polar app on your phone.";
+  // The laptop can't hear the strap: it only advertises while worn, and stops
+  // once two devices (phone app, watch) hold it. The page retries every 10 s.
+  if (/not found|no device|failed to connect|timed? ?out/i.test(err))
+    return "the laptop can't reach the strap — wear it with damp contacts and disconnect it from the Polar app on your phone or a watch. Retrying…";
   return err;
 }
 
@@ -194,7 +196,9 @@ function HeartFace({
             </span>
             <span className="text-xs font-medium text-neutral-500">BPM</span>
           </div>
-          <div className="mt-1 truncate text-[11px] text-neutral-400">
+          <div
+            className={`mt-1 text-[11px] text-neutral-400 ${streaming ? "truncate" : "leading-snug"}`}
+          >
             {streaming
               ? bpm == null
                 ? "waiting for first beat…"

@@ -80,8 +80,13 @@ export function PolarH10Card() {
 
       {paired ? (
         <>
-          <span className="flex items-center gap-1 text-xs text-emerald-400">
-            <span className="inline-block h-1.5 w-1.5 rounded-full bg-emerald-500" />
+          {/* The strap this browser uses — not a live connection: the live
+              reader shows whether its heartbeats are coming in. */}
+          <span
+            className="flex items-center gap-1 text-xs text-neutral-300"
+            title="Selected strap. Whether it's connected shows in the live reader's heart."
+          >
+            <span className="inline-block h-1.5 w-1.5 rounded-full bg-neutral-500" />
             {paired.name.replace("Polar H10 ", "")}
           </span>
           <button

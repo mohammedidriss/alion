@@ -399,12 +399,15 @@ export interface ImuBleStatus {
 export interface ProtocolBlockSpec {
   key: string;
   title: string;
-  kind: "typed" | "negative" | "free";
+  kind: "typed" | "combo" | "negative" | "free";
   punch_type: string | null;
   side: "lead" | "rear" | "both" | null;
   reps: number | null;
   duration_s: number | null;
   hint: string;
+  sequence: [string, "lead" | "rear"][] | null; // combo: punches in order
+  pace_s: number | null; // combo: seconds between combos
+  callout: string; // combo: what automatic mode says, e.g. "One-two"
 }
 
 export interface ProtocolBlock {
@@ -508,6 +511,8 @@ export interface Take {
   fighter_id: string;
   fighter_name: string | null;
   status: "recording" | "completed" | "discarded";
+  /** False for a draft: "Record take" opened it, the cameras haven't started. */
+  started: boolean;
   started_at: string;
   ended_at: string | null;
   duration_ms: number;
@@ -790,6 +795,8 @@ export interface CrossCheckSummary {
 
 export interface TakeCrossCheck extends CrossCheckSummary {
   blocks: { key: string; counted: number; confirmed: number; unconfirmed: number }[];
+  /** The labels were relabeled with the wrists swapped (protocol card). */
+  labels_swapped: boolean;
 }
 
 export interface RoundsExportResponse {

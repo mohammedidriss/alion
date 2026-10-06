@@ -6,7 +6,9 @@
  * Once the cameras roll it walks the protocol plan by itself: call the block and
  * count down → start the block at "go" → a beep cues every punch (the first one
  * second after go) → end the block two seconds after the last beep → rest →
- * next block. Timed blocks (no punches, free shadowboxing) run for their length.
+ * next block. Combination blocks beep once per combination at their own fixed
+ * pace (3 s), not the single-punch pace. Timed blocks (no punches, free
+ * shadowboxing) run for their length.
  *
  * It drives the same protocol API as the manual Start/End buttons, so blocks, QA
  * counts and labels come out identical. Timing notes from the protocol side:
@@ -61,11 +63,32 @@ function remaining(p: TakeProtocol, skipped: Set<string>): ProtocolBlockSpec[] {
   return p.plan.filter((s) => latest.get(s.key)?.t_end_ms == null && !skipped.has(s.key));
 }
 
-// One punch per beep keeps the block's count checkable against its 30 cues.
+// One punch (or combination) per beep keeps the block's count checkable against its cues.
 const ONE_PER_BEEP = "One punch on each beep, then back to guard";
+const ONE_COMBO_PER_BEEP = "One combination on each beep, then back to guard";
+const COMBO_PACE_S = 3.0;
+
+const isCombo = (spec: ProtocolBlockSpec) => spec.kind === "combo";
+
+/** Seconds between beeps: a combination block's own pace, else the coach's. */
+function paceFor(spec: ProtocolBlockSpec, paceS: number): number {
+  return isCombo(spec) ? (spec.pace_s ?? COMBO_PACE_S) : paceS;
+}
+
+/** What the voice says for a block — "One-two" rather than "1-2". */
+function spoken(spec: ProtocolBlockSpec): string {
+  return (isCombo(spec) && spec.callout) || spec.title;
+}
+
+/** The punches of a combination, e.g. "jab · cross · lead hook". */
+function sequenceText(spec: ProtocolBlockSpec): string {
+  return (spec.sequence ?? [])
+    .map(([type, side]) => (type === "hook" || type === "uppercut" ? `${side} ${type}` : type))
+    .join(" · ");
+}
 
 function describe(spec: ProtocolBlockSpec): string {
-  if (spec.reps) return `${spec.reps} punches`;
+  if (spec.reps) return `${spec.reps} ${isCombo(spec) ? "combinations" : "punches"}`;
   if (spec.duration_s) return `${Math.round(spec.duration_s / 60)} minutes`;
   return "";
 }
@@ -170,7 +193,7 @@ export function AutoProtocol({ takeId }: { takeId: string }) {
         const { paceS, restS } = prefsRef.current;
         if (!first && restS > 0) {
           setPhase({ kind: "rest", next: spec, untilWall: Date.now() + restS * 1000 });
-          say(`Rest. Next, ${spec.title}.`);
+          say(`Rest. Next, ${spoken(spec)}.`);
           await wait(restS * 1000);
           if (!alive()) return;
         }
@@ -178,7 +201,13 @@ export function AutoProtocol({ takeId }: { takeId: string }) {
 
         // Call the block, then 3-2-1.
         setPhase({ kind: "countdown", spec, n: COUNTDOWN });
-        say(spec.reps ? `${spec.title}. ${ONE_PER_BEEP}.` : `${spec.title}. ${describe(spec)}.`);
+        say(
+          isCombo(spec)
+            ? `${spoken(spec)}, ${spec.reps} times. ${ONE_COMBO_PER_BEEP}.`
+            : spec.reps
+              ? `${spec.title}. ${ONE_PER_BEEP}.`
+              : `${spec.title}. ${describe(spec)}.`,
+        );
         await wait(2200);
         for (let n = COUNTDOWN; n >= 1; n--) {
           if (!alive()) return;
@@ -204,11 +233,12 @@ export function AutoProtocol({ takeId }: { takeId: string }) {
         current.current = open ? { key: spec.key, index: open.index } : null;
 
         const now = Date.now();
+        const pace = paceFor(spec, paceS);
         let blockMs: number;
         if (spec.reps) {
           const base = cueNow() + FIRST_BEEP_S;
-          for (let i = 0; i < spec.reps; i++) beep({ at: base + i * paceS, freq: 990, ms: 80 });
-          blockMs = (FIRST_BEEP_S + (spec.reps - 1) * paceS + END_AFTER_LAST_S) * 1000;
+          for (let i = 0; i < spec.reps; i++) beep({ at: base + i * pace, freq: 990, ms: 80 });
+          blockMs = (FIRST_BEEP_S + (spec.reps - 1) * pace + END_AFTER_LAST_S) * 1000;
         } else {
           say("Go.");
           const dur = spec.duration_s ?? 60;
@@ -220,7 +250,7 @@ export function AutoProtocol({ takeId }: { takeId: string }) {
           spec,
           firstBeepWall: now + FIRST_BEEP_S * 1000,
           endWall: now + blockMs,
-          paceS,
+          paceS: pace,
         });
         await wait(blockMs);
         if (!alive()) return;
@@ -329,7 +359,14 @@ export function AutoProtocol({ takeId }: { takeId: string }) {
   let big: React.ReactNode = null;
   if (phase.kind === "countdown") {
     big = (
-      <Display title={phase.spec.title} sub={describe(phase.spec)}>
+      <Display
+        title={phase.spec.title}
+        sub={
+          isCombo(phase.spec)
+            ? `${sequenceText(phase.spec)} · ${describe(phase.spec)}`
+            : describe(phase.spec)
+        }
+      >
         <span className="text-6xl font-bold tabular-nums text-amber-300">{phase.n}</span>
       </Display>
     );
@@ -341,7 +378,11 @@ export function AutoProtocol({ takeId }: { takeId: string }) {
         Math.max(0, Math.floor((now - phase.firstBeepWall) / (phase.paceS * 1000)) + 1),
       );
       big = (
-        <Display title={spec.title} sub={ONE_PER_BEEP} live>
+        <Display
+          title={spec.title}
+          sub={isCombo(spec) ? `${sequenceText(spec)} — ${ONE_COMBO_PER_BEEP}` : ONE_PER_BEEP}
+          live
+        >
           <span className="text-6xl font-bold tabular-nums">
             {n}
             <span className="text-2xl text-neutral-500"> / {spec.reps}</span>
@@ -452,6 +493,7 @@ export function AutoProtocol({ takeId }: { takeId: string }) {
               className="w-16 rounded-md border border-white/10 bg-black/30 px-2 py-1 text-neutral-200"
             />
             s / punch
+            <span className="text-neutral-600">(combinations: every 3 s)</span>
           </label>
           <label className="flex items-center gap-2">
             Rest

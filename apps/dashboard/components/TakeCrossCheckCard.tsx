@@ -53,13 +53,19 @@ export function TakeCrossCheckCard({ takeId }: { takeId: string }) {
         </p>
       ) : (
         <>
-          {xc.hands_swapped && (
-            <p className="rounded-lg border border-amber-700/50 bg-amber-950/40 px-3 py-2 text-sm text-amber-200">
-              The cameras saw the opposite hand to the wrist sensors on most punches — the sensors
-              were on the wrong wrists in this take. Check the labels&apos; left / right before
-              exporting.
-            </p>
-          )}
+          {xc.hands_swapped &&
+            (xc.labels_swapped ? (
+              <p className="rounded-lg border border-emerald-800/50 bg-emerald-950/30 px-3 py-2 text-sm text-emerald-200">
+                The cameras confirm the wrist sensors were on the wrong wrists — and this
+                take&apos;s labels are already corrected (Swap wrists).
+              </p>
+            ) : (
+              <p className="rounded-lg border border-amber-700/50 bg-amber-950/40 px-3 py-2 text-sm text-amber-200">
+                The cameras saw the opposite hand to the wrist sensors on most punches — the
+                sensors were on the wrong wrists in this take. Use Swap wrists in the protocol
+                card below to relabel it before exporting.
+              </p>
+            ))}
           {!xc.wrist && (
             <p className="text-sm text-amber-300/80">
               No wrist-sensor data in this take — only the cameras&apos; estimate (

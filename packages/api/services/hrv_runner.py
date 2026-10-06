@@ -167,6 +167,9 @@ def _run_stream(
                 extra={"_ctx_session_id": str(session_id)},
             )
     finally:
+        # The stream is over either way: make sure a BLE thread still connecting in
+        # the background lets go of the strap.
+        stop_event.set()
         with _lock:
             _active_jobs.pop(session_id, None)
             _stop_events.pop(session_id, None)

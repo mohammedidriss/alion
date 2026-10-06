@@ -31,8 +31,16 @@ from api.routes.capture_coord import JoinInfo
 from api.routes.imu_ble import ImuBleStatus, session_status
 from api.routes.live import LiveHeart, LiveOut, hr_zone, max_hr_for
 from api.routes.sessions import CrossCheckCamera, CrossCheckSummary
-from api.services import cross_check, dataset_store, hrv_runner, imu_devices, imu_runner
+from api.services import (
+    cross_check,
+    dataset_protocol,
+    dataset_store,
+    hrv_runner,
+    imu_devices,
+    imu_runner,
+)
 from store import (
+    ConsentEnum,
     DatasetCreate,
     DatasetParticipantIn,
     DatasetRead,
@@ -75,7 +83,9 @@ class TakeOut(BaseModel):
     fighter_id: UUID
     fighter_name: str | None = None
     status: str
-    started_at: datetime
+    # False for a draft: "Record take" opened it, but the cameras haven't started.
+    started: bool = True
+    started_at: datetime  # when the cameras started (when it was opened, for a draft)
     ended_at: datetime | None = None
     duration_ms: float
     notes: str | None = None
@@ -117,9 +127,19 @@ class HrStatusOut(BaseModel):
 # --------------------------------------------------------------------------
 
 
+def _is_draft(take: DatasetTake) -> bool:
+    """Opened with "Record take" but the cameras never started: nothing recorded,
+    so it isn't part of the dataset (not listed, not counted, reused next time)."""
+    if take.status != TakeStatusEnum.RECORDING:
+        return False
+    folder = dataset_store.take_dir(take.id)
+    return folder is None or not dataset_store.started(folder)
+
+
 def _take_out(take: DatasetTake, fighters: FighterRepo, dataset_name: str | None) -> TakeOut:
     fighter = fighters.get(take.fighter_id)
     folder = dataset_store.take_dir(take.id)
+    t0 = dataset_store.read_take_json(folder).get("t0_ms") if folder else None
     return TakeOut(
         id=take.id,
         dataset_id=take.dataset_id,
@@ -127,7 +147,8 @@ def _take_out(take: DatasetTake, fighters: FighterRepo, dataset_name: str | None
         fighter_id=take.fighter_id,
         fighter_name=fighter.name if fighter else None,
         status=str(take.status),
-        started_at=take.started_at,
+        started=not _is_draft(take),
+        started_at=datetime.fromtimestamp(t0 / 1000, UTC) if t0 else take.started_at,
         ended_at=take.ended_at,
         duration_ms=take.duration_ms,
         notes=take.notes,
@@ -175,7 +196,7 @@ def _require_recording(take: DatasetTake) -> None:
 def list_datasets(repo: DatasetRepo = Depends(dataset_repo)) -> list[DatasetSummary]:
     out = []
     for d in repo.list_all():
-        takes = repo.takes(d.id)
+        takes = [t for t in repo.takes(d.id) if not _is_draft(t)]
         out.append(
             DatasetSummary(
                 **DatasetRead.model_validate(d, from_attributes=True).model_dump(),
@@ -203,7 +224,7 @@ def get_dataset(
     d = repo.get(dataset_id)
     if d is None:
         raise HTTPException(status_code=404, detail="dataset not found")
-    takes = repo.takes(dataset_id)
+    takes = [t for t in repo.takes(dataset_id) if not _is_draft(t)]
     participants = []
     for p in repo.participants(dataset_id):
         f = fighters.get(p.fighter_id)
@@ -262,10 +283,19 @@ def create_take(
     repo: DatasetRepo = Depends(dataset_repo),
     fighters: FighterRepo = Depends(fighter_repo),
 ) -> TakeOut:
-    """Start a new take for a participant — refused unless their consent allows it."""
+    """Open a take for a participant — refused unless their consent allows it.
+
+    It's a draft until the cameras start: the phones and sensors connect to it, but
+    it isn't in the dataset yet. The participant's unstarted draft is reused, so
+    opening "Record take" and leaving adds nothing."""
     d = repo.get(dataset_id)
     if d is None:
         raise HTTPException(status_code=404, detail="dataset not found")
+    p = repo.participant(dataset_id, body.fighter_id)
+    if p is not None and ConsentEnum(p.consent).may_record:
+        for t in repo.takes(dataset_id):
+            if t.fighter_id == body.fighter_id and _is_draft(t) and dataset_store.take_dir(t.id):
+                return _take_out(t, fighters, d.name)
     try:
         take = repo.create_take(dataset_id, body.fighter_id)
     except ValueError as e:
@@ -487,6 +517,9 @@ class TakeCrossCheckBlock(BaseModel):
 
 class TakeCrossCheckOut(CrossCheckSummary):
     blocks: list[TakeCrossCheckBlock] = Field(default_factory=list)
+    # The take's labels were already relabeled with the wrists swapped (protocol
+    # card → Swap wrists); `hands` stays the verdict on the raw imu.csv.
+    labels_swapped: bool = False
 
 
 @router.get("/takes/{take_id}/cross-check", response_model=TakeCrossCheckOut | None)
@@ -534,4 +567,5 @@ def take_cross_check(
         unconfirmed=t["unconfirmed"],
         cameras=[CrossCheckCamera(**c) for c in xc["cameras"]],
         blocks=blocks,
+        labels_swapped=dataset_protocol.hands_swapped(protocol),
     )

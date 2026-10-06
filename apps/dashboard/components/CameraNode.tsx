@@ -28,13 +28,17 @@ const VIDEO_BPS = 2_500_000;
  * with "Could not start video source", and a busy or blocked microphone fails the
  * whole request — so each step asks for less, ending at "any camera, no audio".
  */
-async function openCamera(laptop: boolean): Promise<MediaStream> {
+async function openCamera(laptop: boolean, deviceId?: string | null): Promise<MediaStream> {
   const back = { facingMode: { ideal: "environment" } };
+  const pick = deviceId ? { deviceId: { exact: deviceId } } : {};
   const attempts: MediaStreamConstraints[] = laptop
     ? [
-        { video: { width: { ideal: 1280 }, height: { ideal: 720 }, frameRate: { ideal: 30 } }, audio: true },
-        { video: true, audio: true },
-        { video: true },
+        {
+          video: { ...pick, width: { ideal: 1280 }, height: { ideal: 720 }, frameRate: { ideal: 30 } },
+          audio: true,
+        },
+        { video: deviceId ? pick : true, audio: true },
+        { video: deviceId ? pick : true },
       ]
     : [
         {
@@ -57,6 +61,29 @@ async function openCamera(laptop: boolean): Promise<MediaStream> {
     }
   }
   throw last;
+}
+
+// The laptop's camera choice, remembered in this browser. Without one, the browser
+// default can be a camera that opens but shows nothing here: a virtual camera (black
+// unless its app is running) or an iPhone through Continuity Camera (which also
+// takes that iPhone away from its own camera page).
+const LAPTOP_CAMERA_KEY = "alion.laptopCameraId";
+const VIRTUAL_CAMERA = /virtual|vcam|obs|snap camera|manycam|camo|desk view|continuity|iphone|ipad/i;
+const BUILT_IN_CAMERA = /facetime|built-?in|integrated/i;
+
+function savedLaptopCamera(): string | null {
+  try {
+    return localStorage.getItem(LAPTOP_CAMERA_KEY);
+  } catch {
+    return null;
+  }
+}
+
+/** The camera to use: the one picked before, else the built-in, else any real one. */
+function preferredCamera(cams: MediaDeviceInfo[], saved: string | null): string | null {
+  if (saved && cams.some((c) => c.deviceId === saved)) return saved;
+  const real = cams.filter((c) => !VIRTUAL_CAMERA.test(c.label));
+  return (real.find((c) => BUILT_IN_CAMERA.test(c.label)) ?? real[0] ?? cams[0])?.deviceId ?? null;
 }
 
 /** A camera failure in words a coach can act on. */
@@ -135,6 +162,9 @@ export function CameraNode({
   const [punchCount, setPunchCount] = useState(0);
   const [paused, setPaused] = useState(false);
   const [err, setErr] = useState<string | null>(null);
+  // Laptop only: the cameras this computer has, and the one in use.
+  const [cams, setCams] = useState<MediaDeviceInfo[]>([]);
+  const [camId, setCamId] = useState<string | null>(null);
 
   const busy = phase === "countdown" || phase === "recording" || uploading;
   useEffect(() => {
@@ -156,7 +186,33 @@ export function CameraNode({
         // context) the device still registers and joins the sync.
         try {
           if (!navigator.mediaDevices?.getUserMedia) throw new Error("no getUserMedia");
-          stream = await openCamera(tile);
+          const saved = tile ? savedLaptopCamera() : null;
+          const videoInputs = async () =>
+            (await navigator.mediaDevices.enumerateDevices()).filter((d) => d.kind === "videoinput");
+          try {
+            stream = await openCamera(tile, saved).catch(() => openCamera(tile)); // saved one unplugged
+          } catch (first) {
+            // The browser's default camera wouldn't start (e.g. an iPhone busy as a
+            // phone camera): a laptop tries its preferred camera before giving up.
+            const want = tile ? preferredCamera(await videoInputs(), saved) : null;
+            if (!want) throw first;
+            stream = await openCamera(true, want);
+          }
+          if (tile) {
+            // Labels are readable once the camera is allowed: switch to the preferred
+            // camera if the browser opened a different one.
+            const list = await videoInputs();
+            const want = preferredCamera(list, saved);
+            const got = stream.getVideoTracks()[0]?.getSettings().deviceId ?? null;
+            if (want && want !== got) {
+              stream.getTracks().forEach((t) => t.stop());
+              stream = await openCamera(true, want).catch(() => openCamera(true));
+            }
+            if (!cancelled) {
+              setCams(list);
+              setCamId(stream.getVideoTracks()[0]?.getSettings().deviceId ?? want);
+            }
+          }
           if (cancelled) {
             stream.getTracks().forEach((t) => t.stop());
             return;
@@ -170,6 +226,13 @@ export function CameraNode({
           if (!cancelled) {
             setNoCamera(true);
             setCamError(cameraErrorText(camErr));
+            if (tile) {
+              // Still offer the laptop's cameras, so another one can be picked.
+              navigator.mediaDevices
+                ?.enumerateDevices()
+                .then((d) => !cancelled && setCams(d.filter((x) => x.kind === "videoinput")))
+                .catch(() => {});
+            }
           }
         }
         if (cancelled) return;
@@ -185,9 +248,34 @@ export function CameraNode({
     return () => {
       cancelled = true;
       stream?.getTracks().forEach((t) => t.stop());
+      streamRef.current?.getTracks().forEach((t) => t.stop()); // a camera switched to since
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [cap, token]);
+
+  /** Laptop: use another camera (remembered for next time). Not while recording —
+   *  the recorder holds the current stream. */
+  const switchCamera = useCallback(async (id: string) => {
+    try {
+      localStorage.setItem(LAPTOP_CAMERA_KEY, id);
+    } catch {
+      /* not remembered — still switches */
+    }
+    try {
+      const next = await openCamera(true, id);
+      streamRef.current?.getTracks().forEach((t) => t.stop());
+      streamRef.current = next;
+      if (videoRef.current) {
+        videoRef.current.srcObject = next;
+        videoRef.current.play().catch(() => {});
+      }
+      setCamId(id);
+      setNoCamera(false);
+      setCamError(null);
+    } catch (e) {
+      setCamError(cameraErrorText(e));
+    }
+  }, []);
 
   // Heartbeat + poll the coach's command; drive the synchronized start.
   useEffect(() => {
@@ -509,6 +597,21 @@ export function CameraNode({
     return (
       <div className="relative aspect-video w-full overflow-hidden rounded-xl border border-white/10 bg-black">
         <video ref={videoRef} autoPlay playsInline muted className="h-full w-full object-contain" />
+        {cams.length > 1 && (phase === "ready" || phase === "connecting" || phase === "stopped") && (
+          <select
+            value={camId ?? ""}
+            onChange={(e) => switchCamera(e.target.value)}
+            aria-label="Laptop camera"
+            title="Which camera this laptop records with"
+            className="absolute right-1 top-1 max-w-[60%] truncate rounded bg-black/70 px-1.5 py-0.5 text-[10px] text-neutral-200"
+          >
+            {cams.map((c, i) => (
+              <option key={c.deviceId} value={c.deviceId}>
+                {c.label || `Camera ${i + 1}`}
+              </option>
+            ))}
+          </select>
+        )}
         {noCamera && (
           <div className="absolute inset-0 grid place-items-center p-2 text-center text-[10px] leading-tight text-neutral-400">
             camera unavailable

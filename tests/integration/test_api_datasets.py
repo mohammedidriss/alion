@@ -52,6 +52,13 @@ def _take(client: TestClient, did: str, fid: str) -> str:
     return r.json()["id"]
 
 
+def _start_cameras(client: TestClient, tid: str) -> None:
+    """A camera joins and the coach presses Start all cameras."""
+    token = client.post(f"/takes/{tid}/multicam/join-info").json()["join_token"]
+    client.post(f"/takes/{tid}/multicam/register", json={"token": token, "label": "laptop"})
+    assert client.post(f"/takes/{tid}/multicam/start").status_code == 200
+
+
 def test_takes_need_consent_and_only_one_researcher_records_himself(
     authed_client: TestClient, stores: dict[str, Path]
 ) -> None:
@@ -71,8 +78,8 @@ def test_takes_need_consent_and_only_one_researcher_records_himself(
     assert _participant(authed_client, did, third, "self").status_code == 409
     # IRB signed → can record
     _participant(authed_client, did, other, "irb_signed")
-    _take(authed_client, did, me)
-    _take(authed_client, did, other)
+    _start_cameras(authed_client, _take(authed_client, did, me))
+    _start_cameras(authed_client, _take(authed_client, did, other))
 
     body = authed_client.get(f"/v2/datasets/{did}").json()
     consent = {p["name"]: (p["consent"], p["may_record"]) for p in body["participants"]}
@@ -80,6 +87,34 @@ def test_takes_need_consent_and_only_one_researcher_records_himself(
     assert len(body["takes"]) == 2
     listing = authed_client.get("/v2/datasets").json()
     assert listing[0]["participants"] == 2 and listing[0]["takes"] == 2
+
+
+def test_record_take_adds_nothing_until_the_cameras_start(
+    authed_client: TestClient, stores: dict[str, Path]
+) -> None:
+    """Opening "Record take" is a draft the phones and sensors connect to; it joins
+    the dataset only when Start all cameras is pressed."""
+    did = _dataset(authed_client)
+    fid = _fighter(authed_client, "Mohamad")
+    _participant(authed_client, did, fid, "self")
+
+    tid = _take(authed_client, did, fid)
+    take = authed_client.get(f"/v2/takes/{tid}").json()
+    assert take["status"] == "recording" and take["started"] is False
+    assert authed_client.get(f"/v2/datasets/{did}").json()["takes"] == []
+    assert authed_client.get("/v2/datasets").json()[0]["takes"] == 0
+    # leaving and pressing Record take again reopens the same draft — nothing piles up
+    assert _take(authed_client, did, fid) == tid
+    assert len(list((stores["datasets"] / did / "takes").iterdir())) == 1
+
+    _start_cameras(authed_client, tid)
+    take = authed_client.get(f"/v2/takes/{tid}").json()
+    assert take["started"] is True
+    listed = authed_client.get(f"/v2/datasets/{did}").json()["takes"]
+    assert [t["id"] for t in listed] == [tid]
+    assert authed_client.get("/v2/datasets").json()[0]["takes"] == 1
+    # the next Record take is a new take
+    assert _take(authed_client, did, fid) != tid
 
 
 def test_take_capture_lands_in_the_take_folder_never_in_session_storage(
@@ -238,7 +273,10 @@ def test_a_new_take_takes_the_wrist_sensors_over_and_discard_releases_them(
         )
     )
     _participant(authed_client, did, fid, "self")
-    first, second = _take(authed_client, did, fid), _take(authed_client, did, fid)
+    first = _take(authed_client, did, fid)
+    _start_cameras(authed_client, first)  # recording, so the next take is a new one
+    second = _take(authed_client, did, fid)
+    assert second != first
 
     assert authed_client.post(f"/v2/takes/{first}/imu/ble/start").json()["running"]
     # the next take starts while the first is still streaming → it takes the sensors over

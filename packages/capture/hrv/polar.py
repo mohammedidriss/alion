@@ -26,6 +26,7 @@ log = get_logger(__name__)
 # Bluetooth SIG Heart Rate Service / Measurement UUIDs
 HR_SERVICE_UUID = "0000180d-0000-1000-8000-00805f9b34fb"
 HR_MEASUREMENT_UUID = "00002a37-0000-1000-8000-00805f9b34fb"
+CONNECT_TIMEOUT_S = 12.0  # find + connect; the strap advertises ~1/s when it's free
 
 
 def parse_hr_measurement(data: bytearray) -> dict[str, Any]:
@@ -128,8 +129,13 @@ class PolarH10Source:
         )
         ble_thread.start()
 
-        # Wait for connection (up to 15 seconds).
+        # Wait for connection (up to 15 seconds; bleak itself gives up after
+        # CONNECT_TIMEOUT_S, so its own error usually lands first).
         if not self._connected.wait(timeout=15.0):
+            # Tell the BLE thread to let go: if it connected after all, it would
+            # otherwise hold the strap (which takes two connections) with nobody
+            # reading — and every retry after that would fail.
+            self._stop_event.set()
             raise RuntimeError(
                 f"Failed to connect to Polar H10 at {self.address} within 15s. "
                 f"Error: {self._error or 'timeout'}"
@@ -223,7 +229,7 @@ class PolarH10Source:
                 except queue.Full:
                     pass  # drop oldest if consumer is slow
 
-        async with BleakClient(self.address) as client:
+        async with BleakClient(self.address, timeout=CONNECT_TIMEOUT_S) as client:
             self._device_name = self.address
             # Try to read the device name characteristic
             try:

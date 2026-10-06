@@ -44,6 +44,14 @@ export default function TakePage({ params }: { params: { id: string; takeId: str
     load();
   }, [load]);
 
+  // A draft becomes the recording when Start all cameras is pressed — pick that up.
+  const draft = take?.status === "recording" && !take.started;
+  useEffect(() => {
+    if (!draft) return;
+    const id = setInterval(load, 3000);
+    return () => clearInterval(id);
+  }, [draft, load]);
+
   if (!take) {
     return (
       <div className="px-4 py-5 text-sm text-neutral-400 sm:px-8 sm:py-6">{err ?? "Loading…"}</div>
@@ -51,11 +59,13 @@ export default function TakePage({ params }: { params: { id: string; takeId: str
   }
 
   const recording = take.status === "recording";
-  const status = {
-    recording: "bg-amber-900/60 text-amber-200",
-    completed: "bg-emerald-900/60 text-emerald-200",
-    discarded: "bg-neutral-800 text-neutral-400",
-  }[take.status];
+  const status = draft
+    ? "bg-sky-900/60 text-sky-200"
+    : {
+        recording: "bg-amber-900/60 text-amber-200",
+        completed: "bg-emerald-900/60 text-emerald-200",
+        discarded: "bg-neutral-800 text-neutral-400",
+      }[take.status];
 
   return (
     <div className="space-y-6 px-4 py-5 sm:px-8 sm:py-6">
@@ -67,18 +77,25 @@ export default function TakePage({ params }: { params: { id: string; takeId: str
         <div>
           <div className="flex items-center gap-3">
             <h1 className="text-2xl font-semibold">Take · {take.fighter_name}</h1>
-            <span className={`pill ${status}`}>{take.status}</span>
+            <span
+              className={`pill ${status}`}
+              title={draft ? "Not in the dataset until you press Start all cameras" : undefined}
+            >
+              {draft ? "not started" : take.status}
+            </span>
             {/* Pair the heart-rate strap here — it streams with the cameras. */}
             {recording && <PolarH10Card />}
           </div>
           <p className="text-xs text-neutral-500">
-            {new Date(take.started_at).toLocaleString()} · dataset recording, not a training
-            session
+            {draft
+              ? "Connect the cameras and sensors — the take is recorded and added to the dataset when you press Start all cameras"
+              : `${new Date(take.started_at).toLocaleString()} · dataset recording, not a training session`}
           </p>
         </div>
         {recording ? <JoinQrCard takeId={take.id} compact /> : <div className="hidden lg:block" />}
         <div className="lg:justify-self-end">
           {take.status !== "discarded" &&
+            !draft &&
             (confirmDiscard ? (
               <span className="flex items-center gap-2 text-sm">
                 <span className="text-neutral-400">Exclude this take from the dataset?</span>

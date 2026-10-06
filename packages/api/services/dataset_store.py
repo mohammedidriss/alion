@@ -78,6 +78,12 @@ def update_take_json(folder: Path, **fields: Any) -> dict[str, Any]:
         return data
 
 
+def started(folder: Path) -> bool:
+    """The take's cameras have started (Start all cameras) — before that it's a
+    draft: open for phones and sensors to connect, but not yet a recording."""
+    return read_take_json(folder).get("t0_ms") is not None
+
+
 # ---------------------------------------------------------------------------
 # Clips
 # ---------------------------------------------------------------------------

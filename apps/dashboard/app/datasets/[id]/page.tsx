@@ -3,7 +3,8 @@
 /**
  * One dataset (ADR-013): its participants with their consent, and every recorded
  * take with what it captured. "Record take" is only offered when consent allows
- * it — the researcher recording himself (`self`) or a signed IRB consent.
+ * it — the researcher recording himself (`self`) or a signed IRB consent. A take
+ * is listed once its cameras have started; "Delete…" removes the takes ticked.
  */
 
 import Link from "next/link";
@@ -51,6 +52,8 @@ export default function DatasetPage({ params }: { params: { id: string } }) {
   const [fighters, setFighters] = useState<Fighter[]>([]);
   const [err, setErr] = useState<string | null>(null);
   const [busy, setBusy] = useState<string | null>(null);
+  // Delete: null = off; a set = picking takes (empty to start).
+  const [picked, setPicked] = useState<Set<string> | null>(null);
 
   const load = () =>
     api
@@ -199,10 +202,21 @@ export default function DatasetPage({ params }: { params: { id: string } }) {
               {kept.filter((t) => t.status === "completed").length} completed
             </span>
           </div>
-          <ExportButton
-            datasetId={ds.id}
-            disabled={!kept.some((t) => t.status === "completed")}
-          />
+          <div className="flex flex-wrap items-start gap-2">
+            <ExportButton
+              datasetId={ds.id}
+              disabled={!kept.some((t) => t.status === "completed")}
+            />
+            <DeleteTakes
+              takes={takes}
+              picked={picked}
+              setPicked={setPicked}
+              onDeleted={async (failed) => {
+                setErr(failed.length ? `Couldn't delete: ${failed.join("; ")}` : null);
+                await load();
+              }}
+            />
+          </div>
         </div>
         {takes.length === 0 ? (
           <p className="text-sm text-neutral-500">No takes recorded yet.</p>
@@ -211,6 +225,19 @@ export default function DatasetPage({ params }: { params: { id: string } }) {
             <table className="w-full min-w-[640px] text-sm">
               <thead className="text-left text-xs text-neutral-500">
                 <tr>
+                  {picked && (
+                    <th className="w-8 py-2 font-normal">
+                      <input
+                        type="checkbox"
+                        aria-label="Select all takes"
+                        checked={takes.length > 0 && picked.size === takes.length}
+                        onChange={(e) =>
+                          setPicked(new Set(e.target.checked ? takes.map((t) => t.id) : []))
+                        }
+                        className="h-4 w-4 accent-red-500"
+                      />
+                    </th>
+                  )}
                   <th className="py-2 font-normal">Recorded</th>
                   <th className="font-normal">Fighter</th>
                   <th className="font-normal">Status</th>
@@ -223,7 +250,20 @@ export default function DatasetPage({ params }: { params: { id: string } }) {
               </thead>
               <tbody className="divide-y divide-white/5">
                 {takes.map((t) => (
-                  <TakeRow key={t.id} take={t} datasetId={ds.id} />
+                  <TakeRow
+                    key={t.id}
+                    take={t}
+                    datasetId={ds.id}
+                    picked={picked ? picked.has(t.id) : null}
+                    onPick={(on) =>
+                      setPicked((prev) => {
+                        const next = new Set(prev ?? []);
+                        if (on) next.add(t.id);
+                        else next.delete(t.id);
+                        return next;
+                      })
+                    }
+                  />
                 ))}
               </tbody>
             </table>
@@ -234,7 +274,17 @@ export default function DatasetPage({ params }: { params: { id: string } }) {
   );
 }
 
-function TakeRow({ take, datasetId }: { take: Take; datasetId: string }) {
+function TakeRow({
+  take,
+  datasetId,
+  picked,
+  onPick,
+}: {
+  take: Take;
+  datasetId: string;
+  picked: boolean | null; // null: not picking takes to delete
+  onPick: (on: boolean) => void;
+}) {
   const clips = take.data.clips ?? [];
   const dim = take.status === "discarded" ? "opacity-50" : "";
   const status = {
@@ -243,7 +293,18 @@ function TakeRow({ take, datasetId }: { take: Take; datasetId: string }) {
     discarded: "bg-neutral-800 text-neutral-400",
   }[take.status];
   return (
-    <tr className={dim}>
+    <tr className={`${dim} ${picked ? "bg-red-950/30" : ""}`}>
+      {picked !== null && (
+        <td className="py-2">
+          <input
+            type="checkbox"
+            aria-label={`Select the take from ${new Date(take.started_at).toLocaleString()}`}
+            checked={picked}
+            onChange={(e) => onPick(e.target.checked)}
+            className="h-4 w-4 accent-red-500"
+          />
+        </td>
+      )}
       <td className="py-2">
         <Link
           href={`/datasets/${datasetId}/takes/${take.id}`}
@@ -330,6 +391,104 @@ function AddParticipant({
       >
         Add
       </button>
+    </div>
+  );
+}
+
+/** Delete takes for good: pick them in the list, then confirm. Each one's video,
+ *  sensor data and labels are removed from disk (DELETE /v2/takes/{id}). */
+function DeleteTakes({
+  takes,
+  picked,
+  setPicked,
+  onDeleted,
+}: {
+  takes: Take[];
+  picked: Set<string> | null;
+  setPicked: (p: Set<string> | null) => void;
+  onDeleted: (failed: string[]) => Promise<void>;
+}) {
+  const [confirm, setConfirm] = useState(false);
+  const [deleting, setDeleting] = useState(false);
+
+  if (picked === null) {
+    return (
+      <button
+        onClick={() => setPicked(new Set())}
+        disabled={takes.length === 0}
+        className="rounded-xl border border-red-400/40 px-3 py-1.5 text-sm text-red-300 hover:bg-red-500/10 disabled:opacity-40"
+      >
+        🗑 Delete…
+      </button>
+    );
+  }
+
+  const n = picked.size;
+  const live = takes.filter((t) => picked.has(t.id) && t.status === "recording").length;
+  const cancel = () => {
+    setConfirm(false);
+    setPicked(null);
+  };
+  const run = async () => {
+    setDeleting(true);
+    const failed: string[] = [];
+    for (const t of takes.filter((t) => picked.has(t.id))) {
+      try {
+        await api.deleteTake(t.id);
+      } catch (e) {
+        failed.push(`${new Date(t.started_at).toLocaleString()} (${errText(e)})`);
+      }
+    }
+    setDeleting(false);
+    setConfirm(false);
+    setPicked(null);
+    await onDeleted(failed);
+  };
+
+  return (
+    <div className="flex w-full flex-wrap items-center gap-2 rounded-xl border border-red-500/30 bg-red-950/20 px-3 py-2 text-sm sm:w-auto">
+      {confirm ? (
+        <>
+          <span className="text-red-200">
+            Delete {n} take{n === 1 ? "" : "s"} for good? Video, sensor data and labels are
+            removed from disk.
+            {live > 0 && ` ${live} still recording — its cameras stop and drop the clip.`}
+          </span>
+          <button
+            onClick={run}
+            disabled={deleting}
+            className="rounded-lg bg-red-600 px-3 py-1 font-semibold text-white hover:bg-red-500 disabled:opacity-60"
+          >
+            {deleting ? "Deleting…" : "Delete for good"}
+          </button>
+          <button
+            onClick={() => setConfirm(false)}
+            disabled={deleting}
+            className="rounded-lg border border-white/10 px-3 py-1 text-neutral-300"
+          >
+            Keep
+          </button>
+        </>
+      ) : (
+        <>
+          <span className="text-neutral-300">
+            {n ? `${n} selected` : "Tick the takes to delete"}
+          </span>
+          <button
+            onClick={() => setConfirm(true)}
+            disabled={n === 0}
+            className="rounded-lg bg-red-600 px-3 py-1 font-semibold text-white hover:bg-red-500 disabled:cursor-not-allowed disabled:bg-neutral-700 disabled:text-neutral-400"
+          >
+            Delete {n || ""} take{n === 1 ? "" : "s"}
+          </button>
+          <button
+            onClick={cancel}
+            className="rounded-lg border border-white/10 px-3 py-1 text-neutral-300"
+          >
+            Cancel
+          </button>
+        </>
+      )}
     </div>
   );
 }

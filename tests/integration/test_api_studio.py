@@ -100,6 +100,10 @@ def test_linked_phones_follow_the_capture_the_coach_opens(
     st = authed_client.get(f"/studio/state?token={link}").json()
     assert st["active"]["id"] == sid
 
+    # a deleted capture isn't offered to the phones any more
+    assert authed_client.delete(f"/sessions/{sid}").status_code == 204
+    assert authed_client.get(f"/studio/state?token={link}").json()["active"] is None
+
     # a forged studio link is refused; an unknown capture can't be made active
     assert authed_client.get("/studio/state?token=abc.def").status_code == 403
     missing = "00000000-0000-0000-0000-000000000000"

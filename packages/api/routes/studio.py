@@ -168,7 +168,12 @@ class StationState(BaseModel):
 
 
 @public.get("/state", response_model=StationState)
-def station_state(token: str, phone_id: str = "", label: str = "") -> StationState:
+def station_state(
+    token: str,
+    phone_id: str = "",
+    label: str = "",
+    sessions: SessionRepo = Depends(session_repo),
+) -> StationState:
     """A linked phone's poll: which capture to join now (and it's seen as linked)."""
     uid = _user_of(token)
     if phone_id:
@@ -181,6 +186,13 @@ def station_state(token: str, phone_id: str = "", label: str = "") -> StationSta
     if not a:
         return StationState(active=None)
     cid = UUID(a["id"])
+    exists = (
+        sessions.get(cid) is not None
+        if a["kind"] == "session"
+        else dataset_store.take_dir(cid) is not None
+    )
+    if not exists:
+        return StationState(active=None)  # deleted since — wait for the next capture
     return StationState(
         active=StationActive(
             kind=a["kind"],  # type: ignore[arg-type]
