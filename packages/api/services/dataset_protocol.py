@@ -34,7 +34,7 @@ import numpy as np
 from analyze.imu_punches import MIN_GAP_MS, PROFILES, SMOOTH_MS, THRESHOLD_G, detect_punches
 
 Side = Literal["lead", "rear", "both"]
-Kind = Literal["typed", "negative", "free"]
+Kind = Literal["typed", "combo", "negative", "free"]
 HANDS = ("left", "right")
 
 
@@ -48,9 +48,14 @@ class BlockSpec:
     reps: int | None = None
     duration_s: int | None = None
     hint: str = ""
+    # Combo blocks: the punches thrown on each beep, in order, and the beep spacing.
+    sequence: tuple[tuple[str, Side], ...] | None = None
+    pace_s: float | None = None
+    callout: str = ""  # what automatic mode says for the combo, e.g. "One-two"
 
 
-# Six typed blocks give the 6-class type classifier (H2b) its classes; the
+# Six typed blocks give the 6-class type classifier (H2b) its classes; combos put
+# the same punches in fight-pace sequences with every punch still labeled; the
 # negatives teach the detector what isn't a punch; free shadowboxing is the
 # realistic held-out test material.
 PLAN: list[BlockSpec] = [
@@ -60,6 +65,50 @@ PLAN: list[BlockSpec] = [
     BlockSpec("rear_hook", "Rear hook", "typed", "hook", "rear", reps=30),
     BlockSpec("lead_uppercut", "Lead uppercut", "typed", "uppercut", "lead", reps=30),
     BlockSpec("rear_uppercut", "Rear uppercut", "typed", "uppercut", "rear", reps=30),
+    BlockSpec(
+        "combo_12",
+        "1-2",
+        "combo",
+        side="both",
+        reps=15,
+        pace_s=3.0,
+        sequence=(("jab", "lead"), ("cross", "rear")),
+        callout="One-two",
+        hint="Jab, cross at natural speed, then back to guard",
+    ),
+    BlockSpec(
+        "combo_123",
+        "1-2-3",
+        "combo",
+        side="both",
+        reps=15,
+        pace_s=3.0,
+        sequence=(("jab", "lead"), ("cross", "rear"), ("hook", "lead")),
+        callout="One-two-three",
+        hint="Jab, cross, lead hook",
+    ),
+    BlockSpec(
+        "combo_112",
+        "1-1-2",
+        "combo",
+        side="both",
+        reps=15,
+        pace_s=3.0,
+        sequence=(("jab", "lead"), ("jab", "lead"), ("cross", "rear")),
+        callout="One-one-two",
+        hint="Double jab, cross",
+    ),
+    BlockSpec(
+        "combo_32",
+        "3-2",
+        "combo",
+        side="both",
+        reps=15,
+        pace_s=3.0,
+        sequence=(("hook", "lead"), ("cross", "rear")),
+        callout="Three-two",
+        hint="Lead hook, cross",
+    ),
     BlockSpec(
         "negatives",
         "No punches",
@@ -236,6 +285,67 @@ class BlockResult:
     labels: list[dict[str, Any]]
 
 
+# Combos (provisional — check against the first combo take's video). Inside a
+# combo, punches come 0.2–0.6 s apart, so detection uses a shorter gap and a
+# threshold between the hook and default settings; combos themselves are ~3 s
+# apart, so a lull longer than COMBO_GAP_MS starts the next one.
+COMBO_DETECT: dict[str, Any] = {"threshold_g": 1.2, "min_gap_ms": 250.0}
+COMBO_GAP_MS = 1000.0
+COMBO_MIN_STEP_MS = 120.0  # the next punch of a combo comes at least this much later
+
+
+def _label_combos(
+    wrists: Wrists, index: int, spec: BlockSpec, t0: float, t1: float, stance: str | None
+) -> BlockResult:
+    """Group the block's bursts (both wrists) into combos and walk each combo's
+    sequence in order: every punch takes the next burst on its own wrist. Only
+    complete combos are labeled; `detected` counts them, `off_hand` counts the
+    incomplete ones for review."""
+    lead = lead_hand(stance)
+    rear = "right" if lead == "left" else "left"
+    bursts: list[tuple[float, str]] = []
+    for hand, (t, ax, ay, az) in wrists.items():
+        inside = (t >= t0) & (t <= t1)
+        bursts += [
+            (e.t_ms, hand)
+            for e in detect_punches(t[inside], ax[inside], ay[inside], az[inside], **COMBO_DETECT)
+        ]
+    bursts.sort()
+    groups: list[list[tuple[float, str]]] = []
+    for b in bursts:
+        if groups and b[0] - groups[-1][-1][0] <= COMBO_GAP_MS:
+            groups[-1].append(b)
+        else:
+            groups.append([b])
+    complete, incomplete = 0, 0
+    labels: list[dict[str, Any]] = []
+    for group in groups:
+        combo: list[dict[str, Any]] = []
+        used: set[int] = set()
+        prev = float("-inf")
+        for punch_type, side in spec.sequence or ():
+            hand = lead if side == "lead" else rear
+            pick = next(
+                (
+                    k
+                    for k, (tk, hk) in enumerate(group)
+                    if hk == hand and k not in used and tk >= prev + COMBO_MIN_STEP_MS
+                ),
+                None,
+            )
+            if pick is None:
+                break
+            used.add(pick)
+            prev = group[pick][0]
+            combo.append({"t_ms": round(prev, 1), "hand": hand, "punch_type": punch_type})
+        if len(combo) == len(spec.sequence or ()):
+            complete += 1
+            labels += combo
+        else:
+            incomplete += 1
+    return BlockResult(index, spec.key, complete, incomplete, labels)
+
+
 def label_block(
     wrists: Wrists,
     index: int,
@@ -250,6 +360,8 @@ def label_block(
     t_end = block["t_end_ms"] if block.get("t_end_ms") is not None else until_ms
     if t_end is None:
         return BlockResult(index, spec.key, 0, 0, [])
+    if spec.kind == "combo":
+        return _label_combos(wrists, index, spec, block["t_start_ms"], t_end, stance)
     wanted = expected_hands(spec, stance)
     detected, off_hand = 0, 0
     labels: list[dict[str, Any]] = []

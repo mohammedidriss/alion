@@ -12,9 +12,11 @@ Splits follow docs/studies/RQ2_DATASET_PROTOCOL.md §7:
 - **by_fighter** (3+ fighters): whole fighters are held out, so no person is in
   both train and test. A seeded shuffle makes the split stable across exports.
 - **pilot** (1–2 fighters): there's no fighter to hold out, so each take is
-  split by block — the scripted blocks (and the no-punch block, for negatives)
-  train, free shadowboxing tests. Fine for proving the pipeline; it can't
-  support a claim that the model generalizes to other people.
+  split by block — the single-punch blocks (and the no-punch block, for
+  negatives) train; combos and free shadowboxing test, so the model is scored
+  on punches thrown in sequence after learning them in isolation. Fine for
+  proving the pipeline; it can't support a claim that the model generalizes to
+  other people.
 
 Fighters appear by id only — names stay in the database.
 """
@@ -114,7 +116,7 @@ def _split_pilot(entries: list[dict[str, Any]]) -> dict[str, list[dict[str, Any]
     for e in entries:
         for b in e["blocks"]:
             kind = proto.SPECS[b["key"]].kind
-            splits["test" if kind == "free" else "train"].append(
+            splits["test" if kind in ("free", "combo") else "train"].append(
                 {
                     "take_id": e["take_id"],
                     "t_start_ms": b["t_start_ms"],
@@ -177,9 +179,9 @@ def build_manifest(
         splits = _split_pilot(entries)
         if entries:
             warnings.append(
-                f"pilot split: {n_fighters} fighter(s), so nobody is held out — scripted "
-                "blocks train, free shadowboxing tests; results can't claim generalization "
-                f"to other people (needs {BY_FIGHTER_MIN}+ fighters)"
+                f"pilot split: {n_fighters} fighter(s), so nobody is held out — single-punch "
+                "blocks train, combos and free shadowboxing test; results can't claim "
+                f"generalization to other people (needs {BY_FIGHTER_MIN}+ fighters)"
             )
 
     return {

@@ -222,12 +222,18 @@ export function ProtocolCard({ takeId, readOnly = false }: { takeId: string; rea
                         title={
                           spec.kind === "negative"
                             ? "Bursts in the no-punch block — should be 0"
-                            : ok
-                              ? "Detected punches"
-                              : `Expected ~${spec.reps}. Check for missed or extra punches when reviewing.`
+                            : spec.kind === "combo"
+                              ? `Complete combos (every punch found, in order); ${b?.off_hand ?? 0} incomplete`
+                              : ok
+                                ? "Detected punches"
+                                : `Expected ~${spec.reps}. Check for missed or extra punches when reviewing.`
                         }
                       >
-                        {spec.kind === "negative" ? `${b?.off_hand ?? 0} bursts` : (b?.detected ?? "–")}
+                        {spec.kind === "negative"
+                          ? `${b?.off_hand ?? 0} bursts`
+                          : spec.kind === "combo"
+                            ? `${b?.detected ?? 0} combos`
+                            : (b?.detected ?? "–")}
                       </span>
                       {!readOnly && active == null && (
                         <button

@@ -214,7 +214,11 @@ def test_blocks_need_the_cameras_and_a_real_take(authed_client: TestClient, cloc
 def test_plan_lists_the_standard_blocks(authed_client: TestClient) -> None:
     plan = authed_client.get("/v2/protocol/plan").json()
     assert [b["key"] for b in plan][:2] == ["jab", "cross"]
-    assert {b["kind"] for b in plan} == {"typed", "negative", "free"}
+    assert {b["kind"] for b in plan} == {"typed", "combo", "negative", "free"}
+    combos = {b["key"]: b for b in plan if b["kind"] == "combo"}
+    assert set(combos) == {"combo_12", "combo_123", "combo_112", "combo_32"}
+    assert combos["combo_123"]["sequence"] == [["jab", "lead"], ["cross", "rear"], ["hook", "lead"]]
+    assert all(c["reps"] == 15 and c["pace_s"] == 3.0 and c["callout"] for c in combos.values())
 
 
 # --------------------------------------------------------------------------
@@ -370,3 +374,72 @@ def test_cameras_flag_a_swap_and_reviewed_labels_stay_protected(
         f"/v2/takes/{tid}/protocol/swap-wrists?overwrite=true", json={"swapped": True}
     )
     assert r.status_code == 200 and r.json()["imu_hands_swapped"] is True
+
+
+# --------------------------------------------------------------------------
+# Combos
+# --------------------------------------------------------------------------
+
+
+def test_combo_blocks_label_every_punch_in_order(authed_client: TestClient, clock: Clock) -> None:
+    tid = _take(authed_client, _dataset(authed_client), "orthodox")  # lead = left
+    left, right = [], []
+    bases = [1000.0 + 3000.0 * i for i in range(3)]
+    for b in bases:  # 1-2-3, with the jab's return to guard landing just before the cross
+        left += [b, b + 400.0, b + 900.0]  # jab, (return), lead hook
+        right += [b + 450.0]  # cross
+    _write_imu(tid, _imu_lines("left", 12, left) + _imu_lines("right", 12, right))
+    body = _block(authed_client, clock, tid, "combo_123", 0, 10000)
+
+    labels = json.loads((_folder(tid) / "labels.json").read_text())
+    got = [
+        (round(lab["t_ms"] - b, -1), lab["hand"], lab["punch_type"])
+        for b in bases
+        for lab in labels
+        if b - 200 <= lab["t_ms"] < b + 1500
+    ]
+    assert got == [(0.0, "left", "jab"), (450.0, "right", "cross"), (900.0, "left", "hook")] * 3
+    assert body["blocks"][0]["detected"] == 3 and body["blocks"][0]["off_hand"] == 0
+
+
+def test_double_jab_and_lead_hook_combos(authed_client: TestClient, clock: Clock) -> None:
+    tid = _take(authed_client, _dataset(authed_client), "southpaw")  # lead = right
+    _write_imu(
+        tid,
+        _imu_lines("right", 20, [1000, 1350, 10000])  # 1-1-2: jab, jab | 3-2: hook
+        + _imu_lines("left", 20, [1700, 10350]),  # 1-1-2: cross | 3-2: cross
+    )
+    _block(authed_client, clock, tid, "combo_112", 0, 5000)
+    _block(authed_client, clock, tid, "combo_32", 9000, 14000)
+    labels = json.loads((_folder(tid) / "labels.json").read_text())
+    assert [(round(lab["t_ms"], -1), lab["hand"], lab["punch_type"]) for lab in labels] == [
+        (1000.0, "right", "jab"),
+        (1350.0, "right", "jab"),
+        (1700.0, "left", "cross"),
+        (10000.0, "right", "hook"),
+        (10350.0, "left", "cross"),
+    ]
+
+
+def test_incomplete_combos_are_counted_not_labeled(authed_client: TestClient, clock: Clock) -> None:
+    tid = _take(authed_client, _dataset(authed_client), "orthodox")
+    # Three 1-2s; the second one's cross never came.
+    _write_imu(
+        tid, _imu_lines("left", 12, [1000, 4000, 7000]) + _imu_lines("right", 12, [1300, 7300])
+    )
+    body = _block(authed_client, clock, tid, "combo_12", 0, 10000)
+    assert body["blocks"][0]["detected"] == 2 and body["blocks"][0]["off_hand"] == 1
+    labels = json.loads((_folder(tid) / "labels.json").read_text())
+    assert [round(lab["t_ms"], -2) for lab in labels] == [1000, 1300, 7000, 7300]
+
+
+def test_pilot_split_tests_on_combos(authed_client: TestClient, clock: Clock) -> None:
+    did = _dataset(authed_client)
+    tid = _take(authed_client, did, "orthodox", consent="self")
+    _write_imu(tid, _imu_lines("left", 12, [1000, 6000]) + _imu_lines("right", 12, [6300]))
+    _block(authed_client, clock, tid, "jab", 0, 5000)
+    _block(authed_client, clock, tid, "combo_12", 5000, 9000)
+    _complete(authed_client, tid, 12000)
+    m = authed_client.post(f"/v2/datasets/{did}/export").json()
+    assert [s["block"] for s in m["splits"]["train"]] == ["jab"]
+    assert [s["block"] for s in m["splits"]["test"]] == ["combo_12"]

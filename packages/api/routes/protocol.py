@@ -41,6 +41,9 @@ class BlockSpecOut(BaseModel):
     reps: int | None
     duration_s: int | None
     hint: str
+    sequence: list[tuple[str, str]] | None = None  # combo: punches in order (type, side)
+    pace_s: float | None = None  # combo: seconds between combos
+    callout: str = ""  # combo: what automatic mode says, e.g. "One-two"
 
 
 class BlockOut(BaseModel):

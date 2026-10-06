@@ -85,14 +85,20 @@ The camera pipeline never contributes to its own ground truth.
 | 4 | Rear hook | 30 reps | `hook`, rear hand | type class 4 |
 | 5 | Lead uppercut | 30 reps | `uppercut`, lead hand | type class 5 |
 | 6 | Rear uppercut | 30 reps | `uppercut`, rear hand | type class 6 |
-| 7 | No punches | 2 min | — (no labels) | negatives: guard, footwork, slips, rolls, feints |
-| 8 | Free shadowboxing | 2 min | timed, type left blank | realistic test material |
+| 7 | 1-2 | 15 combos, 3 s apart | jab (lead), cross (rear) | punches in sequence |
+| 8 | 1-2-3 | 15 combos, 3 s apart | jab, cross, lead hook | punches in sequence |
+| 9 | 1-1-2 | 15 combos, 3 s apart | jab, jab (lead), cross | same-hand double |
+| 10 | 3-2 | 15 combos, 3 s apart | lead hook, cross | hook into a straight |
+| 11 | No punches | 2 min | — (no labels) | negatives: guard, footwork, slips, rolls, feints |
+| 12 | Free shadowboxing | 2 min | timed, type left blank | realistic test material |
 
 The six classes are punch type × lead/rear. Lead is the left hand for orthodox,
 the right for southpaw. Switch fighters record each stance as a separate
-take. One take yields ~180 typed punches plus ~2 min of each of
-negatives and free work. Throw each typed punch from guard and return to
-guard, one per beep.
+take. Throw each single punch from guard and return to guard, one per beep.
+In the combo blocks, throw the whole combination on each beep at natural
+speed, then return to guard before the next beep. One take yields ~180
+single punches, ~150 punches in combos, and ~2 min of each of negatives and
+free work.
 
 ## 5. How labels are made
 
@@ -133,6 +139,16 @@ already score against:
   counted as `off_hand`, not labeled. In the no-punch block every burst is a
   false alarm and is counted. In free shadowboxing both wrists are labeled with
   `punch_type: null`.
+- **Combos.** Bursts from both wrists are grouped into combos: a lull of more
+  than 1 s starts the next one, and combos are 3 s apart. Each combo's sequence
+  is then walked in order, and every punch takes the next burst on its own
+  wrist at least 120 ms after the previous punch. That means a jab's return to
+  guard that lands before the cross is never taken as the following hook.
+  Only complete combos are labeled. The block's count is complete combos (15
+  is the target), and incomplete ones are counted for review. Detection inside
+  combos uses a 1.2 g threshold and a 250 ms gap, so a double jab stays two
+  punches. These settings are provisional until the first combo take is
+  checked against video.
 - **Provenance.** Block times, the detector parameters, per-block counts and a
   checksum of the generated labels are stored in `{take}/protocol.json`.
 
@@ -164,8 +180,9 @@ unless asked explicitly (**Regenerate** then confirm).
 
 - **Split by fighter, never by clip or take.** The same person in train and
   test inflates every score. Hold out whole fighters.
-- **Test on free shadowboxing.** The scripted blocks are the easy case; free
-  combinations are what the system meets in practice.
+- **Test on punches in sequence.** Single scripted punches are the easy case.
+  Combos are the realistic case with known types; free shadowboxing is what
+  the system meets in practice.
 - **Pilot (now):** the researcher alone, ~2 takes, ≈ 400 typed punches.
   This proves the pipeline end to end. It can't support generalization claims,
   since there's no held-out fighter.
@@ -183,9 +200,11 @@ labels. Fighters appear by id only.
 - **3+ fighters → `by_fighter`:** about 20% of fighters are held out for test
   and 20% for validation. Whole takes go to their fighter's split, and a seeded
   shuffle makes the split identical on every export.
-- **1–2 fighters → `pilot`:** each take is split by block. The scripted and
-  no-punch blocks go to train, free shadowboxing to test. The export warns
-  that this can't support a claim about other people.
+- **1–2 fighters → `pilot`:** each take is split by block. The single-punch and
+  no-punch blocks go to train; combos and free shadowboxing go to test. So the
+  pilot asks whether punches learned in isolation are recognized inside
+  combinations. The export warns that this can't support a claim about other
+  people.
 
 ## 8. Where everything lives
 
