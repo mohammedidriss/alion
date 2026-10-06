@@ -82,6 +82,8 @@ class TakeOut(BaseModel):
     dataset_name: str | None = None
     fighter_id: UUID
     fighter_name: str | None = None
+    # recording · uploading (stopped; the cameras' video is still arriving) ·
+    # completed · discarded
     status: str
     # False for a draft: "Record take" opened it, but the cameras haven't started.
     started: bool = True
@@ -140,14 +142,19 @@ def _take_out(take: DatasetTake, fighters: FighterRepo, dataset_name: str | None
     fighter = fighters.get(take.fighter_id)
     folder = dataset_store.take_dir(take.id)
     t0 = dataset_store.read_take_json(folder).get("t0_ms") if folder else None
+    started = not _is_draft(take)
+    status = str(take.status)
+    if take.status == TakeStatusEnum.RECORDING and started:
+        if capture_coord.last_command(take.id) == "stop":
+            status = "uploading"  # Stop & save pressed; it completes when the clips land
     return TakeOut(
         id=take.id,
         dataset_id=take.dataset_id,
         dataset_name=dataset_name,
         fighter_id=take.fighter_id,
         fighter_name=fighter.name if fighter else None,
-        status=str(take.status),
-        started=not _is_draft(take),
+        status=status,
+        started=started,
         started_at=datetime.fromtimestamp(t0 / 1000, UTC) if t0 else take.started_at,
         ended_at=take.ended_at,
         duration_ms=take.duration_ms,
@@ -388,15 +395,23 @@ def take_complete(
     clips = dataset_store.clips(folder)
     if not clips:
         raise HTTPException(status_code=409, detail="no video was saved for this take")
+    # t = 0 was written at Start; keep it if the coordinator forgot it (API restart).
+    t0 = capture_coord.last_started_at_ms(take_id) or dataset_store.read_take_json(folder).get(
+        "t0_ms"
+    )
+    duration = body.duration_ms
+    stopped = capture_coord.stopped_at_ms(take_id)
+    if duration is None and t0 and stopped and stopped > t0:
+        duration = stopped - t0  # finished from a reloaded page: Start → Stop (no pauses)
     dataset_store.update_take_json(
         folder,
         status="completed",
-        t0_ms=capture_coord.last_started_at_ms(take_id),
-        duration_ms=body.duration_ms,
+        t0_ms=t0,
+        duration_ms=duration,
         ended_at=datetime.now(UTC).isoformat(),
         devices=clips,
     )
-    repo.finish_take(take.id, TakeStatusEnum.COMPLETED, body.duration_ms)
+    repo.finish_take(take.id, TakeStatusEnum.COMPLETED, duration)
     _release_capture(take_id)  # the client stops them too; this makes sure
     return {"status": "completed", "clips": len(clips)}
 

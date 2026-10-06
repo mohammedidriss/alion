@@ -159,6 +159,7 @@ export function CameraNode({
   const [elapsed, setElapsed] = useState(0);
   const [uploaded, setUploaded] = useState(false);
   const [uploading, setUploading] = useState(false);
+  const uploadingRef = useRef(false); // read by the heartbeat: the coach sees "uploading"
   const [punchCount, setPunchCount] = useState(0);
   const [paused, setPaused] = useState(false);
   const [err, setErr] = useState<string | null>(null);
@@ -285,11 +286,13 @@ export function CameraNode({
       const did = deviceIdRef.current;
       if (!did) return;
       try {
-        const status = pausedRef.current
-          ? "paused"
-          : phase === "recording"
-            ? "recording"
-            : "ready";
+        const status = uploadingRef.current
+          ? "uploading"
+          : pausedRef.current
+            ? "paused"
+            : phase === "recording"
+              ? "recording"
+              : "ready";
         const st = await api.multicamHeartbeat(cap, token, did, status, punchCountRef.current, labelRef.current);
         offsetRef.current = st.server_now_ms - Date.now();
         if (st.command === "start" && st.start_at_ms != null) {
@@ -447,6 +450,7 @@ export function CameraNode({
         }
         setRecInfo(`uploading ${(blob.size / 1_000_000).toFixed(1)} MB…`);
         setUploading(true);
+        uploadingRef.current = true;
         try {
           if (did) {
             await api.multicamUpload(cap, token, did, blob, startOffsetRef.current ?? undefined);
@@ -457,6 +461,7 @@ export function CameraNode({
           setRecInfo(e instanceof Error ? `upload failed: ${e.message}` : "upload failed");
         } finally {
           setUploading(false);
+          uploadingRef.current = false;
         }
       };
       rec.stop();

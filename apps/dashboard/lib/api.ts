@@ -510,7 +510,8 @@ export interface Take {
   dataset_name: string | null;
   fighter_id: string;
   fighter_name: string | null;
-  status: "recording" | "completed" | "discarded";
+  /** "uploading": Stop & save pressed, the cameras' video is still arriving. */
+  status: "recording" | "uploading" | "completed" | "discarded";
   /** False for a draft: "Record take" opened it, the cameras haven't started. */
   started: boolean;
   started_at: string;

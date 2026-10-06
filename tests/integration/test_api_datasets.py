@@ -117,6 +117,70 @@ def test_record_take_adds_nothing_until_the_cameras_start(
     assert _take(authed_client, did, fid) != tid
 
 
+def test_a_stopped_take_shows_uploading_until_it_is_saved(
+    authed_client: TestClient, stores: dict[str, Path], monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """After Stop & save the cameras are still sending their video (a 12-minute clip
+    is a few hundred MB): the take says "uploading", not "recording", until then."""
+    from uuid import UUID
+
+    from api.routes import capture_coord
+
+    monkeypatch.setattr(capture_coord, "_STATE_DIR", stores["datasets"].parent / "capture")
+    monkeypatch.setattr(capture_coord, "_START_DELAY_MS", 0)  # no 3-2-1 countdown here
+    did = _dataset(authed_client)
+    fid = _fighter(authed_client, "Mohamad")
+    _participant(authed_client, did, fid, "self")
+    tid = _take(authed_client, did, fid)
+    token = authed_client.post(f"/takes/{tid}/multicam/join-info").json()["join_token"]
+    devs = [
+        authed_client.post(
+            f"/takes/{tid}/multicam/register", json={"token": token, "label": n}
+        ).json()["device_id"]
+        for n in ("laptop", "iphone")
+    ]
+    authed_client.post(f"/takes/{tid}/multicam/start")
+    assert authed_client.get(f"/v2/takes/{tid}").json()["status"] == "recording"
+    time.sleep(0.05)
+
+    authed_client.post(f"/takes/{tid}/multicam/stop")
+    assert authed_client.get(f"/v2/takes/{tid}").json()["status"] == "uploading"
+    listed = authed_client.get(f"/v2/datasets/{did}").json()["takes"]
+    assert [t["status"] for t in listed] == ["uploading"]
+
+    def upload(dev: str) -> None:
+        r = authed_client.post(
+            f"/takes/{tid}/multicam/upload",
+            data={"token": token, "device_id": dev},
+            files={"file": ("c.webm", b"\x1a\x45\xdf\xa3" + b"x" * 100, "video/webm")},
+        )
+        assert r.status_code == 200
+
+    upload(devs[0])
+    folder = stores["datasets"] / did / "takes" / tid
+    # written under a temporary name, renamed only when complete
+    assert sorted(p.name for p in (folder / "video").iterdir()) == [
+        f"{devs[0]}.json",
+        f"{devs[0]}.webm",
+    ]
+
+    # the API restarts before the coach's page finishes the save (page reloaded):
+    # Start's t = 0 survives, and the length comes from Start → Stop
+    capture_coord._coords.clear()
+    assert capture_coord.last_started_at_ms(UUID(tid)) is not None
+    done = authed_client.post(f"/takes/{tid}/multicam/complete", json={})
+    assert done.status_code == 200
+    take = authed_client.get(f"/v2/takes/{tid}").json()
+    assert take["status"] == "completed" and take["duration_ms"] > 0
+    meta = json.loads((folder / "take.json").read_text())
+    assert meta["t0_ms"] is not None and len(meta["devices"]) == 1
+
+    # the phone's clip lands after the save: it joins the take's clip list
+    upload(devs[1])
+    meta = json.loads((folder / "take.json").read_text())
+    assert sorted(d["device_id"] for d in meta["devices"]) == sorted(devs)
+
+
 def test_take_capture_lands_in_the_take_folder_never_in_session_storage(
     authed_client: TestClient, stores: dict[str, Path]
 ) -> None:

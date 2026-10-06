@@ -44,13 +44,15 @@ export default function TakePage({ params }: { params: { id: string; takeId: str
     load();
   }, [load]);
 
-  // A draft becomes the recording when Start all cameras is pressed — pick that up.
+  // A draft becomes the recording when Start all cameras is pressed, and an
+  // uploading take completes when the last camera's video lands — pick both up.
   const draft = take?.status === "recording" && !take.started;
+  const uploading = take?.status === "uploading";
   useEffect(() => {
-    if (!draft) return;
+    if (!draft && !uploading) return;
     const id = setInterval(load, 3000);
     return () => clearInterval(id);
-  }, [draft, load]);
+  }, [draft, uploading, load]);
 
   if (!take) {
     return (
@@ -58,11 +60,13 @@ export default function TakePage({ params }: { params: { id: string; takeId: str
     );
   }
 
-  const recording = take.status === "recording";
+  // Uploading keeps the capture panel up: the cameras are still sending their video.
+  const recording = take.status === "recording" || take.status === "uploading";
   const status = draft
     ? "bg-sky-900/60 text-sky-200"
     : {
         recording: "bg-amber-900/60 text-amber-200",
+        uploading: "animate-pulse bg-sky-900/60 text-sky-200",
         completed: "bg-emerald-900/60 text-emerald-200",
         discarded: "bg-neutral-800 text-neutral-400",
       }[take.status];
@@ -138,6 +142,7 @@ export default function TakePage({ params }: { params: { id: string; takeId: str
           <MulticamPanel
             take={take}
             defaultLaptop
+            onStopping={load}
             onFinished={load}
             onDelete={async () => {
               // Delete for good, then a fresh take for the same fighter — the linked

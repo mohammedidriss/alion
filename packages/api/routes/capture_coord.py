@@ -30,6 +30,7 @@ import base64
 import hashlib
 import hmac
 import json
+import os
 import socket
 import threading
 import time
@@ -99,6 +100,7 @@ class _Coord:
     start_at_ms: float | None = None  # scheduled start on the server wall clock
     paused: bool = False  # coach pressed Pause — nodes hold recording, keep the clip
     last_start_ms: float | None = None  # t = 0 of the latest recording, kept after stop
+    stopped_ms: float | None = None  # when the coach pressed Stop (server wall clock)
 
 
 _lock = threading.Lock()
@@ -122,6 +124,7 @@ def _save_state(capture_id: UUID, c: _Coord) -> None:
                     "command": c.command,
                     "start_at_ms": c.start_at_ms,
                     "last_start_ms": c.last_start_ms,
+                    "stopped_ms": c.stopped_ms,
                     "paused": c.paused,
                 }
             )
@@ -136,6 +139,7 @@ def _load_state(capture_id: UUID, c: _Coord) -> None:
     except (OSError, ValueError):
         return
     c.last_start_ms = st.get("last_start_ms")
+    c.stopped_ms = st.get("stopped_ms")
     start_at = st.get("start_at_ms")
     if st.get("command") == "start" and start_at and _now_ms() - start_at < _STATE_MAX_AGE_MS:
         c.command, c.start_at_ms, c.paused = "start", start_at, bool(st.get("paused"))
@@ -169,6 +173,20 @@ def started_at_ms(session_id: UUID) -> float | None:
         return c.start_at_ms
 
 
+def last_command(capture_id: UUID) -> str | None:
+    """The coach's latest command for a capture (idle / start / stop / discard),
+    from memory or, after an API restart, from its saved state."""
+    with _lock:
+        c = _coords.get(capture_id)
+        if c is not None:
+            return c.command
+    try:
+        cmd = json.loads((_STATE_DIR / f"{capture_id}.json").read_text()).get("command")
+    except (OSError, ValueError, AttributeError):
+        return None
+    return str(cmd) if cmd else None
+
+
 def is_active(capture_id: UUID, *, within_ms: float = 15 * 60 * 1000) -> bool:
     """Recording, or a camera seen recently — the empty-session cleanup must not
     delete it (a multi-cam session has no video on disk until Stop uploads it)."""
@@ -187,11 +205,31 @@ def is_active(capture_id: UUID, *, within_ms: float = 15 * 60 * 1000) -> bool:
     return st.get("command") == "start" and now - (st.get("start_at_ms") or 0) < _STATE_MAX_AGE_MS
 
 
+def _saved(capture_id: UUID, key: str) -> float | None:
+    try:
+        v = json.loads((_STATE_DIR / f"{capture_id}.json").read_text()).get(key)
+    except (OSError, ValueError, AttributeError):
+        return None
+    return float(v) if isinstance(v, int | float) else None
+
+
 def last_started_at_ms(capture_id: UUID) -> float | None:
-    """t = 0 of the latest recording (server wall clock, ms), still known after Stop."""
+    """t = 0 of the latest recording (server wall clock, ms), still known after Stop
+    and after an API restart."""
     with _lock:
         c = _coords.get(capture_id)
-        return c.last_start_ms if c else None
+        if c is not None and c.last_start_ms is not None:
+            return c.last_start_ms
+    return _saved(capture_id, "last_start_ms")
+
+
+def stopped_at_ms(capture_id: UUID) -> float | None:
+    """When Stop was pressed for the latest recording (server wall clock, ms)."""
+    with _lock:
+        c = _coords.get(capture_id)
+        if c is not None and c.stopped_ms is not None:
+            return c.stopped_ms
+    return _saved(capture_id, "stopped_ms")
 
 
 def timeline_now_ms(capture_id: UUID) -> float | None:
@@ -396,6 +434,7 @@ def stop_capture(session_id: UUID) -> CaptureState:
         c.command = "stop"
         c.start_at_ms = None
         c.paused = False
+        c.stopped_ms = _now_ms()
         _save_state(session_id, c)
         return CaptureState(command="stop", start_at_ms=None, server_now_ms=_now_ms())
 
@@ -550,15 +589,21 @@ async def upload_device_clip(
     ext = ".mp4" if "mp4" in (file.content_type or "") else ".webm"
     dest = _clip_file(session_id, device_id, ext)
     dest.parent.mkdir(parents=True, exist_ok=True)
+    # Written under a temporary name and renamed when complete: a clip only shows up
+    # (and counts as saved) once all of it has arrived — a 250 MB clip takes a while.
+    part = dest.with_name(dest.name + ".part")
     written = 0
-    with dest.open("wb") as out:
-        while chunk := await file.read(1024 * 1024):
-            written += len(chunk)
-            if written > _MAX_CLIP_BYTES:
-                out.close()
-                dest.unlink(missing_ok=True)
-                raise HTTPException(status_code=413, detail="clip exceeds size limit")
-            out.write(chunk)
+    try:
+        with part.open("wb") as out:
+            while chunk := await file.read(1024 * 1024):
+                written += len(chunk)
+                if written > _MAX_CLIP_BYTES:
+                    raise HTTPException(status_code=413, detail="clip exceeds size limit")
+                out.write(chunk)
+        os.replace(part, dest)
+    except BaseException:
+        part.unlink(missing_ok=True)  # a dropped or refused upload leaves nothing behind
+        raise
     meta = _clip_meta_file(session_id, device_id)
     with _lock:
         c = _coords.get(session_id)
@@ -567,6 +612,10 @@ async def upload_device_clip(
     # Offset for sync; the label lets a later analysis find the laptop camera. An
     # older recording's sidecar is always overwritten.
     meta.write_text(json.dumps({"start_offset_ms": start_offset_ms, "label": label}) + "\n")
+    folder = _take_folder(session_id)
+    if folder is not None and dataset_store.read_take_json(folder).get("status") == "completed":
+        # Landed after Stop & save had finished waiting: list it with the take's clips.
+        dataset_store.update_take_json(folder, devices=dataset_store.clips(folder))
     return {"bytes": written, "device_id": device_id, "path": str(dest)}
 
 

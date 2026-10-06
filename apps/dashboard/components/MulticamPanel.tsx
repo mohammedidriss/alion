@@ -28,12 +28,15 @@ export function MulticamPanel({
   session,
   take,
   defaultLaptop = false,
+  onStopping,
   onFinished,
   onDelete,
 }: {
   session?: Session;
   take?: Take; // a dataset take instead of a session
   defaultLaptop?: boolean;
+  /** Called as soon as Stop is sent — the cameras are now uploading their video. */
+  onStopping?: () => void;
   /** Called once Stop has saved the clips and completed the session / take. */
   onFinished?: () => void;
   /** "Delete": the page deletes this recording (and opens a fresh one). The panel
@@ -198,12 +201,66 @@ export function MulticamPanel({
     setMsg("Recording…");
   }, [cap]);
 
+  /** Wait for the cameras' clips, then complete. A clip is "new" if its device had
+   *  none before, or its file changed (a re-take overwrites the same device's file);
+   *  it only shows up once fully uploaded. Waits while any camera is still recording
+   *  or uploading (up to 15 min) — `idleMs` after the last one goes quiet, it saves
+   *  what arrived (a camera that left doesn't hold the take hostage). */
+  const finishSave = useCallback(
+    async (before: Map<string, number>, expected: number, durationMs?: number, idleMs = 20_000) => {
+      let fresh = 0;
+      let idleSince: number | null = null;
+      const deadline = Date.now() + 15 * 60_000;
+      while (Date.now() < deadline) {
+        const clips = await api.multicamClips(cap).catch(() => []);
+        fresh = clips.filter((c) => before.get(c.device_id) !== c.bytes).length;
+        if (fresh >= expected) break;
+        const roster = await api.multicamDevices(cap).catch(() => null);
+        const busy = roster
+          ? roster.some(
+              (d) =>
+                d.role === "camera" &&
+                (d.status === "uploading" || d.status === "recording" || d.status === "paused"),
+            )
+          : true;
+        idleSince = busy ? null : (idleSince ?? Date.now());
+        if (idleSince !== null && Date.now() - idleSince > idleMs) break;
+        setMsg(
+          Number.isFinite(expected)
+            ? `Uploading video — ${fresh} of ${expected} camera${expected === 1 ? "" : "s"} done. ` +
+                "Keep this page and the phones open."
+            : `Uploading video — ${fresh} camera${fresh === 1 ? "" : "s"} done so far. Keep the phones open.`,
+        );
+        await new Promise((r) => setTimeout(r, 1000));
+      }
+      if (fresh === 0) {
+        setStopping(false);
+        setMsg("No video was saved — the cameras didn't record anything.");
+        return;
+      }
+      try {
+        await api.multicamComplete(cap, durationMs);
+        setMsg(`Saved ${fresh} clip(s).`);
+        onFinished?.();
+      } catch {
+        setMsg(`Saved ${fresh} clip(s), but the session couldn't be marked complete.`);
+      } finally {
+        setStopping(false);
+      }
+    },
+    [cap, onFinished],
+  );
+
   // Stop & save: end the recording everywhere, wait for each camera's clip to land,
-  // then complete the session (which swaps this panel for the recordings view).
+  // then complete the session (which swaps this panel for the recordings view). A
+  // long take's clip is a few hundred MB, so this waits as long as the cameras are
+  // still uploading; a clip only shows up once all of it has arrived.
+  const resumed = useRef(false); // this panel has saved (or is saving) already
   const stop = useCallback(async () => {
     if (stopping) return;
+    resumed.current = true;
     setStopping(true);
-    setMsg("Stopping — saving clips…");
+    setMsg("Stopping — the cameras are uploading their video…");
     const durationMs = activeMsRef.current;
     // Cameras recording right now each upload one clip after the stop command.
     const recording = devicesRef.current.filter(
@@ -214,6 +271,7 @@ export function MulticamPanel({
       (await api.multicamClips(cap).catch(() => [])).map((c) => [c.device_id, c.bytes]),
     );
     await api.multicamStop(cap).catch(() => {});
+    onStopping?.();
     setCaptureStartMs(null);
     setPaused(false);
     pauseStartRef.current = null;
@@ -223,31 +281,18 @@ export function MulticamPanel({
     void api.stopImuBle(cap).catch(() => {});
     void api.stopHrv(cap).catch(() => {});
 
-    // A clip is "new" if its device had none before, or its file changed (a re-take
-    // overwrites the same device's file). Nodes upload on their next heartbeat.
-    let fresh = 0;
-    for (let i = 0; i < 40; i++) {
-      const clips = await api.multicamClips(cap).catch(() => []);
-      fresh = clips.filter((c) => before.get(c.device_id) !== c.bytes).length;
-      if (fresh >= expected) break;
-      setMsg(`Stopping — saving clips… (${fresh}/${expected})`);
-      await new Promise((r) => setTimeout(r, 750));
-    }
-    if (fresh === 0) {
-      setStopping(false);
-      setMsg("No video was saved — the cameras didn't record anything.");
-      return;
-    }
-    try {
-      await api.multicamComplete(cap, durationMs);
-      setMsg(`Saved ${fresh} clip(s).`);
-      onFinished?.();
-    } catch {
-      setMsg(`Saved ${fresh} clip(s), but the session couldn't be marked complete.`);
-    } finally {
-      setStopping(false);
-    }
-  }, [cap, stopping, onFinished]);
+    await finishSave(before, expected, durationMs);
+  }, [cap, stopping, onStopping, finishSave]);
+
+  // Reopened while the cameras were still uploading (page reloaded after Stop):
+  // pick the save back up — wait for the uploads, then complete the take.
+  useEffect(() => {
+    if (take?.status !== "uploading" || resumed.current || stopping) return;
+    resumed.current = true;
+    setStopping(true);
+    setMsg("Uploading video — finishing the save…");
+    void finishSave(new Map(), Infinity, undefined, 5_000);
+  }, [take?.status, stopping, finishSave]);
 
   // Delete: a two-step button (it can't be undone); the confirm lapses after 6 s.
   useEffect(() => {
@@ -557,7 +602,13 @@ function SensorDot({ label, ok }: { label: string; ok: boolean }) {
 
 function StatusDot({ status }: { status: string }) {
   const color =
-    status === "recording" ? "bg-red-500" : status === "ready" ? "bg-emerald-500" : "bg-neutral-500";
+    status === "recording"
+      ? "bg-red-500"
+      : status === "uploading"
+        ? "animate-pulse bg-sky-400"
+        : status === "ready"
+          ? "bg-emerald-500"
+          : "bg-neutral-500";
   return (
     <span className="inline-flex items-center gap-1 text-neutral-300">
       <span className={`h-2 w-2 rounded-full ${color}`} />

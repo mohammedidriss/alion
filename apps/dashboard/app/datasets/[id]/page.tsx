@@ -289,6 +289,7 @@ function TakeRow({
   const dim = take.status === "discarded" ? "opacity-50" : "";
   const status = {
     recording: "bg-amber-900/60 text-amber-200",
+    uploading: "bg-sky-900/60 text-sky-200",
     completed: "bg-emerald-900/60 text-emerald-200",
     discarded: "bg-neutral-800 text-neutral-400",
   }[take.status];
@@ -424,7 +425,9 @@ function DeleteTakes({
   }
 
   const n = picked.size;
-  const live = takes.filter((t) => picked.has(t.id) && t.status === "recording").length;
+  const live = takes.filter(
+    (t) => picked.has(t.id) && (t.status === "recording" || t.status === "uploading"),
+  ).length;
   const cancel = () => {
     setConfirm(false);
     setPicked(null);
