@@ -69,7 +69,10 @@ The camera pipeline never contributes to its own ground truth.
 4. **Check the count** after each typed block: 30 thrown should read ~30
    (green within ±2, amber otherwise). If it's off, or the block went wrong,
    press **Redo** and record it again — the discarded attempt drops out of the
-   labels.
+   labels. The check only works if the fighter throws **exactly one punch per
+   beep and returns to guard**. On the first take the jab was doubled (two per
+   beep) and crosses followed the fighter's own ~1.2 s rhythm, so those counts
+   were right but didn't read 30.
 5. After the last block, press **Stop & save**.
 
 ### Blocks
@@ -89,7 +92,7 @@ The six classes are punch type × lead/rear. Lead is the left hand for orthodox,
 the right for southpaw. Switch fighters record each stance as a separate
 take. One take yields ~180 typed punches plus ~2 min of each of
 negatives and free work. Throw each typed punch from guard and return to
-guard; a steady pace (~1 punch every 1–2 s) is fine.
+guard, one per beep.
 
 ## 5. How labels are made
 
@@ -104,14 +107,27 @@ already score against:
 - **Timeline.** Blocks, IMU samples, pose frames and clips share one clock: ms
   since the cameras' synchronized start. Every camera starts recording at that
   instant and records how late its first frame actually was
-  (`start_offset_ms`, typically tens of ms), so video lines up with the
-  sensors exactly. IMU sample times are reconstructed from the sensor's 100 Hz
+  (`start_offset_ms`; 0.4–0.7 s on the first take, as the phone's encoder
+  spins up), so video lines up with the sensors exactly once the offset is
+  applied. IMU sample times are reconstructed from the sensor's 100 Hz
   grid (`capture.imu.clock.SampleClock`: mean error 2.6 ms, max 4.7 ms).
 - **Detector** (`analyze.imu_punches`). It works on dynamic acceleration
   ||a| − 1 g| (gravity removed whatever the wrist's tilt), smoothed over 50 ms.
-  A burst at or above 1.5 g is a punch. The tallest burst within 350 ms wins,
-  so launch, lock-out and retraction count once. The event sits on the burst's
-  peak, near full extension.
+  By default a burst at or above 1.5 g is a punch, and the tallest burst within
+  350 ms wins, so launch, lock-out and retraction count once.
+- **Per-type settings in typed blocks.** These were calibrated on the first
+  real take (216df089), with the video as the reference:
+  - **Straights:** one burst per punch, near full extension; the defaults
+    matched every jab in the checked footage.
+  - **Uppercuts:** the return to guard is a second, opposite burst about
+    0.43 s later and often as tall, so uppercut blocks keep the first burst and
+    ignore that wrist for 0.7 s (68 → 36 on the first take).
+  - **Hooks:** they peak lower, 1–2 g, at the start of the swing, so hook
+    blocks use a 1.0 g threshold (lead hook 25 → 32; the checked hooks were all
+    found, within 20 ms).
+
+  Free shadowboxing has no known type, so it keeps the defaults; uppercut
+  returns there can be counted twice, and review catches them.
 - **Assignment.** In a typed block, punches on the expected wrist become labels
   with the block's type. Bursts on the other wrist (guard adjustments) are
   counted as `off_hand`, not labeled. In the no-punch block every burst is a
@@ -206,8 +222,12 @@ end-to-end video models.
 
 ## 10. Known limitations
 
-- The detector's thresholds are set from physics and synthetic tests. The
-  first real take's block counts are their calibration check.
+- The per-type settings come from one fighter's first take, checked against
+  video in spot strips, not frame by frame. They need re-checking as more
+  fighters (and both stances) are recorded.
+- Hook labels sit at the start of the swing, about 0.2–0.4 s before the fist
+  crosses the centre line, so H2c timing needs a per-type offset, measured on
+  reviewed labels.
 - Without the wrist sensors, blocks are still marked but nothing can be
   labeled; the card warns when the sensors aren't recording.
 - Browser recording is ~720p at 30 fps. That's enough for pose, but fast hooks

@@ -122,6 +122,47 @@ export function ProtocolCard({ takeId, readOnly = false }: { takeId: string; rea
             </p>
           )}
 
+          {p.swap_evidence.length > 0 && (
+            <div className="rounded-lg border border-amber-500/30 bg-amber-500/5 px-2 py-1.5 text-[11px] text-amber-200">
+              <p className="font-medium">
+                {p.imu_hands_swapped
+                  ? "The wrist swap may be wrong for this take."
+                  : "The wrist sensors look swapped (left unit on the right wrist)."}
+              </p>
+              <ul className="mt-1 list-disc pl-4 text-amber-100/80">
+                {p.swap_evidence.map((why) => (
+                  <li key={why}>{why}</li>
+                ))}
+              </ul>
+              <button
+                disabled={busy}
+                onClick={() => {
+                  if (
+                    p.labels_edited &&
+                    !window.confirm("Relabel with the wrists swapped? This replaces the reviewed labels.")
+                  )
+                    return;
+                  act(() => api.protocolSwapWrists(takeId, !p.imu_hands_swapped, p.labels_edited));
+                }}
+                className="mt-1.5 rounded-md bg-amber-500 px-2 py-0.5 text-[11px] font-semibold text-black hover:bg-amber-400 disabled:opacity-50"
+              >
+                {p.imu_hands_swapped ? "Undo swap" : "Swap wrists"}
+              </button>
+            </div>
+          )}
+          {p.imu_hands_swapped && p.swap_evidence.length === 0 && (
+            <p className="text-[11px] text-sky-300">
+              Wrists swapped for this take — the sensors were worn on the opposite wrists.{" "}
+              <button
+                disabled={busy}
+                onClick={() => act(() => api.protocolSwapWrists(takeId, false, p.labels_edited))}
+                className="underline hover:text-sky-200"
+              >
+                Undo
+              </button>
+            </p>
+          )}
+
           <ol className="space-y-1">
             {p.plan.map((spec) => {
               const b = latest.get(spec.key);

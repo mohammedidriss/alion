@@ -275,3 +275,98 @@ def test_three_fighters_split_by_person_so_nobody_is_in_train_and_test(
     # Stable: the same dataset exports the same split.
     again = authed_client.post(f"/v2/datasets/{did}/export").json()
     assert again["splits"] == m["splits"]
+
+
+def test_uppercut_block_labels_the_punch_not_the_return(
+    authed_client: TestClient, clock: Clock
+) -> None:
+    tid = _take(authed_client, _dataset(authed_client), "orthodox")
+    lines = _imu_lines("left", 8, [1000, 2500, 4000])
+    # Each uppercut's return to guard: an opposite burst ~430 ms later (first real take).
+    t = np.arange(0.0, 8000.0, 10.0)
+    ret = sum(-5.0 * np.exp(-0.5 * ((t - (p + 430.0)) / 35.0) ** 2) for p in (1000, 2500, 4000))
+    lines = [
+        f"{ln.split(',')[0]},left,{float(ln.split(',')[2]) + r:.4f},0.0000,1.0000,0.00,0.00,0.00"
+        for ln, r in zip(lines, ret, strict=True)
+    ]
+    _write_imu(tid, lines)
+    body = _block(authed_client, clock, tid, "lead_uppercut", 0, 6000)
+    labels = json.loads((_folder(tid) / "labels.json").read_text())
+    assert [(round(lab["t_ms"], -2), lab["punch_type"]) for lab in labels] == [
+        (1000, "uppercut"),
+        (2500, "uppercut"),
+        (4000, "uppercut"),
+    ]
+    assert body["blocks"][0]["detected"] == 3
+    prov = json.loads((_folder(tid) / "protocol.json").read_text())["labels"]["detector"]
+    assert prov["profiles"]["uppercut"]["mode"] == "first"
+
+
+# --------------------------------------------------------------------------
+# Sensors worn on swapped wrists
+# --------------------------------------------------------------------------
+
+
+def _swapped_take(client: TestClient, clock: Clock) -> tuple[str, str]:
+    """An orthodox fighter wearing the two (identical-looking) units swapped: the
+    left hand's jabs land in imu.csv as "right", the right hand's crosses as "left"."""
+    did = _dataset(client)
+    tid = _take(client, did, "orthodox")
+    jabs = [1000, 2000, 3000, 4000, 4500, 4900]
+    crosses = [6000, 6800, 7600, 8400, 9000, 9600]
+    _write_imu(tid, _imu_lines("right", 16, jabs) + _imu_lines("left", 16, crosses))
+    _block(client, clock, tid, "jab", 0, 5000)
+    _block(client, clock, tid, "cross", 5000, 10000)
+    return did, tid
+
+
+def test_swapped_sensors_are_flagged_and_fixed_without_touching_imu_csv(
+    authed_client: TestClient, clock: Clock
+) -> None:
+    did, tid = _swapped_take(authed_client, clock)
+    body = authed_client.get(f"/v2/takes/{tid}/protocol").json()
+    assert [b["detected"] for b in body["blocks"]] == [0, 0]
+    assert [b["off_hand"] for b in body["blocks"]] == [6, 6]
+    assert body["swap_evidence"] and body["imu_hands_swapped"] is False
+    raw = (_folder(tid) / "imu.csv").read_text()
+
+    body = authed_client.post(
+        f"/v2/takes/{tid}/protocol/swap-wrists", json={"swapped": True}
+    ).json()
+    assert body["imu_hands_swapped"] is True and body["swap_evidence"] == []
+    assert [b["detected"] for b in body["blocks"]] == [6, 6]
+    labels = json.loads((_folder(tid) / "labels.json").read_text())
+    assert {(lab["hand"], lab["punch_type"]) for lab in labels} == {
+        ("left", "jab"),
+        ("right", "cross"),
+    }
+    assert (_folder(tid) / "imu.csv").read_text() == raw  # the raw stream is never rewritten
+
+    _complete(authed_client, tid, 16000)
+    m = authed_client.post(f"/v2/datasets/{did}/export").json()
+    assert m["takes"][0]["imu_hands_swapped"] is True
+    assert any("swapped wrists" in w for w in m["warnings"])
+
+    body = authed_client.post(
+        f"/v2/takes/{tid}/protocol/swap-wrists", json={"swapped": False}
+    ).json()  # undo
+    assert [b["detected"] for b in body["blocks"]] == [0, 0] and body["swap_evidence"]
+
+
+def test_cameras_flag_a_swap_and_reviewed_labels_stay_protected(
+    authed_client: TestClient, clock: Clock
+) -> None:
+    _, tid = _swapped_take(authed_client, clock)
+    (_folder(tid) / "crosscheck.json").write_text(json.dumps({"hands": "swapped"}))
+    body = authed_client.get(f"/v2/takes/{tid}/protocol").json()
+    assert any("cameras" in why for why in body["swap_evidence"])
+
+    path = _folder(tid) / "labels.json"
+    path.write_text(json.dumps([{"t_ms": 1000.0, "hand": "left", "punch_type": "jab"}]))
+    r = authed_client.post(f"/v2/takes/{tid}/protocol/swap-wrists", json={"swapped": True})
+    assert r.status_code == 409  # someone reviewed these labels
+    assert authed_client.get(f"/v2/takes/{tid}/protocol").json()["imu_hands_swapped"] is False
+    r = authed_client.post(
+        f"/v2/takes/{tid}/protocol/swap-wrists?overwrite=true", json={"swapped": True}
+    )
+    assert r.status_code == 200 and r.json()["imu_hands_swapped"] is True

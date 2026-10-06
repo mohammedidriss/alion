@@ -64,3 +64,37 @@ def test_unsorted_input_and_tiny_streams() -> None:
     found = detect_punches(t[shuffle], ax[shuffle], ay[shuffle], az[shuffle])
     assert len(found) == 1 and abs(found[0].t_ms - 1500.0) <= 30.0
     assert detect_punches([0.0, 10.0], [0.0, 9.0], [0.0, 0.0], [1.0, 1.0]) == []
+
+
+def _with_returns(punches_ms: list[float], *, return_after_ms: float = 430.0) -> tuple:
+    """Uppercuts as seen on the first real take: each punch burst is followed
+    ~430 ms later by an opposite, similar-sized burst as the fist returns to guard."""
+    t, ax, ay, az = _stream(len(punches_ms) * 1.5 + 2, punches_ms)
+    for p in punches_ms:
+        ax -= 5.0 * np.exp(-0.5 * ((t - (p + return_after_ms)) / 35.0) ** 2)
+    return t, ax, ay, az
+
+
+def test_uppercut_return_to_guard_is_not_a_second_punch() -> None:
+    from analyze.imu_punches import PROFILES
+
+    truth = [1000.0, 2500.0, 4000.0]
+    t, ax, ay, az = _with_returns(truth)
+    assert len(detect_punches(t, ax, ay, az)) == 6  # the general detector counts the returns
+    found = detect_punches(t, ax, ay, az, **PROFILES["uppercut"])
+    assert [round(e.t_ms, -2) for e in found] == truth  # one per uppercut, on the punch
+
+
+def test_hook_profile_finds_gentler_hooks() -> None:
+    from analyze.imu_punches import PROFILES
+
+    t, ax, ay, az = _stream(5, [1000.0, 2500.0], peak_g=2.2)  # 50 ms envelope ≈ 1.2 g
+    assert detect_punches(t, ax, ay, az) == []  # under the general threshold
+    found = detect_punches(t, ax, ay, az, **PROFILES["hook"])
+    assert [round(e.t_ms, -2) for e in found] == [1000.0, 2500.0]
+
+
+def test_first_mode_still_counts_a_double_jab_outside_the_gap() -> None:
+    t, ax, ay, az = _stream(3, [1000.0, 1800.0])  # two real jabs 0.8 s apart
+    found = detect_punches(t, ax, ay, az, mode="first", min_gap_ms=700.0)
+    assert [round(e.t_ms, -2) for e in found] == [1000.0, 1800.0]

@@ -70,10 +70,16 @@ class ProtocolOut(BaseModel):
     labels_edited: bool  # labels.json was reviewed/changed since it was generated
     imu_running: bool
     recording: bool  # the cameras are rolling — blocks can be started
+    imu_hands_swapped: bool  # labels read imu.csv with left/right reversed
+    swap_evidence: list[str]  # why the sensors look swapped; empty if they don't
 
 
 class StartIn(BaseModel):
     key: str
+
+
+class SwapIn(BaseModel):
+    swapped: bool
 
 
 def _take(take_id: UUID) -> tuple[Path, str | None]:
@@ -127,6 +133,8 @@ def _out(take_id: UUID, folder: Path, data: dict[str, Any], stance: str | None) 
         labels_edited=proto.labels_edited(folder, data),
         imu_running=imu_runner.is_running(take_id),
         recording=now is not None,
+        imu_hands_swapped=proto.hands_swapped(data),
+        swap_evidence=proto.swap_evidence(data, proto.camera_hands(folder)),
     )
 
 
@@ -190,6 +198,24 @@ def discard_block(take_id: UUID, index: int) -> ProtocolOut:
     except proto.ProtocolError as e:
         raise HTTPException(status_code=404, detail=str(e)) from e
     _relabel(folder, data, stance)
+    proto.save(folder, data)
+    return _out(take_id, folder, data, stance)
+
+
+@router.post("/{take_id}/protocol/swap-wrists", response_model=ProtocolOut)
+def swap_wrists(take_id: UUID, body: SwapIn, overwrite: bool = False) -> ProtocolOut:
+    """Mark the take's sensors as worn on swapped wrists (or undo it) and relabel.
+    imu.csv is never rewritten; the setting is read wherever it's used."""
+    folder, stance = _take(take_id)
+    data = proto.load(folder)
+    previous = proto.hands_swapped(data)
+    data["imu_hands_swapped"] = body.swapped
+    if any(b.get("t_end_ms") is not None for b in data["blocks"]):
+        try:
+            proto.generate_labels(folder, data, stance, overwrite=overwrite)
+        except proto.ProtocolError as e:
+            data["imu_hands_swapped"] = previous
+            raise HTTPException(status_code=409, detail=str(e)) from e
     proto.save(folder, data)
     return _out(take_id, folder, data, stance)
 

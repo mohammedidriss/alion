@@ -83,6 +83,10 @@ def _take_entry(ref: TakeRef, folder: Path, root: Path) -> dict[str, Any]:
         "hr": "hr.csv" if (folder / "hr.csv").exists() else None,
         "labels": labels,
         "blocks": blocks,
+        # imu.csv is raw: when True its "left" rows are the right wrist and vice
+        # versa (sensors worn swapped); labels.json is already corrected.
+        "imu_hands_swapped": proto.hands_swapped(data),
+        "swap_evidence": proto.swap_evidence(data, proto.camera_hands(folder)),
     }
 
 
@@ -153,6 +157,16 @@ def build_manifest(
             warnings.append(f"take {tid}: no labels — run the protocol or regenerate")
         elif not e["labels"]["reviewed"]:
             warnings.append(f"take {tid}: labels are unreviewed auto-labels")
+        if e["imu_hands_swapped"]:
+            warnings.append(
+                f"take {tid}: sensors were worn on swapped wrists — imu.csv's hand column "
+                "is reversed (see imu_hands_swapped); labels are corrected"
+            )
+        if e["swap_evidence"]:
+            warnings.append(
+                f"take {tid}: wrist sensors look swapped ({'; '.join(e['swap_evidence'])}) "
+                "— check it and use Swap wrists on the take"
+            )
 
     n_fighters = len({e["fighter_id"] for e in entries})
     if n_fighters >= BY_FIGHTER_MIN:

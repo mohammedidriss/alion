@@ -31,7 +31,7 @@ from typing import Any, Literal
 
 import numpy as np
 
-from analyze.imu_punches import MIN_GAP_MS, SMOOTH_MS, THRESHOLD_G, detect_punches
+from analyze.imu_punches import MIN_GAP_MS, PROFILES, SMOOTH_MS, THRESHOLD_G, detect_punches
 
 Side = Literal["lead", "rear", "both"]
 Kind = Literal["typed", "negative", "free"]
@@ -171,11 +171,13 @@ def imu_size(folder: Path) -> int:
         return 0
 
 
-def read_imu(folder: Path, start_byte: int = 0) -> Wrists:
+def read_imu(folder: Path, start_byte: int = 0, *, swapped: bool = False) -> Wrists:
     """{hand: (t_ms, ax, ay, az)} from imu.csv, starting at `start_byte`.
 
     The runner appends while the take records, so a trailing line without its
-    newline (mid-write) is skipped rather than half-parsed.
+    newline (mid-write) is skipped rather than half-parsed. `swapped` reads the
+    file's "left" as the right wrist and vice versa — for a take where the two
+    (identical-looking) units were worn on the wrong wrists; imu.csv stays raw.
     """
     cols: dict[str, list[list[float]]] = {h: [] for h in HANDS}
     try:
@@ -194,6 +196,8 @@ def read_imu(folder: Path, start_byte: int = 0) -> Wrists:
             )
         except ValueError:
             continue
+    if swapped:
+        cols = {"left": cols["right"], "right": cols["left"]}
     out: Wrists = {}
     for hand, rows in cols.items():
         if rows:
@@ -251,7 +255,10 @@ def label_block(
     labels: list[dict[str, Any]] = []
     for hand, (t, ax, ay, az) in wrists.items():
         inside = (t >= block["t_start_ms"]) & (t <= t_end)
-        events = detect_punches(t[inside], ax[inside], ay[inside], az[inside])
+        # In a typed block the punch type is known, so use its timing profile
+        # (e.g. an uppercut's return to guard isn't a second punch).
+        profile = PROFILES.get(spec.punch_type or "", {})
+        events = detect_punches(t[inside], ax[inside], ay[inside], az[inside], **profile)
         if spec.kind == "negative" or hand not in wanted:
             off_hand += len(events)  # a QA count, never a label
             continue
@@ -270,9 +277,56 @@ def live_count(
     if i is None:
         return None
     block = data["blocks"][i]
-    return label_block(
-        read_imu(folder, block.get("imu_byte", 0)), i, block, stance, until_ms=now_ms
-    )
+    wrists = read_imu(folder, block.get("imu_byte", 0), swapped=hands_swapped(data))
+    return label_block(wrists, i, block, stance, until_ms=now_ms)
+
+
+# --------------------------------------------------------------------------
+# Swapped wrists
+# --------------------------------------------------------------------------
+
+
+def camera_hands(folder: Path) -> str | None:
+    """The wrist × camera cross-check's left/right verdict on the raw imu.csv
+    ("swapped" / "consistent" / "unclear"), if it has run for this take."""
+    try:
+        hands = json.loads((folder / "crosscheck.json").read_text()).get("hands")
+    except (OSError, ValueError):
+        return None
+    return str(hands) if hands else None
+
+
+def hands_swapped(data: dict[str, Any]) -> bool:
+    """The coach marked this take's sensors as worn on the wrong wrists."""
+    return bool(data.get("imu_hands_swapped"))
+
+
+def swap_evidence(data: dict[str, Any], camera_hands: str | None) -> list[str]:
+    """Why the take's wrist sensors look swapped, given the current setting —
+    empty if nothing suggests it. `camera_hands` is the cross-check's verdict on
+    the raw imu.csv ("swapped" / "consistent" / "unclear")."""
+    why: list[str] = []
+    typed = [
+        b
+        for b in data["blocks"]
+        if not b.get("discarded")
+        and b.get("t_end_ms") is not None
+        and SPECS[b["key"]].kind == "typed"
+        and b.get("detected") is not None
+    ]
+    detected = sum(b["detected"] for b in typed)
+    off = sum(b.get("off_hand") or 0 for b in typed)
+    mirrored = sum(1 for b in typed if (b.get("off_hand") or 0) > b["detected"])
+    if off >= 10 and off > 2 * detected and mirrored >= 2:
+        why.append(
+            f"typed blocks found {off} punches on the other wrist and {detected} on the expected one"
+        )
+    swapped = hands_swapped(data)
+    if camera_hands == "swapped" and not swapped:
+        why.append("the cameras see the sensor labeled left moving with the right hand")
+    if camera_hands == "consistent" and swapped:
+        why.append("the cameras see the sensors on the right wrists — the swap may be wrong")
+    return why
 
 
 def _digest(text: str) -> str:
@@ -302,7 +356,7 @@ def generate_labels(
             "The labels were edited after they were generated — regenerating would "
             "replace that review. Pass overwrite to do it anyway."
         )
-    wrists = read_imu(folder)
+    wrists = read_imu(folder, swapped=hands_swapped(data))
     results = [
         label_block(wrists, i, b, stance)
         for i, b in enumerate(data["blocks"])
@@ -318,12 +372,14 @@ def generate_labels(
         "generated_at": dt.datetime.now(dt.UTC).isoformat(timespec="seconds"),
         "count": len(labels),
         "stance": stance,
+        "imu_hands_swapped": hands_swapped(data),
         "sha256": _digest(text),
         "detector": {
             "name": "analyze.imu_punches",
             "threshold_g": THRESHOLD_G,
             "min_gap_ms": MIN_GAP_MS,
             "smooth_ms": SMOOTH_MS,
+            "profiles": PROFILES,  # per punch type, inside typed blocks
         },
     }
     return results

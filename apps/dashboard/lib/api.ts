@@ -428,6 +428,8 @@ export interface TakeProtocol {
   labels_edited: boolean;
   imu_running: boolean;
   recording: boolean; // the cameras are rolling — blocks can be started
+  imu_hands_swapped: boolean; // labels read imu.csv with left/right reversed
+  swap_evidence: string[]; // why the sensors look swapped; empty if they don't
 }
 
 /** The training manifest written by POST /v2/datasets/{id}/export. */
@@ -1075,6 +1077,12 @@ export const api = {
     req<TakeProtocol>(`/v2/takes/${takeId}/protocol/end`, { method: "POST" }),
   protocolDiscard: (takeId: string, index: number) =>
     req<TakeProtocol>(`/v2/takes/${takeId}/protocol/blocks/${index}/discard`, { method: "POST" }),
+  protocolSwapWrists: (takeId: string, swapped: boolean, overwrite = false) =>
+    req<TakeProtocol>(`/v2/takes/${takeId}/protocol/swap-wrists?overwrite=${overwrite}`, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ swapped }),
+    }),
   protocolLabels: (takeId: string, overwrite = false) =>
     req<TakeProtocol>(`/v2/takes/${takeId}/protocol/labels?overwrite=${overwrite}`, {
       method: "POST",
