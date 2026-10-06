@@ -24,7 +24,11 @@ import { beep, cueNow, hushCues, say, unlockCues } from "@/lib/cues";
 const FIRST_BEEP_S = 1.0;
 const END_AFTER_LAST_S = 2.0;
 const COUNTDOWN = 3;
-const PREFS_KEY = "alion.autoProtocol";
+// v2: the old key mostly holds defaults a bug wrote on every page open (20 s rest);
+// the rest between blocks of a full-protocol take now defaults to none.
+const PREFS_KEY = "alion.autoProtocol.v2";
+const DEFAULT_PACE_S = 1.5;
+const DEFAULT_REST_S = 0;
 // Fastest pace for paced blocks: below ~1 s a punch can't return to guard and the
 // hook/uppercut profiles (0.6–0.7 s refractory) merge neighbours. 1.5 s is the default.
 const MIN_PACE_S = 1.0;
@@ -48,11 +52,11 @@ function loadPrefs(): { paceS: number; restS: number } {
   try {
     const p = JSON.parse(localStorage.getItem(PREFS_KEY) ?? "{}");
     return {
-      paceS: Number.isFinite(p.paceS) ? Math.max(MIN_PACE_S, p.paceS) : 1.5, // lifts an old 0.5
-      restS: Number.isFinite(p.restS) ? p.restS : 20,
+      paceS: Number.isFinite(p.paceS) ? Math.max(MIN_PACE_S, p.paceS) : DEFAULT_PACE_S,
+      restS: Number.isFinite(p.restS) ? Math.max(0, p.restS) : DEFAULT_REST_S,
     };
   } catch {
-    return { paceS: 1.5, restS: 20 };
+    return { paceS: DEFAULT_PACE_S, restS: DEFAULT_REST_S };
   }
 }
 
@@ -112,7 +116,7 @@ export function AutoProtocol({
   doneRef.current = onBlockDone;
   const [proto, setProto] = useState<TakeProtocol | null>(null);
   const [phase, setPhaseState] = useState<Phase>({ kind: "waiting" });
-  const [prefs, setPrefs] = useState(() => ({ paceS: 1.5, restS: 20 }));
+  const [prefs, setPrefs] = useState(() => ({ paceS: DEFAULT_PACE_S, restS: DEFAULT_REST_S }));
   const [err, setErr] = useState<string | null>(null);
   const [, setTick] = useState(0);
 

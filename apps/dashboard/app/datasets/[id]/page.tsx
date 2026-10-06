@@ -6,15 +6,15 @@
  * it — the researcher recording himself (`self`) or a signed IRB consent. A take
  * is listed once its cameras have started; "Delete…" removes the takes ticked.
  *
- * With a protocol, a participant is recorded one block per take: "Record session"
- * starts at their first block not yet recorded and goes on block by block; the
- * block chips show what's recorded and record one block on a click.
+ * With a protocol, a participant is recorded one category per take — jab, lead
+ * hook, 1-2, free shadowboxing, … — picked from the category grid, each showing
+ * how often it's been recorded. A take records that category only.
  */
 
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useEffect, useState } from "react";
-import { blockHref } from "@/components/BlockSitting";
+import { categoryLength } from "@/lib/categories";
 import {
   api,
   type ProtocolBlockSpec,
@@ -75,15 +75,13 @@ export default function DatasetPage({ params }: { params: { id: string } }) {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [params.id]);
 
-  /** Open a take — with a protocol, one block (and the sitting goes on from it). */
+  /** Open a take — with a protocol, for one category. */
   const record = async (fighterId: string, block?: string) => {
     setBusy(fighterId);
     setErr(null);
     try {
       const take = await api.createTake(params.id, fighterId, block);
-      router.push(
-        block ? blockHref(params.id, take.id) : `/datasets/${params.id}/takes/${take.id}`,
-      );
+      router.push(`/datasets/${params.id}/takes/${take.id}`);
     } catch (e) {
       setErr(errText(e));
       setBusy(null);
@@ -174,29 +172,18 @@ export default function DatasetPage({ params }: { params: { id: string } }) {
                     </option>
                   ))}
                 </select>
-                <button
-                  onClick={() =>
-                    record(
-                      p.fighter_id,
-                      blocked
-                        ? (plan.find((b) => !(p.blocks?.[b.key] ?? 0)) ?? plan[0]).key
-                        : undefined,
-                    )
-                  }
-                  disabled={!p.may_record || busy !== null}
-                  title={
-                    !p.may_record
-                      ? "Needs self or IRB-signed consent"
-                      : blocked
-                        ? "Records block by block, from the first one not recorded yet"
-                        : undefined
-                  }
-                  className="rounded-xl bg-red-600 px-3 py-1.5 text-sm font-semibold text-white hover:bg-red-500 disabled:cursor-not-allowed disabled:bg-neutral-700 disabled:text-neutral-400"
-                >
-                  {busy === p.fighter_id ? "Opening…" : blocked ? "● Record session" : "● Record take"}
-                </button>
+                {!blocked && (
+                  <button
+                    onClick={() => record(p.fighter_id)}
+                    disabled={!p.may_record || busy !== null}
+                    title={p.may_record ? undefined : "Needs self or IRB-signed consent"}
+                    className="rounded-xl bg-red-600 px-3 py-1.5 text-sm font-semibold text-white hover:bg-red-500 disabled:cursor-not-allowed disabled:bg-neutral-700 disabled:text-neutral-400"
+                  >
+                    {busy === p.fighter_id ? "Opening…" : "● Record take"}
+                  </button>
+                )}
                 {blocked && (
-                  <div className="flex w-full flex-wrap gap-1.5">
+                  <div className="grid w-full gap-2 sm:grid-cols-2 xl:grid-cols-3">
                     {plan.map((b) => {
                       const n = p.blocks?.[b.key] ?? 0;
                       return (
@@ -204,15 +191,23 @@ export default function DatasetPage({ params }: { params: { id: string } }) {
                           key={b.key}
                           onClick={() => record(p.fighter_id, b.key)}
                           disabled={!p.may_record || busy !== null}
-                          title={`${b.title}: recorded ${n} time${n === 1 ? "" : "s"} — click to record it`}
-                          className={`rounded-lg border px-2 py-0.5 text-[11px] disabled:cursor-not-allowed ${
-                            n
-                              ? "border-emerald-500/30 bg-emerald-950/40 text-emerald-200"
-                              : "border-white/10 text-neutral-400 hover:bg-white/5"
-                          }`}
+                          title={p.may_record ? b.hint || undefined : "Needs self or IRB-signed consent"}
+                          className="group flex items-center justify-between gap-3 rounded-xl border border-white/10 bg-black/20 px-3 py-2 text-left hover:border-red-500/50 hover:bg-red-950/20 disabled:cursor-not-allowed disabled:opacity-50"
                         >
-                          {n ? "✓" : "○"} {b.title}
-                          {n > 1 && <span className="ml-1 text-emerald-400/70">×{n}</span>}
+                          <span className="min-w-0">
+                            <span className="block text-sm font-medium text-neutral-100">{b.title}</span>
+                            <span className="block text-[11px] text-neutral-500">{categoryLength(b)}</span>
+                          </span>
+                          <span className="flex shrink-0 items-center gap-2">
+                            <span
+                              className={`text-[11px] tabular-nums ${n ? "text-emerald-300" : "text-neutral-600"}`}
+                            >
+                              {n ? `✓ ${n}` : "none yet"}
+                            </span>
+                            <span className="rounded-lg bg-red-600 px-2 py-1 text-xs font-semibold text-white group-hover:bg-red-500">
+                              {busy === p.fighter_id ? "…" : "● Record"}
+                            </span>
+                          </span>
                         </button>
                       );
                     })}
@@ -271,7 +266,7 @@ export default function DatasetPage({ params }: { params: { id: string } }) {
           <p className="text-sm text-neutral-500">No takes recorded yet.</p>
         ) : (
           <div className="overflow-x-auto">
-            <table className="w-full min-w-[640px] text-sm">
+            <table className="w-full min-w-[720px] text-sm">
               <thead className="text-left text-xs text-neutral-500">
                 <tr>
                   {picked && (
@@ -289,6 +284,7 @@ export default function DatasetPage({ params }: { params: { id: string } }) {
                   )}
                   <th className="py-2 font-normal">Recorded</th>
                   <th className="font-normal">Fighter</th>
+                  <th className="font-normal">Category</th>
                   <th className="font-normal">Status</th>
                   <th className="font-normal">Length</th>
                   <th className="font-normal">Video</th>
@@ -303,6 +299,13 @@ export default function DatasetPage({ params }: { params: { id: string } }) {
                     key={t.id}
                     take={t}
                     datasetId={ds.id}
+                    category={
+                      t.block
+                        ? (plan.find((b) => b.key === t.block)?.title ?? t.block.replace(/_/g, " "))
+                        : ds.protocol
+                          ? "Full protocol"
+                          : "—"
+                    }
                     picked={picked ? picked.has(t.id) : null}
                     onPick={(on) =>
                       setPicked((prev) => {
@@ -326,11 +329,13 @@ export default function DatasetPage({ params }: { params: { id: string } }) {
 function TakeRow({
   take,
   datasetId,
+  category,
   picked,
   onPick,
 }: {
   take: Take;
   datasetId: string;
+  category: string; // the take's recording category (Jab, Rear uppercut, …)
   picked: boolean | null; // null: not picking takes to delete
   onPick: (on: boolean) => void;
 }) {
@@ -363,10 +368,8 @@ function TakeRow({
           {new Date(take.started_at).toLocaleString()}
         </Link>
       </td>
-      <td>
-        {take.fighter_name ?? "—"}
-        {take.block && <span className="ml-1.5 text-xs text-neutral-500">· {take.block.replace(/_/g, " ")}</span>}
-      </td>
+      <td>{take.fighter_name ?? "—"}</td>
+      <td className={take.block ? "font-medium text-neutral-100" : "text-neutral-500"}>{category}</td>
       <td>
         <span className={`pill ${status}`}>{take.status}</span>
       </td>
