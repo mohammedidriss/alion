@@ -17,7 +17,7 @@ import json
 import shutil
 import time
 from datetime import UTC, datetime
-from typing import Any
+from typing import Any, Literal
 from uuid import UUID
 
 from fastapi import APIRouter, Depends, HTTPException
@@ -74,6 +74,9 @@ class ParticipantOut(BaseModel):
     irb_ref: str | None = None
     notes: str | None = None
     takes: int = 0
+    # Protocol block → how many completed takes recorded it (single-block takes, and
+    # the blocks inside older full-protocol takes).
+    blocks: dict[str, int] = Field(default_factory=dict)
 
 
 class TakeOut(BaseModel):
@@ -87,6 +90,9 @@ class TakeOut(BaseModel):
     status: str
     # False for a draft: "Record take" opened it, but the cameras haven't started.
     started: bool = True
+    # The protocol block this take records (one block per take), or None for an
+    # older take that ran the whole protocol / a free recording.
+    block: str | None = None
     started_at: datetime  # when the cameras started (when it was opened, for a draft)
     ended_at: datetime | None = None
     duration_ms: float
@@ -107,6 +113,7 @@ class DatasetOut(DatasetRead):
 
 class TakeCreate(BaseModel):
     fighter_id: UUID
+    block: str | None = None  # record just this protocol block (dataset_protocol.SPECS)
 
 
 class CompleteBody(BaseModel):
@@ -138,10 +145,30 @@ def _is_draft(take: DatasetTake) -> bool:
     return folder is None or not dataset_store.started(folder)
 
 
+def _recorded_blocks(take_id: UUID) -> list[str]:
+    """The protocol blocks a take recorded: marked, finished, not discarded."""
+    folder = dataset_store.take_dir(take_id)
+    if folder is None:
+        return []
+    try:
+        data = json.loads((folder / "protocol.json").read_text())
+    except (OSError, ValueError):
+        return []
+    return [
+        str(b["key"])
+        for b in data.get("blocks") or []
+        if isinstance(b, dict)
+        and b.get("key")
+        and b.get("t_end_ms") is not None
+        and not b.get("discarded")
+    ]
+
+
 def _take_out(take: DatasetTake, fighters: FighterRepo, dataset_name: str | None) -> TakeOut:
     fighter = fighters.get(take.fighter_id)
     folder = dataset_store.take_dir(take.id)
-    t0 = dataset_store.read_take_json(folder).get("t0_ms") if folder else None
+    meta = dataset_store.read_take_json(folder) if folder else {}
+    t0 = meta.get("t0_ms")
     started = not _is_draft(take)
     status = str(take.status)
     if take.status == TakeStatusEnum.RECORDING and started:
@@ -155,6 +182,7 @@ def _take_out(take: DatasetTake, fighters: FighterRepo, dataset_name: str | None
         fighter_name=fighter.name if fighter else None,
         status=status,
         started=started,
+        block=meta.get("block"),
         started_at=datetime.fromtimestamp(t0 / 1000, UTC) if t0 else take.started_at,
         ended_at=take.ended_at,
         duration_ms=take.duration_ms,
@@ -232,6 +260,12 @@ def get_dataset(
     if d is None:
         raise HTTPException(status_code=404, detail="dataset not found")
     takes = [t for t in repo.takes(dataset_id) if not _is_draft(t)]
+    covered: dict[UUID, dict[str, int]] = {}
+    for t in takes:
+        if t.status == TakeStatusEnum.COMPLETED:
+            per = covered.setdefault(t.fighter_id, {})
+            for key in _recorded_blocks(t.id):
+                per[key] = per.get(key, 0) + 1
     participants = []
     for p in repo.participants(dataset_id):
         f = fighters.get(p.fighter_id)
@@ -245,6 +279,7 @@ def get_dataset(
                 consent_date=p.consent_date.isoformat() if p.consent_date else None,
                 irb_ref=p.irb_ref,
                 notes=p.notes,
+                blocks=covered.get(p.fighter_id, {}),
                 takes=len(
                     [
                         t
@@ -298,10 +333,18 @@ def create_take(
     d = repo.get(dataset_id)
     if d is None:
         raise HTTPException(status_code=404, detail="dataset not found")
+    if body.block is not None and body.block not in dataset_protocol.SPECS:
+        raise HTTPException(status_code=422, detail=f"unknown protocol block: {body.block}")
     p = repo.participant(dataset_id, body.fighter_id)
     if p is not None and ConsentEnum(p.consent).may_record:
         for t in repo.takes(dataset_id):
-            if t.fighter_id == body.fighter_id and _is_draft(t) and dataset_store.take_dir(t.id):
+            folder = dataset_store.take_dir(t.id)
+            if (
+                t.fighter_id == body.fighter_id
+                and _is_draft(t)
+                and folder is not None
+                and dataset_store.read_take_json(folder).get("block") == body.block
+            ):
                 return _take_out(t, fighters, d.name)
     try:
         take = repo.create_take(dataset_id, body.fighter_id)
@@ -326,6 +369,7 @@ def create_take(
             "t0_ms": None,
             "duration_ms": None,
             "devices": [],
+            "block": body.block,
         },
     )
     return _take_out(take, fighters, d.name)
@@ -584,3 +628,139 @@ def take_cross_check(
         blocks=blocks,
         labels_swapped=dataset_protocol.hands_swapped(protocol),
     )
+
+
+# --------------------------------------------------------------------------
+# Block check — is this take good enough to move on?
+# --------------------------------------------------------------------------
+
+
+class CheckItem(BaseModel):
+    key: Literal["video", "wrists", "punches", "heart"]
+    level: Literal["ok", "warn", "fail"]  # fail: redo the block; warn: worth knowing
+    text: str
+
+
+class TakeCheckOut(BaseModel):
+    ready: bool  # saved (all clips in) — before that there's nothing to check
+    ok: bool  # nothing failed: safe to move on to the next block
+    checks: list[CheckItem]
+
+
+def _imu_rows_by_hand(folder: Any) -> dict[str, int]:
+    out = {"left": 0, "right": 0}
+    try:
+        with (folder / "imu.csv").open() as f:
+            next(f, None)  # header
+            for line in f:
+                hand = line.split(",", 2)[1] if line.count(",") >= 2 else ""
+                if hand in out:
+                    out[hand] += 1
+    except OSError:
+        pass
+    return out
+
+
+def _rows(path: Any) -> int:
+    try:
+        with path.open() as f:
+            return max(0, sum(1 for _ in f) - 1)
+    except OSError:
+        return 0
+
+
+@router.get("/takes/{take_id}/check", response_model=TakeCheckOut)
+def take_check(take_id: UUID, repo: DatasetRepo = Depends(dataset_repo)) -> TakeCheckOut:
+    """Right after a block is saved: did every camera's video arrive, did both wrist
+    sensors record (on the right wrists), were the punches there, and the heart rate.
+    A "fail" means record the block again — it costs a minute, not a whole sitting."""
+    take = _get_take(take_id, repo)
+    folder = _folder(take_id)
+    if take.status != TakeStatusEnum.COMPLETED:
+        return TakeCheckOut(ready=False, ok=False, checks=[])
+    checks: list[CheckItem] = []
+
+    # Every camera that was recording at Stop owes a clip.
+    have = {c["device_id"] for c in dataset_store.clips(folder)}
+    owed = capture_coord.cameras_at_stop(take_id)
+    missing = [label or dev for dev, label in owed.items() if dev not in have]
+    if missing:
+        checks.append(
+            CheckItem(
+                key="video",
+                level="fail",
+                text=f"No video from {', '.join(missing)} — keep that phone's page open until it's saved",
+            )
+        )
+    else:
+        n = len(have)
+        checks.append(
+            CheckItem(
+                key="video", level="ok" if n else "fail", text=f"{n} camera{'s' if n != 1 else ''}"
+            )
+        )
+
+    # Both wrists streamed.
+    rows = _imu_rows_by_hand(folder)
+    most = max(rows.values())
+    if most == 0:
+        checks.append(CheckItem(key="wrists", level="fail", text="No wrist-sensor data"))
+    else:
+        quiet = [h for h, n in rows.items() if n < 0.3 * most]
+        checks.append(
+            CheckItem(
+                key="wrists",
+                level="fail" if quiet else "ok",
+                text=f"{' and '.join(quiet).capitalize()} wrist sensor barely recorded"
+                if quiet
+                else "both wrists recorded",
+            )
+        )
+
+    # The block's punches, from the labeller's counts (protocol.json, read-only).
+    try:
+        proto = json.loads((folder / "protocol.json").read_text())
+    except (OSError, ValueError):
+        proto = {}
+    blocks = [
+        b
+        for b in proto.get("blocks") or []
+        if b.get("t_end_ms") is not None and not b.get("discarded")
+    ]
+    block_key = dataset_store.read_take_json(folder).get("block")
+    if block_key and not any(b.get("key") == block_key for b in blocks):
+        checks.append(
+            CheckItem(key="punches", level="fail", text="The block wasn't marked — record it again")
+        )
+    for b in blocks:
+        spec = dataset_protocol.SPECS.get(str(b.get("key")))
+        if spec is None or not spec.reps or spec.kind not in ("typed", "combo"):
+            continue
+        reps, got, other = spec.reps, b.get("detected"), b.get("off_hand")
+        unit = "combos" if spec.kind == "combo" else "punches"
+        if got is None:
+            continue
+        level: Literal["ok", "warn", "fail"]
+        if other is not None and other > got and other >= 0.5 * reps:
+            level, text = (
+                "fail",
+                f"{spec.title}: {other} {unit} on the other wrist, {got} on the expected one — "
+                "the sensors look swapped (Swap wrists, then run the wrist check)",
+            )
+        elif got < 0.8 * reps:
+            level, text = "fail", f"{spec.title}: only {got} of {reps} {unit} found"
+        elif got > 1.25 * reps:
+            level, text = "warn", f"{spec.title}: {got} {unit} for {reps} cues"
+        else:
+            level, text = "ok", f"{spec.title}: {got}/{reps} {unit}"
+        checks.append(CheckItem(key="punches", level=level, text=text))
+
+    beats = _rows(folder / "hr.csv")
+    checks.append(
+        CheckItem(
+            key="heart",
+            level="ok" if beats else "warn",
+            text=f"{beats} heartbeats" if beats else "No heart rate — the strap wasn't connected",
+        )
+    )
+    return TakeCheckOut(ready=True, ok=not any(c.level == "fail" for c in checks), checks=checks)

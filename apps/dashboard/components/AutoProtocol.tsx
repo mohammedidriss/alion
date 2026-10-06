@@ -98,7 +98,18 @@ function mmss(ms: number): string {
   return `${Math.floor(s / 60)}:${String(s % 60).padStart(2, "0")}`;
 }
 
-export function AutoProtocol({ takeId }: { takeId: string }) {
+export function AutoProtocol({
+  takeId,
+  onlyBlock,
+  onBlockDone,
+}: {
+  takeId: string;
+  /** One block per take: run just this block, then call `onBlockDone`. */
+  onlyBlock?: string | null;
+  onBlockDone?: () => void;
+}) {
+  const doneRef = useRef(onBlockDone);
+  doneRef.current = onBlockDone;
   const [proto, setProto] = useState<TakeProtocol | null>(null);
   const [phase, setPhaseState] = useState<Phase>({ kind: "waiting" });
   const [prefs, setPrefs] = useState(() => ({ paceS: 1.5, restS: 20 }));
@@ -120,13 +131,18 @@ export function AutoProtocol({ takeId }: { takeId: string }) {
   };
 
   useEffect(() => setPrefs(loadPrefs()), []);
-  useEffect(() => {
-    try {
-      localStorage.setItem(PREFS_KEY, JSON.stringify(prefs));
-    } catch {
-      /* private mode — prefs just don't persist */
-    }
-  }, [prefs]);
+  // Saved when the coach changes them — not from an effect, which (run twice on
+  // mount in development) wrote the defaults over the saved settings.
+  const changePrefs = (fn: (p: { paceS: number; restS: number }) => { paceS: number; restS: number }) =>
+    setPrefs((p) => {
+      const next = fn(p);
+      try {
+        localStorage.setItem(PREFS_KEY, JSON.stringify(next));
+      } catch {
+        /* private mode — prefs just don't persist */
+      }
+      return next;
+    });
 
   // Sound needs a user gesture: the coach's click on "Start all cameras" unlocks it.
   useEffect(() => {
@@ -181,9 +197,16 @@ export function AutoProtocol({ takeId }: { takeId: string }) {
           continue;
         }
         const todo = remaining(p, skipped.current);
-        const spec = (forceKey && p.plan.find((s) => s.key === forceKey)) || todo[0];
+        const spec = onlyBlock
+          ? todo.find((s) => s.key === onlyBlock)
+          : (forceKey && p.plan.find((s) => s.key === forceKey)) || todo[0];
         forceKey = undefined;
         if (!spec) {
+          if (onlyBlock) {
+            setPhase({ kind: "done" });
+            doneRef.current?.(); // this take's block is already recorded
+            return;
+          }
           say("Protocol complete. Press stop and save.");
           setPhase({ kind: "done" });
           return;
@@ -261,9 +284,14 @@ export function AutoProtocol({ takeId }: { takeId: string }) {
         beep({ freq: 440, ms: 350 });
         lastDone.current = current.current;
         current.current = null;
+        if (onlyBlock) {
+          setPhase({ kind: "done" });
+          doneRef.current?.(); // the page saves this take and moves on
+          return;
+        }
       }
     },
-    [takeId, cancel],
+    [takeId, cancel, onlyBlock],
   );
 
   // Poll the protocol: start the sequence when the cameras roll; stop it if they stop.
@@ -351,8 +379,10 @@ export function AutoProtocol({ takeId }: { takeId: string }) {
 
   // ---------------------------------------------------------------------------
 
-  const total = proto?.plan.length ?? 0;
-  const left = proto ? remaining(proto, new Set()).length : 0;
+  const total = onlyBlock ? 1 : (proto?.plan.length ?? 0);
+  const left = proto
+    ? remaining(proto, new Set()).filter((s) => !onlyBlock || s.key === onlyBlock).length
+    : 0;
   const running = phase.kind === "countdown" || phase.kind === "block" || phase.kind === "rest";
   const now = Date.now();
 
@@ -408,6 +438,12 @@ export function AutoProtocol({ takeId }: { takeId: string }) {
         </span>
       </Display>
     );
+  } else if (phase.kind === "done" && onlyBlock) {
+    big = (
+      <Display title="Block done" sub="Saving — the cameras are sending their video.">
+        <span className="text-4xl">✓</span>
+      </Display>
+    );
   } else if (phase.kind === "done") {
     big = (
       <Display title="Protocol complete" sub="Wait a second, then press Stop & save.">
@@ -449,13 +485,15 @@ export function AutoProtocol({ takeId }: { takeId: string }) {
             >
               ↺ Redo
             </button>
-            <button
-              onClick={skip}
-              className="rounded-lg border border-white/15 px-3 py-1.5 text-xs hover:bg-white/5"
-              title="Leave this block out for now"
-            >
-              Skip ⏭
-            </button>
+            {!onlyBlock && (
+              <button
+                onClick={skip}
+                className="rounded-lg border border-white/15 px-3 py-1.5 text-xs hover:bg-white/5"
+                title="Leave this block out for now"
+              >
+                Skip ⏭
+              </button>
+            )}
             <button
               onClick={stop}
               className="rounded-lg border border-red-500/40 px-3 py-1.5 text-xs text-red-300 hover:bg-red-500/10"
@@ -485,7 +523,7 @@ export function AutoProtocol({ takeId }: { takeId: string }) {
               step={0.1}
               value={prefs.paceS}
               onChange={(e) =>
-                setPrefs((p) => ({
+                changePrefs((p) => ({
                   ...p,
                   paceS: Math.min(4, Math.max(MIN_PACE_S, Number(e.target.value) || 1.5)),
                 }))
@@ -504,7 +542,7 @@ export function AutoProtocol({ takeId }: { takeId: string }) {
               step={5}
               value={prefs.restS}
               onChange={(e) =>
-                setPrefs((p) => ({ ...p, restS: Math.min(180, Math.max(0, Number(e.target.value) || 0)) }))
+                changePrefs((p) => ({ ...p, restS: Math.min(180, Math.max(0, Number(e.target.value) || 0)) }))
               }
               className="w-16 rounded-md border border-white/10 bg-black/30 px-2 py-1 text-neutral-200"
             />

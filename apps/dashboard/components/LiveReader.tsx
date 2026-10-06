@@ -7,9 +7,9 @@
  * twice a second while anything streams, every 2 s while idle.
  */
 
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { type CaptureRef, type ImuHand, type ImuUnitStatus, type LiveReading, api } from "@/lib/api";
-import { getPairedDevice } from "@/components/PolarH10Card";
+import { getPairedDevice, savePairedDevice } from "@/components/PolarH10Card";
 import { useAuth } from "@/lib/auth";
 
 const ZONES = [
@@ -48,8 +48,12 @@ export function LiveReader({
       .catch(() => setImuMine(false));
   }, [fighterId]);
 
+  const cap = useMemo<CaptureRef>(
+    () => (takeId ? { kind: "take", id: takeId } : (sessionId ?? "")),
+    [takeId, sessionId],
+  );
+
   useEffect(() => {
-    const cap: CaptureRef = takeId ? { kind: "take", id: takeId } : (sessionId ?? "");
     let alive = true;
     let timer: ReturnType<typeof setTimeout>;
     const poll = async () => {
@@ -64,7 +68,7 @@ export function LiveReader({
       alive = false;
       clearTimeout(timer);
     };
-  }, [sessionId, takeId]);
+  }, [cap]);
 
   // HRV is confidential biometric data — admins don't see it (same rule as the HRV tab).
   const showHeart = user?.role !== "admin";
@@ -103,6 +107,13 @@ export function LiveReader({
                   ? "Strap paired but not sending — wear it with damp contacts and close the Polar app"
                   : "Polar H10 starts with the cameras"
           }
+        />
+      )}
+      {showHeart && !heart?.streaming && (
+        <StrapConnect
+          cap={cap}
+          paired={strapPaired}
+          onPaired={() => setStrapPaired(true)}
         />
       )}
 
@@ -311,6 +322,76 @@ function WristRow({
           {connected ? `peak ${unit!.peak_g.toFixed(1)}g` : running ? "connecting" : ""}
         </div>
       </div>
+    </div>
+  );
+}
+
+/** Connect the Polar H10 now — the capture page also retries every 10 s, but this
+ *  shows at once whether the laptop can reach the strap. Without a saved strap it
+ *  searches for one first (8 s). */
+function StrapConnect({
+  cap,
+  paired,
+  onPaired,
+}: {
+  cap: CaptureRef;
+  paired: boolean;
+  onPaired: () => void;
+}) {
+  const [step, setStep] = useState<"idle" | "searching" | "connecting">("idle");
+  const [note, setNote] = useState<string | null>(null);
+
+  const connect = async (address: string) => {
+    setStep("connecting");
+    setNote("Connecting — up to 15 s…");
+    try {
+      await api.startHrvBle(cap, address);
+      setNote(null); // the heart shows "waiting for first beat…", then the rate
+    } catch (e) {
+      setNote(String(e instanceof Error ? e.message : e).slice(0, 160));
+    } finally {
+      setStep("idle");
+    }
+  };
+
+  const find = async () => {
+    setStep("searching");
+    setNote("Looking for the strap…");
+    try {
+      const { devices } = await api.scanBleDevices();
+      const strap = devices.find((d) => /polar/i.test(d.name)) ?? devices[0];
+      if (!strap) {
+        setNote(
+          "No strap found. Put it on with damp contacts and disconnect it from the Polar app on your phone or a watch, then try again.",
+        );
+        setStep("idle");
+        return;
+      }
+      savePairedDevice(strap);
+      onPaired();
+      await connect(strap.address);
+    } catch (e) {
+      setNote(String(e instanceof Error ? e.message : e).slice(0, 160));
+      setStep("idle");
+    }
+  };
+
+  const saved = getPairedDevice();
+  return (
+    <div className="mt-2 flex flex-wrap items-center gap-2 text-[11px]">
+      <button
+        onClick={() => (paired && saved ? connect(saved.address) : find())}
+        disabled={step !== "idle"}
+        className="rounded-lg bg-rose-600 px-2.5 py-1 font-semibold text-white hover:bg-rose-500 disabled:opacity-60"
+      >
+        {step === "searching" ? "Searching…" : step === "connecting" ? "Connecting…" : "♥ Connect strap"}
+      </button>
+      {paired && step === "idle" && (
+        <button onClick={find} className="text-neutral-500 underline-offset-2 hover:text-neutral-300 hover:underline">
+          search again
+        </button>
+      )}
+      {note && <span className="w-full leading-snug text-neutral-400">{note}</span>}
     </div>
   );
 }

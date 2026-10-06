@@ -5,13 +5,19 @@
  * take with what it captured. "Record take" is only offered when consent allows
  * it — the researcher recording himself (`self`) or a signed IRB consent. A take
  * is listed once its cameras have started; "Delete…" removes the takes ticked.
+ *
+ * With a protocol, a participant is recorded one block per take: "Record session"
+ * starts at their first block not yet recorded and goes on block by block; the
+ * block chips show what's recorded and record one block on a click.
  */
 
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useEffect, useState } from "react";
+import { blockHref } from "@/components/BlockSitting";
 import {
   api,
+  type ProtocolBlockSpec,
   type Consent,
   type DatasetDetail,
   type DatasetExport,
@@ -52,6 +58,7 @@ export default function DatasetPage({ params }: { params: { id: string } }) {
   const [fighters, setFighters] = useState<Fighter[]>([]);
   const [err, setErr] = useState<string | null>(null);
   const [busy, setBusy] = useState<string | null>(null);
+  const [plan, setPlan] = useState<ProtocolBlockSpec[]>([]);
   // Delete: null = off; a set = picking takes (empty to start).
   const [picked, setPicked] = useState<Set<string> | null>(null);
 
@@ -64,15 +71,19 @@ export default function DatasetPage({ params }: { params: { id: string } }) {
   useEffect(() => {
     load();
     api.listFighters().then(setFighters).catch(() => {});
+    api.protocolPlan().then(setPlan).catch(() => {});
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [params.id]);
 
-  const record = async (fighterId: string) => {
+  /** Open a take — with a protocol, one block (and the sitting goes on from it). */
+  const record = async (fighterId: string, block?: string) => {
     setBusy(fighterId);
     setErr(null);
     try {
-      const take = await api.createTake(params.id, fighterId);
-      router.push(`/datasets/${params.id}/takes/${take.id}`);
+      const take = await api.createTake(params.id, fighterId, block);
+      router.push(
+        block ? blockHref(params.id, take.id) : `/datasets/${params.id}/takes/${take.id}`,
+      );
     } catch (e) {
       setErr(errText(e));
       setBusy(null);
@@ -106,6 +117,8 @@ export default function DatasetPage({ params }: { params: { id: string } }) {
 
   const takes = ds.takes;
   const kept = takes.filter((t) => t.status !== "discarded");
+  // A protocol dataset is recorded one block per take.
+  const blocked = !!ds.protocol && plan.length > 0;
 
   return (
     <div className="space-y-6 px-4 py-5 sm:px-8 sm:py-6">
@@ -162,13 +175,49 @@ export default function DatasetPage({ params }: { params: { id: string } }) {
                   ))}
                 </select>
                 <button
-                  onClick={() => record(p.fighter_id)}
+                  onClick={() =>
+                    record(
+                      p.fighter_id,
+                      blocked
+                        ? (plan.find((b) => !(p.blocks?.[b.key] ?? 0)) ?? plan[0]).key
+                        : undefined,
+                    )
+                  }
                   disabled={!p.may_record || busy !== null}
-                  title={p.may_record ? undefined : "Needs self or IRB-signed consent"}
+                  title={
+                    !p.may_record
+                      ? "Needs self or IRB-signed consent"
+                      : blocked
+                        ? "Records block by block, from the first one not recorded yet"
+                        : undefined
+                  }
                   className="rounded-xl bg-red-600 px-3 py-1.5 text-sm font-semibold text-white hover:bg-red-500 disabled:cursor-not-allowed disabled:bg-neutral-700 disabled:text-neutral-400"
                 >
-                  {busy === p.fighter_id ? "Opening…" : "● Record take"}
+                  {busy === p.fighter_id ? "Opening…" : blocked ? "● Record session" : "● Record take"}
                 </button>
+                {blocked && (
+                  <div className="flex w-full flex-wrap gap-1.5">
+                    {plan.map((b) => {
+                      const n = p.blocks?.[b.key] ?? 0;
+                      return (
+                        <button
+                          key={b.key}
+                          onClick={() => record(p.fighter_id, b.key)}
+                          disabled={!p.may_record || busy !== null}
+                          title={`${b.title}: recorded ${n} time${n === 1 ? "" : "s"} — click to record it`}
+                          className={`rounded-lg border px-2 py-0.5 text-[11px] disabled:cursor-not-allowed ${
+                            n
+                              ? "border-emerald-500/30 bg-emerald-950/40 text-emerald-200"
+                              : "border-white/10 text-neutral-400 hover:bg-white/5"
+                          }`}
+                        >
+                          {n ? "✓" : "○"} {b.title}
+                          {n > 1 && <span className="ml-1 text-emerald-400/70">×{n}</span>}
+                        </button>
+                      );
+                    })}
+                  </div>
+                )}
               </div>
             ))}
           </div>
@@ -314,7 +363,10 @@ function TakeRow({
           {new Date(take.started_at).toLocaleString()}
         </Link>
       </td>
-      <td>{take.fighter_name ?? "—"}</td>
+      <td>
+        {take.fighter_name ?? "—"}
+        {take.block && <span className="ml-1.5 text-xs text-neutral-500">· {take.block.replace(/_/g, " ")}</span>}
+      </td>
       <td>
         <span className={`pill ${status}`}>{take.status}</span>
       </td>

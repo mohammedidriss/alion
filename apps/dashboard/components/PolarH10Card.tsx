@@ -16,6 +16,12 @@ export function getPairedDevice(): BleDevice | null {
   return address ? { address, name: name ?? "Polar H10" } : null;
 }
 
+/** Remember this strap for every capture page in this browser. */
+export function savePairedDevice(d: BleDevice): void {
+  localStorage.setItem(LS_KEY_ADDR, d.address);
+  localStorage.setItem(LS_KEY_NAME, d.name);
+}
+
 /**
  * Compact inline card for the fighter dashboard header.
  * Scans / pairs a Polar H10 and persists the address in localStorage
@@ -55,8 +61,7 @@ export function PolarH10Card() {
   };
 
   const pair = (d: BleDevice) => {
-    localStorage.setItem(LS_KEY_ADDR, d.address);
-    localStorage.setItem(LS_KEY_NAME, d.name);
+    savePairedDevice(d);
     setPaired(d);
   };
 

@@ -495,6 +495,8 @@ export interface DatasetParticipant {
   irb_ref: string | null;
   notes: string | null;
   takes: number; // completed takes
+  /** Protocol block → completed takes that recorded it. */
+  blocks: Record<string, number>;
 }
 
 export interface TakeClip {
@@ -514,6 +516,8 @@ export interface Take {
   status: "recording" | "uploading" | "completed" | "discarded";
   /** False for a draft: "Record take" opened it, the cameras haven't started. */
   started: boolean;
+  /** The protocol block this take records (one block per take), or null. */
+  block: string | null;
   started_at: string;
   ended_at: string | null;
   duration_ms: number;
@@ -792,6 +796,13 @@ export interface CrossCheckSummary {
   camera_only: number;
   unconfirmed: number;
   cameras: CrossCheckCamera[];
+}
+
+/** Right after a block is saved: is it good enough to move on? */
+export interface TakeCheck {
+  ready: boolean; // saved — all clips in
+  ok: boolean; // nothing failed
+  checks: { key: "video" | "wrists" | "punches" | "heart"; level: "ok" | "warn" | "fail"; text: string }[];
 }
 
 export interface TakeCrossCheck extends CrossCheckSummary {
@@ -1232,12 +1243,14 @@ export const api = {
       headers: { "content-type": "application/json" },
       body: JSON.stringify(data),
     }),
-  createTake: (datasetId: string, fighterId: string) =>
+  createTake: (datasetId: string, fighterId: string, block?: string | null) =>
     req<Take>(`/v2/datasets/${datasetId}/takes`, {
       method: "POST",
       headers: { "content-type": "application/json" },
-      body: JSON.stringify({ fighter_id: fighterId }),
+      body: JSON.stringify({ fighter_id: fighterId, block: block ?? null }),
     }),
+  takeCheck: (id: string) => req<TakeCheck>(`/v2/takes/${id}/check`),
+  protocolPlan: () => req<ProtocolBlockSpec[]>(`/v2/protocol/plan`),
   getTake: (id: string) => req<Take>(`/v2/takes/${id}`),
   discardTake: (id: string) => req<Take>(`/v2/takes/${id}/discard`, { method: "POST" }),
   /** Delete a take for good (row, folder, clips) — e.g. a recording that went wrong. */

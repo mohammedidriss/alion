@@ -28,6 +28,8 @@ export function MulticamPanel({
   session,
   take,
   defaultLaptop = false,
+  autoStart,
+  stopSignal = 0,
   onStopping,
   onFinished,
   onDelete,
@@ -35,8 +37,14 @@ export function MulticamPanel({
   session?: Session;
   take?: Take; // a dataset take instead of a session
   defaultLaptop?: boolean;
-  /** Called as soon as Stop is sent — the cameras are now uploading their video. */
-  onStopping?: () => void;
+  /** Start by itself once this many cameras are connected and the wrist sensors
+   *  are on (the next block of a sitting). */
+  autoStart?: { cameras: number };
+  /** Bump to Stop & save (the block's last beep has passed). */
+  stopSignal?: number;
+  /** Called as soon as Stop is sent — the cameras are now uploading their video;
+   *  `cameras` is how many were recording. */
+  onStopping?: (cameras: number) => void;
   /** Called once Stop has saved the clips and completed the session / take. */
   onFinished?: () => void;
   /** "Delete": the page deletes this recording (and opens a fresh one). The panel
@@ -271,7 +279,7 @@ export function MulticamPanel({
       (await api.multicamClips(cap).catch(() => [])).map((c) => [c.device_id, c.bytes]),
     );
     await api.multicamStop(cap).catch(() => {});
-    onStopping?.();
+    onStopping?.(recording);
     setCaptureStartMs(null);
     setPaused(false);
     pauseStartRef.current = null;
@@ -293,6 +301,29 @@ export function MulticamPanel({
     setMsg("Uploading video — finishing the save…");
     void finishSave(new Map(), Infinity, undefined, 5_000);
   }, [take?.status, stopping, finishSave]);
+
+  // Next block of a sitting: start by itself once the same cameras are back and the
+  // wrist sensors are on (the heart strap gets 15 s to join, then it goes anyway —
+  // the block's check flags a missing heart rate).
+  const autoStarted = useRef(false);
+  const [waitingSince] = useState(() => Date.now());
+  const cameraCount = devices.filter((d) => d.role === "camera").length;
+  useEffect(() => {
+    if (!autoStart || autoStarted.current || captureStartMs !== null || stopping || busy) return;
+    const wristsOn = !imuMine || (sensors.l === true && sensors.r === true);
+    const heartOn = sensors.hr !== false || Date.now() - waitingSince > 15_000;
+    if (cameraCount >= autoStart.cameras && wristsOn && heartOn) {
+      autoStarted.current = true;
+      void start();
+    }
+  }, [autoStart, cameraCount, sensors, imuMine, captureStartMs, stopping, busy, waitingSince, start, tick]);
+
+  const lastStop = useRef(stopSignal);
+  useEffect(() => {
+    if (stopSignal === lastStop.current) return;
+    lastStop.current = stopSignal;
+    if (captureStartMs !== null) void stop();
+  }, [stopSignal, captureStartMs, stop]);
 
   // Delete: a two-step button (it can't be undone); the confirm lapses after 6 s.
   useEffect(() => {

@@ -5,6 +5,10 @@
  * live reader, cameras (laptop + phones via the QR), wrist IMUs and Polar — but
  * everything lands in the take's folder, never in a session. No Pause: protocol
  * blocks need one unbroken timeline. After Stop & save it shows what was captured.
+ *
+ * One block per take: a take with a `block` runs just that block, saves itself
+ * when the block ends, is checked (BlockSitting), and — in a sitting (?sitting=1)
+ * — hands over to the next block's take, which starts by itself after the rest.
  */
 
 import Link from "next/link";
@@ -18,7 +22,12 @@ import { PolarH10Card } from "@/components/PolarH10Card";
 import { AutoProtocol } from "@/components/AutoProtocol";
 import { ProtocolCard } from "@/components/ProtocolCard";
 import { TakeCrossCheckCard } from "@/components/TakeCrossCheckCard";
-import { api, type Take } from "@/lib/api";
+import { BlockSitting, blockHref } from "@/components/BlockSitting";
+import { api, type ProtocolBlockSpec, type Take } from "@/lib/api";
+
+// How many cameras the last block of this sitting recorded with — the next block
+// waits for that many before it starts by itself.
+const SITTING_CAMERAS_KEY = "alion.sittingCameras";
 
 function duration(ms: number): string {
   const s = Math.round(ms / 1000);
@@ -30,6 +39,26 @@ export default function TakePage({ params }: { params: { id: string; takeId: str
   const [take, setTake] = useState<Take | null>(null);
   const [err, setErr] = useState<string | null>(null);
   const [confirmDiscard, setConfirmDiscard] = useState(false);
+  const [plan, setPlan] = useState<ProtocolBlockSpec[]>([]);
+  const [stopSignal, setStopSignal] = useState(0);
+  // Sitting mode (from the URL): keep going block after block; `rest` is when the
+  // rest before this block ends (it starts by itself then).
+  const [sitting, setSitting] = useState<{ on: boolean; restUntil: number | null }>({
+    on: false,
+    restUntil: null,
+  });
+  const [, setTick] = useState(0);
+  useEffect(() => {
+    const q = new URLSearchParams(window.location.search);
+    const rest = Number(q.get("rest"));
+    setSitting({ on: q.get("sitting") === "1", restUntil: Number.isFinite(rest) && rest > 0 ? rest : null });
+    api.protocolPlan().then(setPlan).catch(() => {});
+  }, [params.takeId]);
+  useEffect(() => {
+    if (!sitting.restUntil) return;
+    const id = setInterval(() => setTick((t) => t + 1), 500);
+    return () => clearInterval(id);
+  }, [sitting.restUntil]);
 
   const load = useCallback(
     () =>
@@ -62,6 +91,21 @@ export default function TakePage({ params }: { params: { id: string; takeId: str
 
   // Uploading keeps the capture panel up: the cameras are still sending their video.
   const recording = take.status === "recording" || take.status === "uploading";
+  const blockIdx = take.block ? plan.findIndex((s) => s.key === take.block) : -1;
+  const blockSpec = blockIdx >= 0 ? plan[blockIdx] : undefined;
+  const restLeft = sitting.restUntil ? Math.max(0, sitting.restUntil - Date.now()) : 0;
+  let sittingCameras = 0;
+  try {
+    sittingCameras = Number(sessionStorage.getItem(SITTING_CAMERAS_KEY)) || 0;
+  } catch {
+    /* no storage — start by hand */
+  }
+  // The next block of a sitting starts by itself: after the rest, once the same
+  // cameras are back.
+  const autoStart =
+    sitting.on && sitting.restUntil !== null && draft && restLeft === 0 && sittingCameras > 0
+      ? { cameras: sittingCameras }
+      : undefined;
   const status = draft
     ? "bg-sky-900/60 text-sky-200"
     : {
@@ -80,7 +124,15 @@ export default function TakePage({ params }: { params: { id: string; takeId: str
       <header className="flex flex-wrap items-center justify-between gap-4 lg:grid lg:grid-cols-[1fr_auto_1fr]">
         <div>
           <div className="flex items-center gap-3">
-            <h1 className="text-2xl font-semibold">Take · {take.fighter_name}</h1>
+            <h1 className="text-2xl font-semibold">
+              {blockSpec ? `${blockSpec.title} · ` : take.block ? `${take.block} · ` : "Take · "}
+              {take.fighter_name}
+            </h1>
+            {blockSpec && (
+              <span className="text-xs text-neutral-500">
+                block {blockIdx + 1} of {plan.length}
+              </span>
+            )}
             <span
               className={`pill ${status}`}
               title={draft ? "Not in the dataset until you press Start all cameras" : undefined}
@@ -91,9 +143,11 @@ export default function TakePage({ params }: { params: { id: string; takeId: str
             {recording && <PolarH10Card />}
           </div>
           <p className="text-xs text-neutral-500">
-            {draft
-              ? "Connect the cameras and sensors — the take is recorded and added to the dataset when you press Start all cameras"
-              : `${new Date(take.started_at).toLocaleString()} · dataset recording, not a training session`}
+            {draft && autoStart
+              ? "Starts by itself as soon as the cameras and wrist sensors are back"
+              : draft
+                ? "Connect the cameras and sensors — the take is recorded and added to the dataset when you press Start all cameras"
+                : `${new Date(take.started_at).toLocaleString()} · dataset recording, not a training session`}
           </p>
         </div>
         {recording ? <JoinQrCard takeId={take.id} compact /> : <div className="hidden lg:block" />}
@@ -132,24 +186,66 @@ export default function TakePage({ params }: { params: { id: string; takeId: str
 
       {err && <p className="text-sm text-red-400">{err}</p>}
 
+      {draft && restLeft > 0 && (
+        <div className="rounded-2xl border border-sky-500/30 bg-sky-950/30 p-4 text-center">
+          <div className="text-xs uppercase tracking-widest text-sky-300">Rest</div>
+          <div className="text-5xl font-bold tabular-nums text-sky-200">
+            {Math.ceil(restLeft / 1000)}
+          </div>
+          <div className="mt-1 text-sm text-neutral-300">
+            Next: {blockSpec?.title ?? take.block} — the cameras and sensors reconnect meanwhile
+          </div>
+        </div>
+      )}
+
+      {/* One block per take: once saved, check it and move on (or redo it). */}
+      {take.block && take.status === "completed" && plan.length > 0 && (
+        <BlockSitting take={take} plan={plan} sitting={sitting.on} />
+      )}
+
       {recording && (
         <div className="grid items-start gap-6 lg:grid-cols-[300px_minmax(0,1fr)]">
           <div className="space-y-6">
             <LiveReader takeId={take.id} fighterId={take.fighter_id} />
-            {/* Protocol blocks — run automatically, or by hand with Start / End. */}
-            <ProtocolArea takeId={take.id} />
+            {take.block ? (
+              <>
+                {/* This take's block only: when it ends, the take saves itself. */}
+                <AutoProtocol
+                  takeId={take.id}
+                  onlyBlock={take.block}
+                  onBlockDone={() => setStopSignal((n) => n + 1)}
+                />
+                <ProtocolCard takeId={take.id} readOnly />
+              </>
+            ) : (
+              // Protocol blocks — run automatically, or by hand with Start / End.
+              <ProtocolArea takeId={take.id} />
+            )}
           </div>
           <MulticamPanel
             take={take}
             defaultLaptop
-            onStopping={load}
+            autoStart={autoStart}
+            stopSignal={stopSignal}
+            onStopping={(cameras) => {
+              try {
+                sessionStorage.setItem(SITTING_CAMERAS_KEY, String(cameras));
+              } catch {
+                /* the next block then starts by hand */
+              }
+              void load();
+            }}
             onFinished={load}
             onDelete={async () => {
-              // Delete for good, then a fresh take for the same fighter — the linked
-              // phones follow it there.
+              // Delete for good, then a fresh take for the same fighter (and block) —
+              // the linked phones follow it there.
               await api.deleteTake(take.id);
-              const next = await api.createTake(take.dataset_id, take.fighter_id);
-              router.replace(`/datasets/${params.id}/takes/${next.id}`);
+              const next = await api.createTake(take.dataset_id, take.fighter_id, take.block);
+              router.replace(
+                take.block && sitting.on
+                  ? blockHref(params.id, next.id)
+                  : `/datasets/${params.id}/takes/${next.id}`,
+              );
             }}
           />
         </div>

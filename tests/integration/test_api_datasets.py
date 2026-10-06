@@ -181,6 +181,101 @@ def test_a_stopped_take_shows_uploading_until_it_is_saved(
     assert sorted(d["device_id"] for d in meta["devices"]) == sorted(devs)
 
 
+def test_one_block_per_take_is_checked_and_counted(
+    authed_client: TestClient, stores: dict[str, Path], monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Each protocol block is its own short take; right after it's saved, a check
+    says whether it's good enough to move on — so a mistake costs one block."""
+    from api.routes import capture_coord
+
+    monkeypatch.setattr(capture_coord, "_STATE_DIR", stores["datasets"].parent / "capture")
+    did = _dataset(authed_client)
+    fid = _fighter(authed_client, "Mohamad", stance="orthodox")
+    _participant(authed_client, did, fid, "self")
+    bad = authed_client.post(f"/v2/datasets/{did}/takes", json={"fighter_id": fid, "block": "nope"})
+    assert bad.status_code == 422
+
+    jab = authed_client.post(f"/v2/datasets/{did}/takes", json={"fighter_id": fid, "block": "jab"})
+    tid = jab.json()["id"]
+    assert jab.json()["block"] == "jab"
+    # a draft is reused for the same block only
+    again = authed_client.post(
+        f"/v2/datasets/{did}/takes", json={"fighter_id": fid, "block": "jab"}
+    )
+    cross = authed_client.post(
+        f"/v2/datasets/{did}/takes", json={"fighter_id": fid, "block": "cross"}
+    )
+    assert again.json()["id"] == tid and cross.json()["id"] != tid
+
+    token = authed_client.post(f"/takes/{tid}/multicam/join-info").json()["join_token"]
+    devs = {}
+    for name in ("laptop", "Samsung"):
+        dev = authed_client.post(
+            f"/takes/{tid}/multicam/register", json={"token": token, "label": name}
+        ).json()["device_id"]
+        devs[name] = dev
+    authed_client.post(f"/takes/{tid}/multicam/start")
+    for name, dev in devs.items():
+        authed_client.post(
+            f"/takes/{tid}/multicam/heartbeat",
+            json={"token": token, "device_id": dev, "status": "recording", "label": name},
+        )
+    assert authed_client.get(f"/v2/takes/{tid}/check").json() == {
+        "ready": False,
+        "ok": False,
+        "checks": [],
+    }
+    authed_client.post(f"/takes/{tid}/multicam/stop")
+
+    folder = stores["datasets"] / did / "takes" / tid
+    lines = [dataset_store_imu_header()]
+    lines += [f"{i * 10},{h},0,0,1,0,0,0" for i in range(500) for h in ("left", "right")]
+    (folder / "imu.csv").write_text("\n".join(lines) + "\n")
+    (folder / "hr.csv").write_text("t_ms,rr_ms,hr_bpm\n100,800,75\n900,800,75\n")
+    protocol = {
+        "blocks": [
+            {"key": "jab", "t_start_ms": 0, "t_end_ms": 47000, "detected": 30, "off_hand": 0}
+        ]
+    }
+    (folder / "protocol.json").write_text(json.dumps(protocol))
+
+    def upload(dev: str) -> None:
+        authed_client.post(
+            f"/takes/{tid}/multicam/upload",
+            data={"token": token, "device_id": dev},
+            files={"file": ("c.webm", b"\x1a\x45\xdf\xa3clip", "video/webm")},
+        )
+
+    upload(devs["laptop"])
+    assert authed_client.post(f"/takes/{tid}/multicam/complete", json={}).status_code == 200
+    check = authed_client.get(f"/v2/takes/{tid}/check").json()
+    by = {c["key"]: c for c in check["checks"]}
+    assert check["ready"] and not check["ok"]
+    assert by["video"]["level"] == "fail" and "Samsung" in by["video"]["text"]
+    assert by["wrists"]["level"] == "ok" and by["punches"]["text"] == "Jab: 30/30 punches"
+    assert by["heart"]["level"] == "ok"
+
+    upload(devs["Samsung"])  # the phone's clip lands late — the block is good now
+    assert authed_client.get(f"/v2/takes/{tid}/check").json()["ok"] is True
+
+    # sensors on the wrong wrists: the punches land on the other hand
+    protocol["blocks"][0].update(detected=0, off_hand=29)
+    (folder / "protocol.json").write_text(json.dumps(protocol))
+    check = authed_client.get(f"/v2/takes/{tid}/check").json()
+    assert not check["ok"]
+    assert "swapped" in next(c for c in check["checks"] if c["key"] == "punches")["text"]
+
+    # the participant's coverage: jab recorded once
+    me = authed_client.get(f"/v2/datasets/{did}").json()["participants"][0]
+    assert me["blocks"] == {"jab": 1}
+
+
+def dataset_store_imu_header() -> str:
+    from api.services import dataset_store
+
+    return dataset_store.IMU_HEADER
+
+
 def test_take_capture_lands_in_the_take_folder_never_in_session_storage(
     authed_client: TestClient, stores: dict[str, Path]
 ) -> None:

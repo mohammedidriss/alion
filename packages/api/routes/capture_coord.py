@@ -101,6 +101,8 @@ class _Coord:
     paused: bool = False  # coach pressed Pause — nodes hold recording, keep the clip
     last_start_ms: float | None = None  # t = 0 of the latest recording, kept after stop
     stopped_ms: float | None = None  # when the coach pressed Stop (server wall clock)
+    # Cameras that were recording when Stop was pressed (id → label): each owes a clip.
+    stop_cameras: dict[str, str] = field(default_factory=dict)
 
 
 _lock = threading.Lock()
@@ -125,6 +127,7 @@ def _save_state(capture_id: UUID, c: _Coord) -> None:
                     "start_at_ms": c.start_at_ms,
                     "last_start_ms": c.last_start_ms,
                     "stopped_ms": c.stopped_ms,
+                    "stop_cameras": c.stop_cameras,
                     "paused": c.paused,
                 }
             )
@@ -140,6 +143,7 @@ def _load_state(capture_id: UUID, c: _Coord) -> None:
         return
     c.last_start_ms = st.get("last_start_ms")
     c.stopped_ms = st.get("stopped_ms")
+    c.stop_cameras = dict(st.get("stop_cameras") or {})
     start_at = st.get("start_at_ms")
     if st.get("command") == "start" and start_at and _now_ms() - start_at < _STATE_MAX_AGE_MS:
         c.command, c.start_at_ms, c.paused = "start", start_at, bool(st.get("paused"))
@@ -221,6 +225,20 @@ def last_started_at_ms(capture_id: UUID) -> float | None:
         if c is not None and c.last_start_ms is not None:
             return c.last_start_ms
     return _saved(capture_id, "last_start_ms")
+
+
+def cameras_at_stop(capture_id: UUID) -> dict[str, str]:
+    """The cameras that were recording when Stop was pressed (device id → label)."""
+    with _lock:
+        c = _coords.get(capture_id)
+        if c is not None and c.stop_cameras:
+            return dict(c.stop_cameras)
+    try:
+        st = json.loads((_STATE_DIR / f"{capture_id}.json").read_text())
+    except (OSError, ValueError):
+        return {}
+    cams = st.get("stop_cameras") if isinstance(st, dict) else None
+    return {str(k): str(v) for k, v in cams.items()} if isinstance(cams, dict) else {}
 
 
 def stopped_at_ms(capture_id: UUID) -> float | None:
@@ -435,6 +453,11 @@ def stop_capture(session_id: UUID) -> CaptureState:
         c.start_at_ms = None
         c.paused = False
         c.stopped_ms = _now_ms()
+        c.stop_cameras = {
+            d.device_id: d.label
+            for d in _live_devices(c)
+            if d.role == "camera" and d.status in ("recording", "paused")
+        }
         _save_state(session_id, c)
         return CaptureState(command="stop", start_at_ms=None, server_now_ms=_now_ms())
 
