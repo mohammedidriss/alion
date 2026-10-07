@@ -14,7 +14,7 @@ import urllib.request
 from collections.abc import Iterator
 from contextlib import contextmanager
 from pathlib import Path
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING, Any, Literal
 from uuid import UUID
 
 from contracts import NUM_POSE_LANDMARKS, Landmark, PoseFrame, WorldLandmark
@@ -28,23 +28,29 @@ else:
     Frame = Any
 
 
-_MODEL_URL = (
-    "https://storage.googleapis.com/mediapipe-models/pose_landmarker/"
-    "pose_landmarker_lite/float16/latest/pose_landmarker_lite.task"
-)
 _MODEL_DIR = Path("models/mediapipe")
-_MODEL_PATH = _MODEL_DIR / "pose_landmarker_lite.task"
+# "lite" for live capture; "full" matches what the browser cameras run, used when
+# pose is recovered from a recorded clip.
+PoseModel = Literal["lite", "full"]
 
 
-def ensure_pose_model() -> Path:
+def _model_url(model: PoseModel) -> str:
+    return (
+        "https://storage.googleapis.com/mediapipe-models/pose_landmarker/"
+        f"pose_landmarker_{model}/float16/latest/pose_landmarker_{model}.task"
+    )
+
+
+def ensure_pose_model(model: PoseModel = "lite") -> Path:
     """Download the pose landmarker model on first use; return its path."""
-    if _MODEL_PATH.exists():
-        return _MODEL_PATH
+    path = _MODEL_DIR / f"pose_landmarker_{model}.task"
+    if path.exists():
+        return path
     _MODEL_DIR.mkdir(parents=True, exist_ok=True)
-    tmp = _MODEL_PATH.with_suffix(".task.partial")
-    urllib.request.urlretrieve(_MODEL_URL, tmp)
-    tmp.rename(_MODEL_PATH)
-    return _MODEL_PATH
+    tmp = path.with_suffix(".task.partial")
+    urllib.request.urlretrieve(_model_url(model), tmp)
+    tmp.rename(path)
+    return path
 
 
 class PoseEstimator:
@@ -58,9 +64,11 @@ class PoseEstimator:
         min_detection_confidence: float = 0.5,
         min_presence_confidence: float = 0.5,
         min_tracking_confidence: float = 0.5,
+        model: PoseModel = "lite",
     ) -> None:
         self.session_id = session_id
         self.fps = fps
+        self.model: PoseModel = model
         self._frame_idx = 0
         self._landmarker: Any = None
         self._opts = {
@@ -75,7 +83,7 @@ class PoseEstimator:
         from mediapipe.tasks import python as mp_python
         from mediapipe.tasks.python import vision as mp_vision
 
-        model_path = ensure_pose_model()
+        model_path = ensure_pose_model(self.model)
         options = mp_vision.PoseLandmarkerOptions(
             base_options=mp_python.BaseOptions(model_asset_path=str(model_path)),
             running_mode=mp_vision.RunningMode.VIDEO,
@@ -93,8 +101,11 @@ class PoseEstimator:
             self._landmarker.close()
             self._landmarker = None
 
-    def process(self, bgr_frame: Frame) -> PoseFrame | None:
-        """Run pose on one BGR frame. Returns None if no person detected."""
+    def process(self, bgr_frame: Frame, t_ms: float | None = None) -> PoseFrame | None:
+        """Run pose on one BGR frame. Returns None if no person detected.
+
+        `t_ms` is the frame's own time (a recorded clip's frames don't come at a
+        fixed rate); without it, time is the frame index over `fps`."""
         import cv2
 
         if self._landmarker is None:
@@ -102,7 +113,10 @@ class PoseEstimator:
         rgb = cv2.cvtColor(bgr_frame, cv2.COLOR_BGR2RGB)
         idx = self._frame_idx
         self._frame_idx += 1
-        t_ms_int = int((idx / self.fps) * 1000.0)
+        t = t_ms if t_ms is not None else (idx / self.fps) * 1000.0
+        # MediaPipe needs strictly increasing timestamps.
+        t_ms_int = max(int(t), getattr(self, "_last_ts", -1) + 1)
+        self._last_ts = t_ms_int
         mp_image = self._mp.Image(image_format=self._mp.ImageFormat.SRGB, data=rgb)
         result = self._landmarker.detect_for_video(mp_image, t_ms_int)
         if not result.pose_landmarks:
@@ -136,7 +150,7 @@ class PoseEstimator:
         return PoseFrame(
             session_id=self.session_id,
             frame_index=idx,
-            t_ms=(idx / self.fps) * 1000.0,
+            t_ms=t,
             landmarks=landmarks,
             world_landmarks=world_lms,
         )

@@ -38,6 +38,7 @@ from api.services import (
     hrv_runner,
     imu_devices,
     imu_runner,
+    pose_backfill,
 )
 from store import (
     ConsentEnum,
@@ -457,6 +458,9 @@ def take_complete(
     )
     repo.finish_take(take.id, TakeStatusEnum.COMPLETED, duration)
     _release_capture(take_id)  # the client stops them too; this makes sure
+    # A camera whose pose didn't arrive (model not loaded at Start, page off
+    # screen) gets it recovered from its clip once the uploads have settled.
+    pose_backfill.schedule_take(take_id)
     return {"status": "completed", "clips": len(clips)}
 
 
@@ -636,7 +640,7 @@ def take_cross_check(
 
 
 class CheckItem(BaseModel):
-    key: Literal["video", "wrists", "punches", "heart"]
+    key: Literal["video", "pose", "wrists", "punches", "heart"]
     level: Literal["ok", "warn", "fail"]  # fail: redo the block; warn: worth knowing
     text: str
 
@@ -699,6 +703,35 @@ def take_check(take_id: UUID, repo: DatasetRepo = Depends(dataset_repo)) -> Take
                 key="video", level="ok" if n else "fail", text=f"{n} camera{'s' if n != 1 else ''}"
             )
         )
+
+    # Pose from every camera — missing pose is recovered from the clip, so it's a
+    # warning, not a redo.
+    take_ms = dataset_store.read_take_json(folder).get("duration_ms")
+    names = {**owed}
+    for m in (folder / "video").glob("*.json"):
+        try:
+            names.setdefault(m.stem, json.loads(m.read_text()).get("label") or m.stem)
+        except (OSError, ValueError):
+            pass
+    short: list[str] = []
+    for c in dataset_store.clips(folder):
+        dev = str(c["device_id"])
+        length = float(take_ms) - (c.get("start_offset_ms") or 0.0) if take_ms else None
+        pose = dataset_store.pose_path(folder, dev)
+        span = pose_backfill.pose_span_ms(pose) if pose.exists() else 0.0
+        if length and span < pose_backfill.MIN_COVERAGE * length:
+            short.append(names.get(dev) or dev)
+    if short:
+        checks.append(
+            CheckItem(
+                key="pose",
+                level="warn",
+                text=f"No pose from {', '.join(short)} (its page's pose model wasn't ready, or it "
+                "went off screen) — recovering it from the video, about a minute",
+            )
+        )
+    elif have:
+        checks.append(CheckItem(key="pose", level="ok", text=f"pose from {len(have)} cameras"))
 
     # Both wrists streamed.
     rows = _imu_rows_by_hand(folder)
@@ -764,3 +797,15 @@ def take_check(take_id: UUID, repo: DatasetRepo = Depends(dataset_repo)) -> Take
         )
     )
     return TakeCheckOut(ready=True, ok=not any(c.level == "fail" for c in checks), checks=checks)
+
+
+@router.post("/takes/{take_id}/pose/recover", response_model=dict)
+def take_pose_recover(take_id: UUID, repo: DatasetRepo = Depends(dataset_repo)) -> dict[str, Any]:
+    """Recover the take's missing camera pose from its clips now (in the background)."""
+    take = _get_take(take_id, repo)
+    if take.status != TakeStatusEnum.COMPLETED:
+        raise HTTPException(status_code=409, detail="the take isn't saved yet")
+    gaps = pose_backfill.take_gaps(_folder(take_id))
+    if gaps:
+        pose_backfill.schedule_take(take_id, delay_s=0.0)
+    return {"recovering": [g.device_id for g in gaps]}

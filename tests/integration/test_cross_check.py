@@ -165,6 +165,23 @@ def test_a_wrist_sensor_dropout_is_filled_in_from_the_cameras(
     assert (xc["counted"], xc["camera_only"], xc["unconfirmed"]) == (5, 1, 0)
 
 
+def test_a_camera_whose_pose_stopped_early_sits_out_the_vote(
+    authed_client: TestClient, session: Session, dirs: Path
+) -> None:
+    """A phone that went off screen sends a few frames of pose: it mustn't vote
+    "no punch" for the rest of the take (it made agreement read 0%)."""
+    from api.services import cross_check
+    from capture.cv.writer import write_pose_parquet
+
+    sid = _session_with_sensors(authed_client, session, dirs)
+    SEEN[4] = []  # 4 frames of pose, then the page went off screen
+    write_pose_parquet(dirs / "pose" / f"{sid}.k.pose.parquet", _frames(UUID(sid), 4))
+    report = cross_check.run_now("session", UUID(sid), db=session)
+    assert report is not None
+    assert report["cameras_skipped"] == ["k"]
+    assert report["totals"]["confirmed"] == 3 and report["agreement"] == 0.75
+
+
 def test_a_late_camera_upload_reruns_the_cross_check(
     authed_client: TestClient, session: Session, dirs: Path
 ) -> None:

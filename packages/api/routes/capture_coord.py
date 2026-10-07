@@ -456,7 +456,7 @@ def stop_capture(session_id: UUID) -> CaptureState:
         c.stop_cameras = {
             d.device_id: d.label
             for d in _live_devices(c)
-            if d.role == "camera" and d.status in ("recording", "paused")
+            if d.role == "camera" and d.status in ("recording", "paused", "hidden")
         }
         _save_state(session_id, c)
         return CaptureState(command="stop", start_at_ms=None, server_now_ms=_now_ms())

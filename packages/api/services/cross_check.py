@@ -46,8 +46,9 @@ log = get_logger(__name__)
 Kind = Literal["session", "take"]
 Status = Literal["ready", "running", "none"]
 
-VERSION = 1  # bump when the fusion rules change, so old results re-run
+VERSION = 2  # bump when the fusion rules change, so old results re-run
 DEBOUNCE_S = 8.0  # the cameras' pose uploads land within seconds of each other
+MIN_CAMERA_SPAN = 0.3  # of the longest camera's pose — less and the camera sits out
 BACKGROUND = True  # tests switch the background runs off and call run_now
 
 _lock = threading.Lock()
@@ -196,11 +197,18 @@ def run_now(
                 WristPunch(e.t_ms, hand, e.peak_g)
                 for e in detect_wrist_punches(a[:, 0], a[:, 1], a[:, 2], a[:, 3])
             ]
-    per_camera = {}
-    for dev, path in inp.pose.items():
-        frames = read_pose_parquet(path)
-        if frames:
-            per_camera[dev] = camera_punches(frames, stance=stance)
+    poses = {dev: read_pose_parquet(path) for dev, path in inp.pose.items()}
+    spans = {dev: (f[-1].t_ms - f[0].t_ms) if len(f) > 1 else 0.0 for dev, f in poses.items()}
+    longest = max(spans.values(), default=0.0)
+    # A camera whose pose stopped early (its page went off screen) would vote
+    # "no punch" for the rest of the take — leave it out until its pose is
+    # recovered from the clip (pose_backfill re-runs this then).
+    skipped = sorted(d for d, span in spans.items() if span < MIN_CAMERA_SPAN * longest)
+    per_camera = {
+        dev: camera_punches(frames, stance=stance)
+        for dev, frames in poses.items()
+        if frames and dev not in skipped
+    }
     has_wrist = any(len(a) for a in samples.values())
     end = float(duration or max((float(a[-1, 0]) for a in samples.values() if len(a)), default=0.0))
     gaps = (
@@ -220,6 +228,7 @@ def run_now(
         "wrist": has_wrist,
         "hands": cc.hands,
         "hands_swapped": cc.hands_swapped,
+        "cameras_skipped": skipped,  # too little pose to vote
         "totals": {
             "counted": len(counted),
             "confirmed": by[("both", True)],

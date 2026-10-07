@@ -160,6 +160,15 @@ export function CameraNode({
   const [uploaded, setUploaded] = useState(false);
   const [uploading, setUploading] = useState(false);
   const uploadingRef = useRef(false); // read by the heartbeat: the coach sees "uploading"
+  // The pose model loads in the background (a download plus GPU set-up, a few
+  // seconds). Until it's in, the camera reports "loading" so the coach can wait;
+  // if recording starts first, pose tracking starts the moment it arrives.
+  const [poseReady, setPoseReady] = useState(false);
+  const poseReadyRef = useRef(false);
+  // A page that isn't on screen (phone locked, app switched, tab hidden) keeps
+  // recording video, but the browser pauses pose tracking — count that time.
+  const hiddenSinceRef = useRef<number | null>(null);
+  const hiddenMsRef = useRef(0);
   const [punchCount, setPunchCount] = useState(0);
   const [paused, setPaused] = useState(false);
   const [err, setErr] = useState<string | null>(null);
@@ -286,13 +295,18 @@ export function CameraNode({
       const did = deviceIdRef.current;
       if (!did) return;
       try {
+        const hidden = typeof document !== "undefined" && document.visibilityState === "hidden";
         const status = uploadingRef.current
           ? "uploading"
           : pausedRef.current
             ? "paused"
             : phase === "recording"
-              ? "recording"
-              : "ready";
+              ? hidden
+                ? "hidden"
+                : "recording"
+              : poseReadyRef.current
+                ? "ready"
+                : "loading";
         const st = await api.multicamHeartbeat(cap, token, did, status, punchCountRef.current, labelRef.current);
         offsetRef.current = st.server_now_ms - Date.now();
         if (st.command === "start" && st.start_at_ms != null) {
@@ -490,9 +504,11 @@ export function CameraNode({
     return () => clearInterval(id);
   }, [phase, cap, token]);
 
-  // Load MediaPipe pose once the camera is ready (client-side — the server has no CV).
+  // Load MediaPipe pose as soon as the page opens, alongside the camera — loading it
+  // only once the camera was ready left too little time when Start came quickly,
+  // and the whole take then had no pose.
   useEffect(() => {
-    if (phase !== "ready" || landmarkerRef.current || !streamRef.current) return;
+    if (landmarkerRef.current) return;
     let cancelled = false;
     (async () => {
       try {
@@ -509,14 +525,38 @@ export function CameraNode({
           runningMode: "VIDEO",
           numPoses: 1,
         });
-        if (!cancelled) landmarkerRef.current = lm;
+        if (!cancelled) {
+          landmarkerRef.current = lm;
+          poseReadyRef.current = true;
+          setPoseReady(true);
+        }
       } catch {
-        /* model load failed — recording still works, just no live count */
+        /* model load failed — recording still works, just no live count or pose */
       }
     })();
     return () => {
       cancelled = true;
     };
+  }, []);
+
+  // Recording while off screen: note it, and say so when the page comes back.
+  useEffect(() => {
+    if (phase !== "recording") return;
+    hiddenMsRef.current = 0;
+    hiddenSinceRef.current = document.visibilityState === "hidden" ? Date.now() : null;
+    const onVis = () => {
+      if (document.visibilityState === "hidden") {
+        hiddenSinceRef.current = Date.now();
+      } else if (hiddenSinceRef.current != null) {
+        hiddenMsRef.current += Date.now() - hiddenSinceRef.current;
+        hiddenSinceRef.current = null;
+        setRecInfo(
+          `This page was off screen for ${Math.round(hiddenMsRef.current / 1000)} s — the video kept recording, but pose stopped. Keep this page in front with the screen on.`,
+        );
+      }
+    };
+    document.addEventListener("visibilitychange", onVis);
+    return () => document.removeEventListener("visibilitychange", onVis);
   }, [phase]);
 
   // Count punches live during recording, using the shared PunchDetector.
@@ -532,7 +572,7 @@ export function CameraNode({
         worldLandmarks?: { x: number; y: number; z: number; visibility?: number }[][];
       };
     } | null;
-    if (!video || !lm) return;
+    if (!video || !lm) return; // runs again when the pose model arrives (poseReady)
     detectorRef.current = new PunchDetector(null);
     punchCountRef.current = 0;
     setPunchCount(0);
@@ -570,7 +610,7 @@ export function CameraNode({
     };
     rafRef.current = requestAnimationFrame(loop);
     return () => cancelAnimationFrame(rafRef.current);
-  }, [phase]);
+  }, [phase, poseReady]);
 
   // On stop, upload this device's pose stream for offline analysis (per-device parquet).
   useEffect(() => {

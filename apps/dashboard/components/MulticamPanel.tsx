@@ -267,7 +267,9 @@ export function MulticamPanel({
     const durationMs = activeMsRef.current;
     // Cameras recording right now each upload one clip after the stop command.
     const recording = devicesRef.current.filter(
-      (d) => d.role === "camera" && (d.status === "recording" || d.status === "paused"),
+      (d) =>
+        d.role === "camera" &&
+        (d.status === "recording" || d.status === "paused" || d.status === "hidden"),
     ).length;
     const expected = Math.max(1, recording);
     const before = new Map(
@@ -338,6 +340,9 @@ export function MulticamPanel({
   const cams = allCams.filter((d) => d.device_id !== laptopDeviceId);
   const maxPunches = allCams.reduce((m, c) => Math.max(m, c.punches), 0);
   const canStart = allCams.length > 0 || laptopOn;
+  // Cameras whose pose isn't ready yet, or whose page is off screen while recording.
+  const loadingCams = devices.filter((d) => d.role === "camera" && d.status === "loading");
+  const hiddenCams = devices.filter((d) => d.role === "camera" && d.status === "hidden");
   const capturing = captureStartMs !== null;
   const activeMs = capturing
     ? Math.max(
@@ -424,6 +429,18 @@ export function MulticamPanel({
           </>
         )}
         {msg && <span className="text-xs text-neutral-400">{msg}</span>}
+        {captureStartMs === null && loadingCams.length > 0 && (
+          <span className="text-xs text-amber-300">
+            {loadingCams.map((d) => d.label).join(", ")}: pose model still loading — wait for it to
+            turn green before Start, or that camera records without pose.
+          </span>
+        )}
+        {captureStartMs !== null && hiddenCams.length > 0 && (
+          <span className="text-xs text-amber-300">
+            {hiddenCams.map((d) => d.label).join(", ")}: page off screen — its video keeps recording
+            but pose stopped. Bring it to the front.
+          </span>
+        )}
         {imuMsg && <span className="text-xs text-red-300">{imuMsg}</span>}
       </div>
 
@@ -618,11 +635,17 @@ function StatusDot({ status }: { status: string }) {
         ? "animate-pulse bg-sky-400"
         : status === "ready"
           ? "bg-emerald-500"
-          : "bg-neutral-500";
+          : status === "loading"
+            ? "animate-pulse bg-amber-400"
+            : status === "hidden"
+              ? "bg-amber-500"
+              : "bg-neutral-500";
+  const text =
+    status === "loading" ? "loading pose" : status === "hidden" ? "off screen — no pose" : status;
   return (
     <span className="inline-flex items-center gap-1 text-neutral-300">
       <span className={`h-2 w-2 rounded-full ${color}`} />
-      {status}
+      {text}
     </span>
   );
 }
