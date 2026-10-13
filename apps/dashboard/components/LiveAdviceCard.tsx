@@ -135,6 +135,11 @@ export function LiveAdviceCard({
             </div>
           )}
           <p className="text-sm text-neutral-100">{advice.summary}</p>
+          {advice.locked && (
+            <span className="mt-1 inline-block rounded-full bg-sky-900/50 px-2 py-0.5 text-[11px] text-sky-200">
+              Frozen for the study
+            </span>
+          )}
           <AdviceNotice withheld={advice.status === "withheld"} />
           {advice.action_items.length > 0 && (
             <ul className="space-y-1.5">

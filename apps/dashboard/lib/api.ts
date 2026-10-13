@@ -662,6 +662,8 @@ export interface CoachAdviceResponse {
   /** shown · withheld (the safety check stopped it, ADR-018) · failed */
   status?: "shown" | "withheld" | "failed";
   advice_id?: string | null;
+  /** Frozen as a study stimulus (ADR-019): it won't change, and can't be regenerated. */
+  locked?: boolean;
 }
 
 export interface FighterObservationResponse {
@@ -1587,6 +1589,13 @@ export const api = {
   generateAdvice: (id: string, payload_mode: PayloadMode = "fused") =>
     req<CoachAdviceResponse>(
       `/sessions/${id}/advice?payload_mode=${payload_mode}`,
+      { method: "POST" },
+    ),
+  /** Freeze this session's current advice for a payload as a study stimulus — for
+   *  good (researchers only, ADR-019). */
+  lockAdvice: (id: string, payload_mode: PayloadMode) =>
+    req<{ id: string; locked: boolean }>(
+      `/sessions/${id}/advice/lock?payload_mode=${payload_mode}`,
       { method: "POST" },
     ),
   roundsExport: (id: string) =>

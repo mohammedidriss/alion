@@ -5,7 +5,8 @@
 platform version), what came out (and its hash), and whether it was shown,
 withheld or failed — and returns that record. Callers show the advice only when
 `status == "shown"`; otherwise `coach.WITHHELD` (or the failure) stands in. Rows
-are only ever added, so regenerating keeps the history.
+are only ever added, so regenerating keeps the history; a researcher can `lock`
+one as a study stimulus (ADR-019), after which it is what everyone gets.
 """
 
 from __future__ import annotations
@@ -17,6 +18,7 @@ from typing import Any
 from uuid import UUID
 
 from sqlmodel import Session as DBSession
+from sqlmodel import select
 
 from coach import find_blocked
 from coach.llm_client import llm_config
@@ -82,3 +84,50 @@ def record(
     db.commit()
     db.refresh(rec)
     return rec
+
+
+# --------------------------------------------------------------------------
+# Freezing (ADR-019): a study's stimuli must not change under the raters
+# --------------------------------------------------------------------------
+
+
+def _for_session(db: DBSession, session_id: UUID, payload_mode: str) -> list[AdviceRecord]:
+    rows = db.exec(
+        select(AdviceRecord).where(
+            AdviceRecord.session_id == session_id,
+            AdviceRecord.kind == "corner",
+            AdviceRecord.payload_mode == payload_mode,
+        )
+    ).all()
+    return sorted(rows, key=lambda r: r.created_at)
+
+
+def locked(db: DBSession, session_id: UUID, payload_mode: str) -> AdviceRecord | None:
+    """The frozen advisory for this session and payload, if one was locked."""
+    return next((r for r in _for_session(db, session_id, payload_mode) if r.locked), None)
+
+
+def latest_shown(
+    db: DBSession, session_id: UUID, payload_mode: str, prompt_version: str
+) -> AdviceRecord | None:
+    rows = [
+        r
+        for r in _for_session(db, session_id, payload_mode)
+        if r.status == "shown" and r.prompt_version == prompt_version
+    ]
+    return rows[-1] if rows else None
+
+
+def lock(db: DBSession, rec: AdviceRecord) -> AdviceRecord:
+    """Freeze an advisory as a study stimulus — for good: it is what everyone gets
+    from now on, and regenerating it is refused."""
+    rec.locked = True
+    db.add(rec)
+    db.commit()
+    db.refresh(rec)
+    return rec
+
+
+def history(db: DBSession, session_id: UUID) -> list[AdviceRecord]:
+    rows = db.exec(select(AdviceRecord).where(AdviceRecord.session_id == session_id)).all()
+    return sorted(rows, key=lambda r: r.created_at)

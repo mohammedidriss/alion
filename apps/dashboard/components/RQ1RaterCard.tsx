@@ -2,6 +2,7 @@
 
 import { useEffect, useMemo, useState } from "react";
 import { AdviceNotice } from "@/components/AdviceNotice";
+import { useAuth } from "@/lib/auth";
 import { api, type CoachAdviceResponse, type PayloadMode } from "@/lib/api";
 
 interface Props {
@@ -89,6 +90,30 @@ export function RQ1RaterCard({ sessionId }: Props) {
     }
   };
 
+  // A researcher freezes the four variants as study stimuli (ADR-019): from then
+  // on every rater gets exactly these, and they can't be regenerated.
+  const { user } = useAuth();
+  const [freezing, setFreezing] = useState(false);
+  const generated = MODES.every((m) => variants[m]?.status === "shown");
+  const frozen = MODES.every((m) => variants[m]?.locked);
+  const freezeAll = async () => {
+    if (!window.confirm("Freeze these four variants for the study? This can't be undone.")) return;
+    setFreezing(true);
+    setErr(null);
+    try {
+      const next = { ...variants };
+      for (const m of MODES) {
+        await api.lockAdvice(sessionId, m);
+        next[m] = await api.generateAdvice(sessionId, m); // returns the frozen copy
+      }
+      setVariants(next);
+    } catch (e) {
+      setErr(String(e));
+    } finally {
+      setFreezing(false);
+    }
+  };
+
   const setScore = (mode: PayloadMode, c: Criterion, value: number) => {
     if (!raterId) {
       setErr("Set a rater id first.");
@@ -161,8 +186,22 @@ export function RQ1RaterCard({ sessionId }: Props) {
           disabled={generating}
           className="rounded-xl bg-amber-500 px-3 py-1.5 text-sm font-medium text-black hover:bg-amber-400 disabled:bg-neutral-700"
         >
-          {generating ? "Generating…" : "Generate 4 variants"}
+          {generating ? "Generating…" : frozen ? "Load the frozen variants" : "Generate 4 variants"}
         </button>
+        {user?.is_researcher && generated && !frozen && (
+          <button
+            onClick={freezeAll}
+            disabled={freezing}
+            className="rounded-xl border border-sky-400/40 px-3 py-1.5 text-sm text-sky-200 hover:bg-sky-500/10 disabled:opacity-40"
+          >
+            {freezing ? "Freezing…" : "Freeze for the study"}
+          </button>
+        )}
+        {frozen && (
+          <span className="rounded-full bg-sky-900/50 px-2.5 py-1 text-xs text-sky-200">
+            Frozen — every rater sees these four
+          </span>
+        )}
         <button
           onClick={exportRatings}
           disabled={!allRated}

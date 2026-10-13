@@ -6,6 +6,7 @@ import asyncio
 import csv
 import datetime
 import io
+import json as _json_mod
 import math
 import tempfile
 from collections.abc import AsyncIterator, Iterator
@@ -678,6 +679,7 @@ class CoachAdviceResponse(BaseModel):
     # shown · withheld (the safety check stopped it, ADR-018) · failed
     status: str = "shown"
     advice_id: UUID | None = None  # its AdviceRecord
+    locked: bool = False  # frozen as a study stimulus (ADR-019): it won't change
 
 
 @router.post("/{session_id}/baseline/upload", response_model=SessionRead)
@@ -833,6 +835,23 @@ async def get_session_advice(
                 ),
             )
 
+    # A frozen advisory is what everyone gets, and it can't be regenerated (ADR-019).
+    frozen = advice_gate.locked(db, session_id, payload_mode)
+    if frozen is not None:
+        if force_regenerate:
+            raise HTTPException(
+                status_code=409,
+                detail="This advice is frozen for the study — it can't be regenerated",
+            )
+        out = _json.loads(frozen.output_json)
+        return CoachAdviceResponse(
+            summary=out.get("summary", ""),
+            action_items=out.get("action_items", []),
+            status=frozen.status,
+            advice_id=frozen.id,
+            locked=True,
+        )
+
     mode_enum = PayloadModeEnum(payload_mode)
     cache_stmt = _select(CoachAdviceCacheRow).where(
         CoachAdviceCacheRow.session_id == session_id,
@@ -847,9 +866,11 @@ async def get_session_advice(
         "failed to connect to llm"
     )
     if cached is not None and not force_regenerate and not cached_is_failure:
+        rec = advice_gate.latest_shown(db, session_id, payload_mode, PROMPT_VERSION)
         return CoachAdviceResponse(
             summary=cached.summary,
             action_items=_json.loads(cached.action_items_json),
+            advice_id=rec.id if rec else None,
         )
 
     fused = rounds_export(session_id, sessions, events, db)
@@ -918,6 +939,67 @@ async def get_session_advice(
         status=rec.status,
         advice_id=rec.id,
     )
+
+
+class AdviceRecordOut(BaseModel):
+    """One advisory and what produced it (ADR-018, ADR-019) — hashes, not payloads."""
+
+    id: UUID
+    created_at: datetime.datetime
+    kind: str
+    payload_mode: str | None
+    status: str
+    blocked_terms: list[str]
+    output: dict[str, Any]
+    model: str
+    prompt_version: str
+    prompt_sha256: str
+    input_sha256: str
+    output_sha256: str
+    platform_version: str
+    locked: bool
+
+
+def _record_out(r: Any) -> AdviceRecordOut:
+    return AdviceRecordOut(
+        **r.model_dump(
+            exclude={"blocked_terms", "output_json", "session_id", "fighter_id", "user_id"}
+        ),
+        blocked_terms=_json_mod.loads(r.blocked_terms),
+        output=_json_mod.loads(r.output_json),
+    )
+
+
+@router.post("/{session_id}/advice/lock", response_model=AdviceRecordOut)
+def lock_advice(
+    session_id: UUID,
+    payload_mode: Literal["cv", "hrv", "imu", "fused"] = "fused",
+    db: DBSession = Depends(db_session),
+    _researcher: access.Viewer = Depends(access.require_researcher),
+) -> AdviceRecordOut:
+    """Freeze this session's current advice (for `payload_mode`) as a study stimulus
+    — for good: everyone gets exactly it from now on (ADR-019). Researchers only."""
+    from coach import PROMPT_VERSION
+
+    if (frozen := advice_gate.locked(db, session_id, payload_mode)) is not None:
+        return _record_out(frozen)
+    rec = advice_gate.latest_shown(db, session_id, payload_mode, PROMPT_VERSION)
+    if rec is None:
+        raise HTTPException(
+            status_code=409, detail="No advice shown for this session yet — generate it first"
+        )
+    return _record_out(advice_gate.lock(db, rec))
+
+
+@router.get("/{session_id}/advice/history", response_model=list[AdviceRecordOut])
+def advice_history(
+    session_id: UUID,
+    db: DBSession = Depends(db_session),
+    _researcher: access.Viewer = Depends(access.require_researcher),
+) -> list[AdviceRecordOut]:
+    """Every advisory generated for this session — shown, withheld or failed —
+    oldest first, with what produced each. Researchers only."""
+    return [_record_out(r) for r in advice_gate.history(db, session_id)]
 
 
 # ---------------------------------------------------------------------------
