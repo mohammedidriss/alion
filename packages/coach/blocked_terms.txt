@@ -1,0 +1,55 @@
+# Advice safety (ADR-018): AI advice that contains any of these is withheld, never
+# shown, and the event is logged. One term or phrase per line, matched as whole
+# words, case-insensitive. Edit freely — the platform reads this file at start.
+#
+# Diagnosis and conditions
+concussion
+concussed
+brain injury
+brain damage
+traumatic brain
+tbi
+cte
+diagnosis
+diagnose
+diagnosed
+diagnostic
+injury
+injuries
+injured
+fracture
+haemorrhage
+hemorrhage
+bleeding
+dehydration
+dehydrated
+overtraining syndrome
+heat stroke
+eating disorder
+anorexia
+bulimia
+arrhythmia
+cardiac
+heart condition
+seizure
+# Fitness verdicts, stoppage and clearance
+unsafe
+safe to continue
+safe to fight
+fit to fight
+unfit to fight
+not fit
+medically fit
+medical clearance
+clearance
+cleared to fight
+cleared to spar
+stop the fight
+stop the bout
+stop the round
+stoppage
+end the fight
+end the bout
+retire
+throw in the towel
+unhealthy

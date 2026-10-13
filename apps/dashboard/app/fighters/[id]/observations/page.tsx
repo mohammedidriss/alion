@@ -10,6 +10,7 @@ import {
   type Session,
   type WeightAnalysis,
 } from "@/lib/api";
+import { AdviceNotice } from "@/components/AdviceNotice";
 import { useAuth } from "@/lib/auth";
 
 const PERIOD_OPTIONS = [
@@ -255,6 +256,7 @@ export default function ObservationsTab({
               <p className="mt-1 text-sm text-neutral-300 leading-relaxed">
                 {weightData.ai_summary}
               </p>
+              <AdviceNotice withheld={weightData.ai_status === "withheld"} />
             </div>
           )}
 
@@ -331,6 +333,7 @@ export default function ObservationsTab({
               <p className="text-sm text-neutral-100 leading-relaxed">
                 {aiData.summary}
               </p>
+              <AdviceNotice withheld={aiData.status === "withheld"} />
             </div>
 
             <div className="grid grid-cols-1 gap-4 lg:grid-cols-2">

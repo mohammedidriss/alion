@@ -24,7 +24,14 @@ from api import access
 from api.deps import db_session, fighter_repo, punch_event_repo, resolve_gym_id, session_repo
 from api.routes import capture_coord
 from api.routes.auth import get_current_user, require_current_user
-from api.services import capture_runner, cross_check, hrv_runner, imu_runner, signed
+from api.services import (
+    advice_gate,
+    capture_runner,
+    cross_check,
+    hrv_runner,
+    imu_runner,
+    signed,
+)
 from capture.hrv import parse_rr_csv
 from contracts import HRSample
 from store import (
@@ -668,6 +675,9 @@ class PerformanceResponse(BaseModel):
 class CoachAdviceResponse(BaseModel):
     summary: str
     action_items: list[str]
+    # shown · withheld (the safety check stopped it, ADR-018) · failed
+    status: str = "shown"
+    advice_id: UUID | None = None  # its AdviceRecord
 
 
 @router.post("/{session_id}/baseline/upload", response_model=SessionRead)
@@ -776,6 +786,7 @@ async def get_session_advice(
     sessions: SessionRepo = Depends(session_repo),
     events: PunchEventRepo = Depends(punch_event_repo),
     db: DBSession = Depends(db_session),
+    user: User | None = Depends(get_current_user),
 ) -> CoachAdviceResponse:
     """Generate corner advice from a chosen payload subset.
 
@@ -795,7 +806,13 @@ async def get_session_advice(
 
     from sqlmodel import select as _select
 
-    from coach import CORNER_ADVICE_SYSTEM_PROMPT, PROMPT_VERSION, generate_corner_advice
+    from coach import (
+        CORNER_ADVICE_SYSTEM_PROMPT,
+        PROMPT_VERSION,
+        WITHHELD,
+        CoachAdvice,
+        generate_corner_advice,
+    )
     from store import CoachAdviceCacheRow, PayloadModeEnum
 
     row = sessions.get(session_id)
@@ -859,14 +876,31 @@ async def get_session_advice(
 
     advice = await generate_corner_advice(CORNER_ADVICE_SYSTEM_PROMPT, session_data)
 
-    # Upsert cache, but ONLY for successful generations. LLM-connection
-    # errors return a `summary` like "Failed to connect to LLM (...)";
-    # caching those would persist a transient outage indefinitely.
+    # Every advisory is safety-checked and recorded before it's shown (ADR-018).
     is_failure = advice.summary.lower().startswith("failed to connect to llm")
+    rec = advice_gate.record(
+        db,
+        kind="corner",
+        system_prompt=CORNER_ADVICE_SYSTEM_PROMPT,
+        prompt_version=PROMPT_VERSION,
+        user_content=session_data,
+        output={"summary": advice.summary, "action_items": advice.action_items},
+        failed=is_failure,
+        session_id=session_id,
+        fighter_id=row.fighter_id,
+        payload_mode=payload_mode,
+        user_id=user.id if user else None,
+    )
+    if rec.status == "withheld":
+        advice = CoachAdvice(summary=WITHHELD, action_items=[])
+
+    # Upsert cache, but ONLY for advice that was shown. LLM-connection errors
+    # (a `summary` like "Failed to connect to LLM (...)") and withheld advice
+    # would otherwise persist.
     if cached is not None:
         db.delete(cached)
         db.commit()
-    if not is_failure:
+    if rec.status == "shown":
         db.add(
             CoachAdviceCacheRow(
                 session_id=session_id,
@@ -881,6 +915,8 @@ async def get_session_advice(
     return CoachAdviceResponse(
         summary=advice.summary,
         action_items=advice.action_items,
+        status=rec.status,
+        advice_id=rec.id,
     )
 
 

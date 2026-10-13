@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
+import { AdviceNotice } from "@/components/AdviceNotice";
 import {
   api,
   type CoachAdviceResponse,
@@ -134,6 +135,7 @@ export function LiveAdviceCard({
             </div>
           )}
           <p className="text-sm text-neutral-100">{advice.summary}</p>
+          <AdviceNotice withheld={advice.status === "withheld"} />
           {advice.action_items.length > 0 && (
             <ul className="space-y-1.5">
               {advice.action_items.map((a, i) => (

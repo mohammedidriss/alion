@@ -26,6 +26,7 @@ from api.deps import (
     session_repo,
 )
 from api.routes.auth import get_current_user, require_current_user
+from api.services import advice_gate
 from api.services.photos import delete_photos_for, save_photo
 from store import (
     WEIGHT_CLASSES,
@@ -255,6 +256,7 @@ class WeightAnalysis(BaseModel):
     instability_flag: bool = False
     ai_summary: str = ""
     ai_recommendations: list[str] = []
+    ai_status: str = "shown"  # shown · withheld (safety check, ADR-018) · failed
 
 
 @router.get("/{fighter_id}/weight-analysis", response_model=WeightAnalysis)
@@ -262,6 +264,7 @@ async def weight_analysis(
     fighter_id: UUID,
     repo: FighterRepo = Depends(fighter_repo),
     db: DBSession = Depends(db_session),
+    user: User | None = Depends(get_current_user),
 ) -> WeightAnalysis:
     """Analyse weight history for instability patterns and provide AI advice."""
     fighter = repo.get(fighter_id)
@@ -310,8 +313,8 @@ async def weight_analysis(
     instability = cv_pct > 2.0 or big_swings >= 2 or max_swing > mean_w * 0.04
 
     # Build data payload for AI
+    # No name or other identifier goes to the model (ADR-018).
     data_for_ai = {
-        "fighter_name": fighter.name,
         "weight_class": fighter.weight_class,
         "target_weight_kg": fighter.weight_kg,
         "entries": [
@@ -334,25 +337,32 @@ async def weight_analysis(
         },
     }
 
-    # Generate AI advice
-    from coach import generate_corner_advice
-
-    system_prompt = (
-        "You are an elite boxing nutritionist and weight management specialist. "
-        "Analyse the fighter's weigh-in history and statistics below. "
-        "Focus on:\n"
-        "1. Weight stability — are there concerning fluctuations?\n"
-        "2. Trend analysis — is the fighter trending toward or away from their weight class?\n"
-        "3. Rate of change — is weight gain/loss too rapid (unhealthy) or on track?\n"
-        "4. Practical advice — nutrition timing, hydration, safe cutting strategies.\n"
-        "5. Red flags — yo-yo patterns, crash dieting signs, dehydration risk.\n\n"
-        'Return JSON: {"summary": "2-3 sentence overview", '
-        '"action_items": ["advice 1", "advice 2", ...]}\n'
-        "Be specific to the data. Reference actual numbers."
+    # Generate AI advice — safety-checked and recorded before it's shown (ADR-018).
+    from coach import (
+        PROMPT_VERSION,
+        WEIGHT_ANALYSIS_SYSTEM_PROMPT,
+        WITHHELD,
+        generate_corner_advice,
     )
+
+    system_prompt = WEIGHT_ANALYSIS_SYSTEM_PROMPT
     import json as json_mod
 
-    advice = await generate_corner_advice(system_prompt, json_mod.dumps(data_for_ai))
+    user_content = json_mod.dumps(data_for_ai)
+    advice = await generate_corner_advice(system_prompt, user_content)
+    rec = advice_gate.record(
+        db,
+        kind="weight",
+        system_prompt=system_prompt,
+        prompt_version=PROMPT_VERSION,
+        user_content=user_content,
+        output={"summary": advice.summary, "action_items": advice.action_items},
+        failed=advice.summary.lower().startswith("failed to connect to llm"),
+        fighter_id=fighter_id,
+        user_id=user.id if user else None,
+    )
+    if rec.status == "withheld":
+        advice.summary, advice.action_items = WITHHELD, []
 
     return WeightAnalysis(
         total_entries=n,
@@ -368,6 +378,7 @@ async def weight_analysis(
         instability_flag=instability,
         ai_summary=advice.summary,
         ai_recommendations=advice.action_items,
+        ai_status=rec.status,
     )
 
 
@@ -943,6 +954,7 @@ class FighterObservationResponse(BaseModel):
     weaknesses: list[str]
     training_plan: list[str]
     summary: str
+    status: str = "shown"  # shown · withheld (safety check, ADR-018) · failed
 
 
 class PerformanceTrendItem(BaseModel):
@@ -1020,6 +1032,8 @@ async def generate_fighter_observations(
     repo: FighterRepo = Depends(fighter_repo),
     session_repo_dep: SessionRepo = Depends(session_repo),
     event_repo: PunchEventRepo = Depends(punch_event_repo),
+    db: DBSession = Depends(db_session),
+    user: User | None = Depends(get_current_user),
 ) -> FighterObservationResponse:
     """Generate LLM-based longitudinal observations from the last 3 months."""
     fighter = repo.get(fighter_id)
@@ -1109,8 +1123,8 @@ async def generate_fighter_observations(
     if fighter.dob:
         age = (datetime.utcnow().date() - fighter.dob).days // 365
 
+    # No name goes to the model (ADR-018); age stays — it matters for recovery.
     fighter_info = {
-        "name": fighter.name,
         "stance": fighter.stance.value if fighter.stance else None,
         "weight_class": fighter.weight_class,
         "age": age,
@@ -1134,30 +1148,52 @@ async def generate_fighter_observations(
         }
     )
 
-    from coach import FIGHTER_OBSERVATION_SYSTEM_PROMPT
+    from coach import FIGHTER_OBSERVATION_SYSTEM_PROMPT, PROMPT_VERSION, WITHHELD
     from coach.llm_client import generate_raw
 
     raw_text = await generate_raw(FIGHTER_OBSERVATION_SYSTEM_PROMPT, payload)
 
-    # Parse the structured observation JSON from the LLM response.
+    # Parse the structured observation JSON from the LLM response; the raw text
+    # stands in if it isn't JSON.
     data = _parse_observation_json(raw_text)
-    if data:
-        return FighterObservationResponse(
-            observations=data.get("observations", []),
-            strengths=data.get("strengths", []),
-            weaknesses=data.get("weaknesses", []),
-            training_plan=data.get("training_plan", []),
-            summary=data.get("summary", ""),
-        )
-
-    # Fallback: return the raw text as a single observation.
-    return FighterObservationResponse(
-        observations=[raw_text[:500]] if raw_text else ["No response from LLM."],
-        strengths=[],
-        weaknesses=[],
-        training_plan=[],
-        summary=raw_text[:300] if raw_text else "Unable to generate structured observations.",
+    out = FighterObservationResponse(
+        observations=data.get("observations", [])
+        if data
+        else [raw_text[:500]]
+        if raw_text
+        else ["No response from LLM."],
+        strengths=data.get("strengths", []) if data else [],
+        weaknesses=data.get("weaknesses", []) if data else [],
+        training_plan=data.get("training_plan", []) if data else [],
+        summary=data.get("summary", "")
+        if data
+        else raw_text[:300]
+        if raw_text
+        else "Unable to generate structured observations.",
     )
+    # Safety-checked and recorded before it's shown (ADR-018).
+    rec = advice_gate.record(
+        db,
+        kind="observations",
+        system_prompt=FIGHTER_OBSERVATION_SYSTEM_PROMPT,
+        prompt_version=PROMPT_VERSION,
+        user_content=payload,
+        output=out.model_dump(exclude={"status"}),
+        failed=not raw_text or raw_text.lower().startswith("failed to connect"),
+        fighter_id=fighter_id,
+        user_id=user.id if user else None,
+    )
+    if rec.status == "withheld":
+        return FighterObservationResponse(
+            observations=[],
+            strengths=[],
+            weaknesses=[],
+            training_plan=[],
+            summary=WITHHELD,
+            status="withheld",
+        )
+    out.status = rec.status
+    return out
 
 
 # ------------------------------------------------------------------

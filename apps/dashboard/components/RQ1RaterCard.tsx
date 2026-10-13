@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
+import { AdviceNotice } from "@/components/AdviceNotice";
 import { api, type CoachAdviceResponse, type PayloadMode } from "@/lib/api";
 
 interface Props {
@@ -201,6 +202,7 @@ export function RQ1RaterCard({ sessionId }: Props) {
               {v ? (
                 <>
                   <p className="mt-2 text-sm text-neutral-200">{v.summary}</p>
+                  <AdviceNotice withheld={v.status === "withheld"} />
                   <ul className="mt-2 list-disc space-y-1 pl-5 text-xs text-neutral-400">
                     {v.action_items.map((a, i) => (
                       <li key={i}>{a}</li>

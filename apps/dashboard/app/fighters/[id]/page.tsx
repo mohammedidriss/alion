@@ -3,6 +3,7 @@
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useCallback, useEffect, useMemo, useState } from "react";
+import { AdviceNotice } from "@/components/AdviceNotice";
 import { FighterDashboard } from "@/components/FighterDashboard";
 import { PolarH10Card } from "@/components/PolarH10Card";
 import { ProfileAvatar } from "@/components/ProfileAvatar";
@@ -535,6 +536,7 @@ export default function FighterPage({ params }: { params: { id: string } }) {
               <div className="rounded-lg border border-white/5 bg-white/[0.02] px-4 py-3">
                 <p className="text-xs font-medium text-neutral-300">Summary</p>
                 <p className="mt-1 text-sm text-neutral-400">{weightAnalysis.ai_summary}</p>
+                <AdviceNotice withheld={weightAnalysis.ai_status === "withheld"} />
               </div>
 
               {/* AI Recommendations */}

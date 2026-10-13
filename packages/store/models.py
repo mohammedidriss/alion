@@ -1523,3 +1523,31 @@ class AccessLogRead(SQLModel):
     resource: str
     action: str
     allowed: bool
+
+
+# ---------------------------------------------------------------------------
+# Advice record (ADR-018) — every piece of AI advice generated: what produced it
+# (model, prompt, input), what came out, and whether it was shown, withheld by
+# the safety check, or failed. Rows are never overwritten; regenerating adds one.
+# ---------------------------------------------------------------------------
+
+
+class AdviceRecord(SQLModel, table=True):
+    __tablename__ = "advice_record"
+    id: UUID = Field(default_factory=uuid4, primary_key=True)
+    created_at: datetime = Field(default_factory=lambda: datetime.now(UTC), index=True)
+    kind: str = Field(max_length=20)  # corner | observations | weight
+    session_id: UUID | None = Field(default=None, index=True)
+    fighter_id: UUID | None = Field(default=None, index=True)
+    payload_mode: str | None = Field(default=None, max_length=10)  # cv | hrv | imu | fused
+    status: str = Field(max_length=10)  # shown | withheld | failed
+    blocked_terms: str = "[]"  # JSON list — what the safety check found
+    output_json: str = "{}"  # the advice as generated (withheld ones too, for review)
+    model: str = Field(default="", max_length=120)
+    prompt_version: str = Field(default="", max_length=20)
+    prompt_sha256: str = Field(default="", max_length=64)
+    input_sha256: str = Field(default="", max_length=64)
+    output_sha256: str = Field(default="", max_length=64)
+    platform_version: str = Field(default="", max_length=20)
+    user_id: UUID | None = None  # who asked for it
+    locked: bool = False  # frozen as a study stimulus: never regenerated or replaced

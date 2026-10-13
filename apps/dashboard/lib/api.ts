@@ -325,6 +325,7 @@ export interface WeightAnalysis {
   instability_flag: boolean;
   ai_summary: string;
   ai_recommendations: string[];
+  ai_status?: "shown" | "withheld" | "failed";
 }
 
 export interface FighterOptions {
@@ -658,6 +659,9 @@ export interface PerformanceScore {
 export interface CoachAdviceResponse {
   summary: string;
   action_items: string[];
+  /** shown · withheld (the safety check stopped it, ADR-018) · failed */
+  status?: "shown" | "withheld" | "failed";
+  advice_id?: string | null;
 }
 
 export interface FighterObservationResponse {
@@ -666,6 +670,7 @@ export interface FighterObservationResponse {
   weaknesses: string[];
   training_plan: string[];
   summary: string;
+  status?: "shown" | "withheld" | "failed";
 }
 
 export interface PerformanceTrendItem {

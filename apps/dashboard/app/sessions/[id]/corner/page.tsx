@@ -2,6 +2,7 @@
 
 import Link from "next/link";
 import { useEffect, useState } from "react";
+import { AdviceNotice } from "@/components/AdviceNotice";
 import { api, type Session, type CoachAdviceResponse } from "@/lib/api";
 
 
@@ -89,6 +90,9 @@ export default function CornerPage({ params }: { params: { id: string } }) {
               <p className="text-3xl font-medium leading-relaxed sm:text-4xl sm:leading-relaxed">
                 {advice.summary}
               </p>
+              <div className="text-lg">
+                <AdviceNotice withheld={advice.status === "withheld"} />
+              </div>
             </section>
 
             <section className="mt-10">
