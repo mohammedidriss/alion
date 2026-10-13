@@ -1118,6 +1118,31 @@ async function req<T>(path: string, init?: RequestInit): Promise<T> {
   return r.json();
 }
 
+// What the body sensors stored in each session (HRV and IMU tabs).
+export interface HeartRecording {
+  beats: number;
+  duration_s: number;
+  mean_hr_bpm: number | null;
+  max_hr_bpm: number | null;
+  rmssd_ms: number | null;
+  sdnn_ms: number | null;
+}
+export interface WristRecording {
+  samples: number;
+  duration_s: number;
+  hz: number | null;
+  peak_g: number;
+}
+export interface SessionRecordings {
+  session_id: string;
+  started_at: string | null;
+  status: string;
+  duration_s: number | null;
+  baseline_rmssd_ms: number | null;
+  heart: HeartRecording | null; // null: the strap stored nothing
+  wrists: Partial<Record<"left" | "right" | "unknown", WristRecording>>;
+}
+
 // Multi-device capture coordinator (ADR-010).
 /** One hand's live punches: all of them, and those named by type. */
 export interface HandTally {
@@ -1708,6 +1733,9 @@ export const api = {
     req<MatrixResponse>(`/fighters/${id}/matrix`),
   fighterReadiness: (id: string) =>
     req<FighterReadiness | null>(`/fighters/${id}/readiness`),
+  /** Every recorded session with what the strap and the wrist sensors stored in it. */
+  fighterRecordings: (id: string) =>
+    req<SessionRecordings[]>(`/v2/fighters/${id}/recordings`),
 
   // ---- Coaches ----
   listCoaches: (gymId?: string) =>

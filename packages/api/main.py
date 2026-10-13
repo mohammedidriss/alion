@@ -36,6 +36,7 @@ from api.routes import (
     llm,
     pose,
     protocol,
+    recordings,
     referees,
     round_plans,
     rq1,
@@ -196,6 +197,8 @@ app.include_router(sessions.preview_router, prefix="/v1")
 app.include_router(hrv.router, prefix="/v2")
 app.include_router(hrv.stream_router, prefix="/v2")
 app.include_router(hrv.ble_router, prefix="/v2")
+# Every session's heart-rate and wrist recordings, for the HRV and IMU tabs.
+app.include_router(recordings.router, prefix="/v2")
 app.include_router(imu.router, prefix="/v2")
 app.include_router(imu.router)
 # Live wrist IMUs over BLE (WT901 pair) — devices/owner + per-session start/stop/status.

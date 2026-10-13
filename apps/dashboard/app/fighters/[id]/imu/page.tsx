@@ -2,6 +2,7 @@
 
 import { useEffect, useState } from "react";
 import { ImuSensorsPanel } from "@/components/ImuSensors";
+import { SessionRecordingsCard } from "@/components/SessionRecordingsCard";
 import { api, type Fighter } from "@/lib/api";
 
 export default function ImuTab({ params }: { params: { id: string } }) {
@@ -22,6 +23,8 @@ export default function ImuTab({ params }: { params: { id: string } }) {
       </header>
 
       {fighter && <ImuSensorsPanel fighterId={fighter.id} fighterName={fighter.name} />}
+
+      <SessionRecordingsCard fighterId={params.id} sensor="wrists" />
 
       <div className="card">
         <h2 className="text-base font-semibold">Available now</h2>

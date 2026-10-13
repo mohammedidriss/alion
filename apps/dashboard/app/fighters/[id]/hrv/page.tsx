@@ -7,6 +7,7 @@ import { HrvScoreScatter } from "@/components/AggregateCharts";
 import { HrvMetric, ReadinessGauge, RmssdTrend } from "@/components/HrvCharts";
 import { getPairedDevice } from "@/components/PolarH10Card";
 import { SafetyBoundary } from "@/components/SafetyBoundary";
+import { SessionRecordingsCard } from "@/components/SessionRecordingsCard";
 import {
   api,
   type FighterReadiness,
@@ -67,11 +68,13 @@ function HrvTabContent({ params }: { params: { id: string } }) {
             Heart-rate variability — resting baselines and correlation with
             performance.
           </p>
+          <SafetyBoundary className="mt-2" />
         </header>
+        <SessionRecordingsCard fighterId={params.id} sensor="heart" />
         <PolarH10Config />
         <div className="card text-sm text-neutral-400">
           <p className="font-medium text-neutral-200">
-            No HRV baseline recordings yet
+            No resting baselines yet
           </p>
           <p className="mt-2 text-neutral-500">
             Open a session in <em>pending</em> status and upload a 5-min
@@ -146,6 +149,8 @@ function HrvTabContent({ params }: { params: { id: string } }) {
         </p>
         <SafetyBoundary className="mt-2" />
       </header>
+
+      <SessionRecordingsCard fighterId={params.id} sensor="heart" />
 
       <PolarH10Config />
 
