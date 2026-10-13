@@ -1039,6 +1039,24 @@ export interface AuthUser {
   is_researcher: boolean;
 }
 
+/** One of the coach's AI setups (ADR-021). */
+export interface LlmSetup {
+  name: "local" | "remote";
+  label: string;
+  url: string;
+  model: string;
+  active: boolean;
+  on_own_network: boolean;
+  reachable: boolean;
+  model_installed: boolean;
+}
+
+export interface LlmStatus {
+  active: "local" | "remote" | null;
+  in_use: { url: string; model: string };
+  setups: LlmSetup[];
+}
+
 /** The current terms and conditions (GET /auth/terms). */
 export interface TermsInfo {
   version: string;
@@ -1853,6 +1871,20 @@ export const api = {
       ? `${BASE}/static/photos/${relativePath.replace(/^data\/photos\//, "")}?t=${encodeURIComponent(photoPassToken)}`
       : null,
   photoPass: () => req<{ token: string; expires_at: string }>("/auth/photo-pass"),
+  // The coach's AI: local or remote (researchers and admins, ADR-021).
+  llmStatus: () => req<LlmStatus>("/v2/llm"),
+  chooseLlm: (choice: "local" | "remote") =>
+    req<LlmStatus>("/v2/llm", {
+      method: "PUT",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ choice }),
+    }),
+  testLlm: (choice: "local" | "remote") =>
+    req<{ ok: boolean; seconds: number; reply?: string; error?: string }>("/v2/llm/test", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ choice }),
+    }),
   /** Signed links to a session's live preview and heart-rate stream — an <img> and
    *  an EventSource can't send the login (ADR-017). */
   liveLinks: (sessionId: string) =>

@@ -83,6 +83,10 @@ export function Sidebar({ onNavigate }: { onNavigate?: () => void } = {}) {
   if (user?.is_researcher) {
     navItems.push({ label: "Datasets", href: "/datasets", icon: "▤" });
   }
+  // Which AI writes the advice — local or remote (ADR-021).
+  if (user?.is_researcher || activeRole === "admin") {
+    navItems.push({ label: "AI model", href: "/ai-model", icon: "✦" });
+  }
 
   // Fighter context tabs (when viewing any fighter page)
   // Privacy: admin only sees general info (Dashboard + Team); gym_manager can't see Medical

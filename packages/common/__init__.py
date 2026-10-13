@@ -1,5 +1,6 @@
 """Common — settings, logging, and time utilities. Depends only on `contracts`."""
 
+from common import llm_setups
 from common.logging import get_logger, setup_logging
 from common.settings import Settings, get_settings
 from common.time_utils import SessionClock, ms_offset, now_utc
@@ -9,6 +10,7 @@ __all__ = [
     "Settings",
     "get_logger",
     "get_settings",
+    "llm_setups",
     "ms_offset",
     "now_utc",
     "setup_logging",

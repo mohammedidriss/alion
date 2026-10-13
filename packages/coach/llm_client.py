@@ -1,4 +1,5 @@
-"""OpenAI-compatible client for LM Studio / OpenAI."""
+"""OpenAI-compatible client for the coach's LLM — Ollama, LM Studio or similar,
+on this machine or another one on your network (ADR-021)."""
 
 from __future__ import annotations
 
@@ -10,15 +11,17 @@ from typing import Any
 from openai import AsyncOpenAI
 from pydantic import BaseModel
 
-from common import get_settings
+from common import get_settings, llm_setups
 
-# Where coach inference goes. Read on every call (so a restarted API picks up a
-# changed .env), in this order:
+# Where coach inference goes. Read on every call, in this order:
 #   1. COACH_BASE_URL / COACH_API_KEY / COACH_MODEL in the environment;
-#   2. the project's .env — ALION_LLM_URL (or the older ALION_LM_STUDIO_URL),
+#   2. the setup the researcher picked — "local" or "remote" (common.llm_setups,
+#      ADR-021) — switchable at runtime, no restart;
+#   3. the project's .env — ALION_LLM_URL (or the older ALION_LM_STUDIO_URL),
 #      ALION_LLM_API_KEY, ALION_LLM_MODEL (common.settings);
-#   3. the generic OPENAI_BASE_URL / OPENAI_API_KEY;
-#   4. local LM Studio.
+#   4. the generic OPENAI_BASE_URL / OPENAI_API_KEY;
+#   5. local LM Studio.
+# Whatever it is, it must be on your own network unless ALION_LLM_ALLOW_PUBLIC.
 # Alion-specific names come first so a developer's existing OPENAI_* (e.g. an
 # Ollama dev setup) doesn't silently redirect coach inference.
 LM_STUDIO_URL = "http://localhost:1234/v1"
@@ -28,9 +31,10 @@ DEFAULT_MODEL = "google/gemma-4-e4b"
 def llm_config() -> tuple[str, str, str]:
     """(base URL, API key, model) of the LLM that coach advice uses."""
     s = get_settings()
-    url = os.getenv("COACH_BASE_URL") or s.llm_url
-    key = os.getenv("COACH_API_KEY") or s.llm_api_key
-    model = os.getenv("COACH_MODEL") or s.llm_model or DEFAULT_MODEL
+    setup = llm_setups.active()
+    url = os.getenv("COACH_BASE_URL") or (setup.url if setup else s.llm_url)
+    key = os.getenv("COACH_API_KEY") or (setup.api_key if setup else s.llm_api_key)
+    model = os.getenv("COACH_MODEL") or (setup.model if setup else s.llm_model) or DEFAULT_MODEL
     if not url:
         url = os.getenv("OPENAI_BASE_URL") or LM_STUDIO_URL
         # An Ollama OPENAI_BASE_URL with the LM Studio default model is a
@@ -39,6 +43,18 @@ def llm_config() -> tuple[str, str, str]:
             url = LM_STUDIO_URL
     key = key or os.getenv("OPENAI_API_KEY") or "lm-studio"
     return url, key, model
+
+
+class LlmNotAllowedError(RuntimeError):
+    """The LLM is on a public address — advice data stays on your own network."""
+
+
+def _client(url: str, key: str) -> AsyncOpenAI:
+    if not (llm_setups.is_own_network(url) or get_settings().llm_allow_public):
+        raise LlmNotAllowedError(
+            f"{url} isn't on your own network — session data stays local (ADR-021)"
+        )
+    return AsyncOpenAI(base_url=url, api_key=key)
 
 
 # NOTE: a module-level AsyncOpenAI client used to live here. We saw a
@@ -66,7 +82,7 @@ async def generate_corner_advice(system_prompt: str, session_data_json: str) -> 
         # Fresh client per call — avoids the stale-connection 404s
         # described above. AsyncOpenAI is cheap to construct.
         url, key, model = llm_config()
-        c = AsyncOpenAI(base_url=url, api_key=key)
+        c = _client(url, key)
         return await c.chat.completions.create(
             model=model,
             messages=[
@@ -163,7 +179,7 @@ async def generate_raw(system_prompt: str, user_content: str) -> str:
 
     async def _call() -> Any:
         url, key, model = llm_config()
-        c = AsyncOpenAI(base_url=url, api_key=key)
+        c = _client(url, key)
         return await c.chat.completions.create(
             model=model,
             messages=[
@@ -205,3 +221,40 @@ def _first_balanced_object(s: str) -> str | None:
             if depth == 0:
                 return s[start : i + 1]
     return None
+
+
+async def ping(url: str, key: str, model: str) -> dict[str, Any]:
+    """One tiny request to a setup — is it there, does it answer, how fast?
+    {ok, seconds, reply | error}. The first call may include loading the model."""
+    import time
+
+    t = time.time()
+    try:
+        c = _client(url, key)
+        done = await c.chat.completions.create(
+            model=model,
+            messages=[{"role": "user", "content": "Reply with one word: ready"}],
+            max_tokens=10,
+            temperature=0,
+        )
+        reply = (done.choices[0].message.content or "").strip()
+        return {"ok": True, "seconds": round(time.time() - t, 1), "reply": reply[:60]}
+    except Exception as e:  # reported to the researcher, not raised
+        return {"ok": False, "seconds": round(time.time() - t, 1), "error": str(e)[:200]}
+
+
+def installed_models(url: str, key: str, timeout: float = 2.5) -> list[str] | None:
+    """The models an OpenAI-compatible server offers (GET /models), or None if it
+    doesn't answer."""
+    import httpx
+
+    if not (llm_setups.is_own_network(url) or get_settings().llm_allow_public):
+        return None
+    try:
+        r = httpx.get(
+            url.rstrip("/") + "/models", headers={"Authorization": f"Bearer {key}"}, timeout=timeout
+        )
+        r.raise_for_status()
+        return [str(m.get("id")) for m in r.json().get("data", [])]
+    except (httpx.HTTPError, ValueError, AttributeError):
+        return None

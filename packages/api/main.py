@@ -33,6 +33,7 @@ from api.routes import (
     imu,
     imu_ble,
     live,
+    llm,
     pose,
     protocol,
     referees,
@@ -224,6 +225,7 @@ app.include_router(rq1.router)
 app.include_router(round_plans.router)
 # Two-fighter bouts (ADR-011) — new endpoints, unversioned.
 app.include_router(bouts.router)
+app.include_router(llm.router)  # local or remote AI for advice (ADR-021)
 
 # Profile-type expansion (coaches + referees): unversioned only.
 # These are NEW endpoints; not part of any frozen contract yet.

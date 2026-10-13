@@ -32,6 +32,20 @@ class Settings(BaseSettings):
     )
     llm_model: str | None = Field(default=None)
     llm_api_key: str | None = Field(default=None)
+    # Two named LLM setups the researcher switches between at runtime (ADR-021):
+    # "local" — usually Ollama on this machine — and "remote" — another machine on
+    # the same network. A setup exists once its URL is set; the one in use is kept
+    # in data/llm_choice.json. Without either, ALION_LLM_URL above is used.
+    llm_local_url: str | None = Field(default=None)
+    llm_local_model: str | None = Field(default=None)
+    llm_local_label: str = Field(default="This computer")
+    llm_remote_url: str | None = Field(default=None)
+    llm_remote_model: str | None = Field(default=None)
+    llm_remote_label: str = Field(default="Remote computer")
+    llm_default: str = Field(default="local")  # until someone picks one
+    # Advice data stays on your own network: a setup on a public address (an
+    # internet API) is refused unless this is set (ADR-021, requirement R3.2).
+    llm_allow_public: bool = Field(default=False)
     # Accounts that may use research datasets (ADR-017): comma-separated emails.
     # Nobody else — coach, fighter, gym manager or admin — can open a dataset.
     researchers: str = Field(default="")

@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from collections.abc import Iterator
+from pathlib import Path
 
 import pytest
 from fastapi.testclient import TestClient
@@ -112,3 +113,22 @@ def admin_client(session: Session) -> Iterator[TestClient]:
         c.headers.update({"Authorization": f"Bearer {token}"})
         yield c
     app.dependency_overrides.clear()
+
+
+@pytest.fixture
+def two_setups(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Iterator[Path]:
+    """A local and a remote LLM setup configured (ADR-021); yields the choice file."""
+    from common import get_settings
+
+    for k in ("COACH_BASE_URL", "COACH_MODEL", "COACH_API_KEY", "OPENAI_BASE_URL"):
+        monkeypatch.delenv(k, raising=False)
+    monkeypatch.setenv("ALION_LLM_LOCAL_URL", "http://localhost:11434/v1")
+    monkeypatch.setenv("ALION_LLM_LOCAL_MODEL", "gemma3:4b")
+    monkeypatch.setenv("ALION_LLM_REMOTE_URL", "http://192.168.68.117:11434/v1")
+    monkeypatch.setenv("ALION_LLM_REMOTE_MODEL", "gemma3:4b")
+    monkeypatch.setenv("ALION_LLM_REMOTE_LABEL", "Windows laptop")
+    choice = tmp_path / "llm_choice.json"
+    monkeypatch.setenv("ALION_LLM_CHOICE_FILE", str(choice))
+    get_settings.cache_clear()
+    yield choice
+    get_settings.cache_clear()
