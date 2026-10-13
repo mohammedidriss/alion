@@ -276,6 +276,24 @@ def dataset_store_imu_header() -> str:
     return dataset_store.IMU_HEADER
 
 
+def test_a_take_names_punches_by_its_own_stance(
+    authed_client: TestClient, stores: dict[str, Path]
+) -> None:
+    did = _dataset(authed_client)
+    fid = _fighter(authed_client, "Mohamad", stance="southpaw")
+    _participant(authed_client, did, fid, "self")
+    tid = _take(authed_client, did, fid)
+    token = authed_client.post(f"/takes/{tid}/multicam/join-info").json()["join_token"]
+    dev = authed_client.post(
+        f"/takes/{tid}/multicam/register", json={"token": token, "role": "camera", "label": "front"}
+    ).json()["device_id"]
+    hb = authed_client.post(
+        f"/takes/{tid}/multicam/heartbeat", json={"token": token, "device_id": dev}
+    ).json()
+    assert hb["stance"] == "southpaw"  # from take.json, not looked up as a session
+    assert authed_client.get(f"/takes/{tid}/multicam/devices").json()[0]["stance"] == "southpaw"
+
+
 def test_take_capture_lands_in_the_take_folder_never_in_session_storage(
     authed_client: TestClient, stores: dict[str, Path]
 ) -> None:

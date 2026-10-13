@@ -10,7 +10,9 @@
 
 import { useCallback, useEffect, useRef, useState } from "react";
 import { MEDIAPIPE_WASM, poseModelUrl, type PoseModel } from "@/lib/mediapipe";
+import { PunchDots } from "@/components/PunchDots";
 import { PunchDetector, classifyPunchType, type PunchEvent } from "@/lib/punchDetector";
+import { addPunch, emptyTally } from "@/lib/punchTally";
 import { api } from "@/lib/api";
 
 interface Props {
@@ -50,6 +52,7 @@ export function BrowserCapture({ sessionId, stance, onDone }: Props) {
   const [phase, setPhase] = useState<Phase>("idle");
   const [countdown, setCountdown] = useState(3);
   const [punchCount, setPunchCount] = useState(0);
+  const [tally, setTally] = useState(emptyTally); // the same punches by hand and type
   const [lastHand, setLastHand] = useState<"left" | "right" | null>(null);
   const [err, setErr] = useState<string | null>(null);
 
@@ -113,6 +116,7 @@ export function BrowserCapture({ sessionId, stance, onDone }: Props) {
       eventsRef.current = [];
       poseRef.current = [];
       setPunchCount(0);
+      setTally(emptyTally());
       startEpochRef.current = performance.now();
       // Start recording the clip (downscaled ~1 Mbps). Best-effort; capture
       // continues even if MediaRecorder isn't supported.
@@ -187,6 +191,7 @@ export function BrowserCapture({ sessionId, stance, onDone }: Props) {
             // (poseRef already includes this frame). Mirrors the server path.
             p.punch_type = classifyPunchType(poseRef.current, p.hand, stance ?? null);
             eventsRef.current.push(p);
+            setTally((t) => addPunch(t, p.hand, p.punch_type));
             setLastHand(p.hand);
             setTimeout(() => setLastHand(null), 300);
           });
@@ -299,6 +304,11 @@ export function BrowserCapture({ sessionId, stance, onDone }: Props) {
             <p className="text-4xl font-black text-emerald-400">{punchCount}</p>
             <p className="text-xs text-neutral-500 mt-1">punches detected</p>
           </div>
+        </div>
+      )}
+      {(phase === "recording" || phase === "uploading") && (
+        <div className="mx-auto max-w-sm">
+          <PunchDots tally={tally} stance={stance} />
         </div>
       )}
 

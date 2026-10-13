@@ -183,3 +183,77 @@ def test_clip_keeps_its_start_offset_for_sync(
     upload()  # a re-recording from an older client: no stale offset survives
     clips = authed_client.get(f"/sessions/{sid}/multicam/clips").json()
     assert [(c["device_id"], c["start_offset_ms"]) for c in clips] == [(dev, None)]
+
+
+def _camera(client: TestClient, sid: str) -> tuple[str, str]:
+    token = client.post(f"/sessions/{sid}/multicam/join-info").json()["join_token"]
+    dev_id = client.post(
+        f"/sessions/{sid}/multicam/register",
+        json={"token": token, "role": "camera", "label": "front"},
+    ).json()["device_id"]
+    return token, dev_id
+
+
+def test_heartbeat_carries_the_punch_breakdown_and_the_stance(authed_client: TestClient) -> None:
+    fid = authed_client.post("/fighters", json={"name": "Lefty", "stance": "southpaw"}).json()["id"]
+    sid = authed_client.post("/sessions", json={"fighter_id": fid, "source": "live_webcam"}).json()[
+        "id"
+    ]
+    token, dev_id = _camera(authed_client, sid)
+    tally = {
+        "left": {"total": 3, "straight": 2, "hook": 1, "uppercut": 0},
+        "right": {"total": 3, "straight": 1, "hook": 0, "uppercut": 1},  # one not named
+    }
+    hb = authed_client.post(
+        f"/sessions/{sid}/multicam/heartbeat",
+        json={
+            "token": token,
+            "device_id": dev_id,
+            "status": "recording",
+            "punches": 6,
+            "tally": tally,
+        },
+    ).json()
+    # The camera learns the stance, so it can call the right hand's straight a jab.
+    assert hb["stance"] == "southpaw"
+
+    cam = authed_client.get(f"/sessions/{sid}/multicam/devices").json()[0]
+    assert cam["punches"] == 6 and cam["tally"] == tally and cam["stance"] == "southpaw"
+
+    # A count can't go below zero.
+    bad = {**tally, "left": {**tally["left"], "hook": -1}}
+    r = authed_client.post(
+        f"/sessions/{sid}/multicam/heartbeat",
+        json={"token": token, "device_id": dev_id, "status": "recording", "tally": bad},
+    )
+    assert r.status_code == 422
+
+    # An older camera page that sends no breakdown just has none.
+    authed_client.post(
+        f"/sessions/{sid}/multicam/heartbeat",
+        json={"token": token, "device_id": dev_id, "status": "recording", "punches": 7},
+    )
+    assert authed_client.get(f"/sessions/{sid}/multicam/devices").json()[0]["tally"] is None
+
+
+def test_a_switch_hitter_has_no_lead_hand(authed_client: TestClient) -> None:
+    fid = authed_client.post("/fighters", json={"name": "Both", "stance": "switch"}).json()["id"]
+    sid = authed_client.post("/sessions", json={"fighter_id": fid, "source": "live_webcam"}).json()[
+        "id"
+    ]
+    token, dev_id = _camera(authed_client, sid)
+    hb = authed_client.post(
+        f"/sessions/{sid}/multicam/heartbeat",
+        json={"token": token, "device_id": dev_id, "status": "ready"},
+    ).json()
+    assert hb["stance"] is None  # the screens then say left and right, not lead and rear
+
+
+def test_the_stance_is_not_given_to_a_bad_token(authed_client: TestClient) -> None:
+    sid = _make_session(authed_client)
+    _token, dev_id = _camera(authed_client, sid)
+    r = authed_client.post(
+        f"/sessions/{sid}/multicam/heartbeat",
+        json={"token": "wrong", "device_id": dev_id, "status": "ready"},
+    )
+    assert r.status_code in (401, 403) and "stance" not in r.text

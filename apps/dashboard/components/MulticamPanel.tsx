@@ -20,9 +20,11 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { CameraNode } from "@/components/CameraNode";
 import { imuErrorText } from "@/components/ImuSensors";
 import { getPairedDevice } from "@/components/PolarH10Card";
+import { PunchDots } from "@/components/PunchDots";
 import { RoundTimer } from "@/components/SessionRounds";
 import { api, type CaptureRef, type MulticamDevice, type Session, type Take } from "@/lib/api";
 import { say, unlockCues } from "@/lib/cues";
+import { leadingTally } from "@/lib/punchTally";
 
 export function MulticamPanel({
   session,
@@ -339,6 +341,9 @@ export function MulticamPanel({
   // but still count it toward the connected total and the consensus punch count.
   const cams = allCams.filter((d) => d.device_id !== laptopDeviceId);
   const maxPunches = allCams.reduce((m, c) => Math.max(m, c.punches), 0);
+  // By hand and type, from the camera with the most punches (as the count is).
+  const tally = leadingTally(allCams);
+  const stance = allCams.find((c) => c.stance)?.stance ?? null;
   const canStart = allCams.length > 0 || laptopOn;
   // Cameras whose pose isn't ready yet, or whose page is off screen while recording.
   const loadingCams = devices.filter((d) => d.role === "camera" && d.status === "loading");
@@ -364,6 +369,7 @@ export function MulticamPanel({
           {maxPunches > 0 && <span className="text-emerald-400"> · ~{maxPunches} punches</span>}
         </span>
       </div>
+      {maxPunches > 0 && <PunchDots tally={tally} stance={stance} />}
 
       {/* Controls above the grid: Start → Pause/Resume + Stop (Stop ends & saves). */}
       <div className="flex flex-wrap items-center gap-2">
@@ -522,6 +528,11 @@ export function MulticamPanel({
                     (e.currentTarget as HTMLImageElement).style.visibility = "visible";
                   }}
                 />
+                {d.punches > 0 && (
+                  <div className="absolute bottom-7 right-1">
+                    <PunchDots tally={d.tally} stance={stance} compact />
+                  </div>
+                )}
                 <div className="absolute inset-x-0 bottom-0 flex items-center justify-between bg-black/60 px-2 py-1 text-[11px]">
                   <span className="truncate">📷 {d.label}</span>
                   <span className="flex items-center gap-2">

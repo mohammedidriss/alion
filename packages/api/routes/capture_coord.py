@@ -36,7 +36,7 @@ from pathlib import Path
 from uuid import UUID, uuid4
 
 from fastapi import APIRouter, Depends, File, Form, HTTPException, Response, UploadFile
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 from sqlmodel import Session as DBSession
 
 from api.deps import db_session, session_repo
@@ -44,7 +44,7 @@ from api.routes.auth import require_current_user
 from api.routes.pose import PoseFrameIn, _to_landmarks, _to_world
 from api.services import cross_check, dataset_store, imu_runner, session_analysis, signed
 from contracts import PoseFrame
-from store import SessionRepo, SessionStatus
+from store import Fighter, SessionRepo, SessionStatus
 
 # In-memory coordinator state (process-local, MVP). A device unseen for this long
 # drops off the roster; start is scheduled this far ahead so every node begins
@@ -87,6 +87,7 @@ class _Device:
     frame: bytes | None = None  # latest preview JPEG for the coach's live grid
     frame_ms: float = 0.0
     punches: int = 0  # live punch count this device has detected (client-side)
+    tally: PunchTally | None = None  # the same punches, by hand and type
 
 
 @dataclass
@@ -98,6 +99,8 @@ class _Coord:
     paused: bool = False  # coach pressed Pause — nodes hold recording, keep the clip
     last_start_ms: float | None = None  # t = 0 of the latest recording, kept after stop
     stopped_ms: float | None = None  # when the coach pressed Stop (server wall clock)
+    stance: str | None = None  # the fighter's stance, looked up once (see _stance)
+    stance_known: bool = False
     # Cameras that were recording when Stop was pressed (id → label): each owes a clip.
     stop_cameras: dict[str, str] = field(default_factory=dict)
 
@@ -301,6 +304,35 @@ def _clip_meta_file(capture_id: UUID, device_id: str) -> Path:
     return _VIDEO_DIR / f"{capture_id}.{device_id}.json"
 
 
+# A switch hitter has no fixed lead hand, so only these two name lead and rear.
+_STANCES = ("orthodox", "southpaw")
+
+
+def _stance(capture_id: UUID, db: DBSession) -> str | None:
+    """The fighter's stance for this capture, so the cameras can name a straight
+    punch jab or cross and a hook or uppercut lead or rear. A take keeps its own
+    (each stance is recorded as its own take). Looked up once per capture."""
+    with _lock:
+        c = _coords.get(capture_id)
+        if c is not None and c.stance_known:
+            return c.stance
+    folder = _take_folder(capture_id)
+    raw: object = None
+    if folder is not None:
+        raw = dataset_store.read_take_json(folder).get("stance")
+    else:
+        row = SessionRepo(db).get(capture_id)
+        fighter = db.get(Fighter, row.fighter_id) if row else None
+        raw = fighter.stance if fighter else None
+    found = str(raw).lower() if raw else None
+    stance = found if found in _STANCES else None
+    with _lock:
+        c = _coords.get(capture_id)
+        if c is not None:
+            c.stance, c.stance_known = stance, True
+    return stance
+
+
 def _live_devices(c: _Coord) -> list[_Device]:
     """Return current devices, pruning any that have gone stale (closed tab, etc.)."""
     now = _now_ms()
@@ -314,12 +346,32 @@ def _live_devices(c: _Coord) -> list[_Device]:
 # --------------------------------------------------------------------------
 
 
+class HandTally(BaseModel):
+    """One hand's live punches: all of them, and those named by type (a punch the
+    camera couldn't name counts only toward `total`)."""
+
+    total: int = Field(default=0, ge=0)
+    straight: int = Field(default=0, ge=0)  # a jab or a cross, by the fighter's stance
+    hook: int = Field(default=0, ge=0)
+    uppercut: int = Field(default=0, ge=0)
+
+
+class PunchTally(BaseModel):
+    """A camera's live punches by hand and type. Kept by hand (left/right), not
+    lead/rear, so it doesn't depend on the stance; the screens name lead and rear."""
+
+    left: HandTally = Field(default_factory=lambda: HandTally())
+    right: HandTally = Field(default_factory=lambda: HandTally())
+
+
 class DeviceOut(BaseModel):
     device_id: str
     role: str
     label: str
     status: str
     punches: int = 0
+    tally: PunchTally | None = None
+    stance: str | None = None  # "orthodox" | "southpaw", to name jab/cross and lead/rear
 
 
 class JoinInfo(BaseModel):
@@ -343,6 +395,7 @@ class HeartbeatBody(BaseModel):
     device_id: str
     status: str = "ready"
     punches: int = 0
+    tally: PunchTally | None = None
     # Sent so a device the server no longer knows (API restarted) can re-join.
     role: str = "camera"
     label: str | None = None
@@ -353,6 +406,7 @@ class CaptureState(BaseModel):
     start_at_ms: float | None
     server_now_ms: float
     paused: bool = False
+    stance: str | None = None  # heartbeat only: lets the camera name jab/cross, lead/rear
 
 
 class StartOut(BaseModel):
@@ -392,22 +446,26 @@ def join_info(session_id: UUID, sessions: SessionRepo = Depends(session_repo)) -
 
 
 @_master.get("/{session_id}/multicam/devices", response_model=list[DeviceOut])
-def list_devices(session_id: UUID) -> list[DeviceOut]:
+def list_devices(session_id: UUID, db: DBSession = Depends(db_session)) -> list[DeviceOut]:
     """Live roster for the device panel (stale nodes pruned)."""
     with _lock:
         c = _coords.get(session_id)
         if c is None:
             return []
-        return [
-            DeviceOut(
-                device_id=d.device_id,
-                role=d.role,
-                label=d.label,
-                status=d.status,
-                punches=d.punches,
-            )
-            for d in _live_devices(c)
-        ]
+        live = list(_live_devices(c))
+    stance = _stance(session_id, db) if live else None
+    return [
+        DeviceOut(
+            device_id=d.device_id,
+            role=d.role,
+            label=d.label,
+            status=d.status,
+            punches=d.punches,
+            tally=d.tally,
+            stance=stance,
+        )
+        for d in live
+    ]
 
 
 @_master.post("/{session_id}/multicam/start", response_model=StartOut)
@@ -575,7 +633,9 @@ def register_device(session_id: UUID, body: RegisterBody) -> RegisterOut:
 
 
 @_slave.post("/{session_id}/multicam/heartbeat", response_model=CaptureState)
-def heartbeat(session_id: UUID, body: HeartbeatBody) -> CaptureState:
+def heartbeat(
+    session_id: UUID, body: HeartbeatBody, db: DBSession = Depends(db_session)
+) -> CaptureState:
     """Keep a device on the roster + report its status; returns the current command."""
     _device(body.device_id)
     with _lock:
@@ -588,13 +648,16 @@ def heartbeat(session_id: UUID, body: HeartbeatBody) -> CaptureState:
             dev.label = body.label  # renamed on the device (e.g. a phone picking its name)
         dev.status = body.status
         dev.punches = body.punches
+        dev.tally = body.tally
         dev.last_seen_ms = _now_ms()
-        return CaptureState(
+        state = CaptureState(
             command=c.command,
             start_at_ms=c.start_at_ms,
             server_now_ms=_now_ms(),
             paused=c.paused,
         )
+    state.stance = _stance(session_id, db)  # after the token check above
+    return state
 
 
 @_slave.get("/{session_id}/multicam/state", response_model=CaptureState)

@@ -11,8 +11,10 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { MEDIAPIPE_WASM, poseModelUrl } from "@/lib/mediapipe";
-import { PunchDetector } from "@/lib/punchDetector";
-import { api, type CaptureRef } from "@/lib/api";
+import { PunchDots } from "@/components/PunchDots";
+import { PunchDetector, classifyPunchType } from "@/lib/punchDetector";
+import { addPunch, emptyTally } from "@/lib/punchTally";
+import { api, type CaptureRef, type PunchTally } from "@/lib/api";
 
 type Phase = "connecting" | "ready" | "countdown" | "recording" | "stopped" | "error";
 
@@ -141,6 +143,7 @@ export function CameraNode({
   const detectorRef = useRef<PunchDetector>(new PunchDetector(null));
   const rafRef = useRef<number>(0);
   const punchCountRef = useRef(0);
+  const tallyRef = useRef<PunchTally>(emptyTally()); // the same punches by hand and type
   const pausedRef = useRef(false); // gates the pose loop while the coach has paused
   const pauseStartRef = useRef<number | null>(null); // when the current pause began
   const pausedAccumRef = useRef(0); // total paused ms, subtracted from elapsed
@@ -170,6 +173,9 @@ export function CameraNode({
   const hiddenSinceRef = useRef<number | null>(null);
   const hiddenMsRef = useRef(0);
   const [punchCount, setPunchCount] = useState(0);
+  const [tally, setTally] = useState<PunchTally>(emptyTally);
+  // The fighter's stance, from the server: names jab/cross and lead/rear on the dots.
+  const [stance, setStance] = useState<string | null>(null);
   const [paused, setPaused] = useState(false);
   const [err, setErr] = useState<string | null>(null);
   // Laptop only: the cameras this computer has, and the one in use.
@@ -307,8 +313,17 @@ export function CameraNode({
               : poseReadyRef.current
                 ? "ready"
                 : "loading";
-        const st = await api.multicamHeartbeat(cap, token, did, status, punchCountRef.current, labelRef.current);
+        const st = await api.multicamHeartbeat(
+          cap,
+          token,
+          did,
+          status,
+          punchCountRef.current,
+          labelRef.current,
+          tallyRef.current,
+        );
         offsetRef.current = st.server_now_ms - Date.now();
+        setStance(st.stance ?? null);
         if (st.command === "start" && st.start_at_ms != null) {
           const localStart = st.start_at_ms - offsetRef.current;
           const msLeft = localStart - Date.now();
@@ -577,6 +592,8 @@ export function CameraNode({
     detectorRef.current = new PunchDetector(null);
     punchCountRef.current = 0;
     setPunchCount(0);
+    tallyRef.current = emptyTally();
+    setTally(tallyRef.current);
     poseRef.current = [];
     // Pose frames are stamped on the session timeline (ms since t = 0, paused time
     // removed) — the same axis as the clip, the IMU samples and the labels. A
@@ -607,6 +624,13 @@ export function CameraNode({
       if (events.length) {
         punchCountRef.current += events.length;
         setPunchCount(punchCountRef.current);
+        for (const ev of events) {
+          // Named from the wrist's path over the last frames (poseRef has this one).
+          // The tally is by hand, so the stance isn't needed to count it.
+          const type = classifyPunchType(poseRef.current, ev.hand, null);
+          tallyRef.current = addPunch(tallyRef.current, ev.hand, type);
+        }
+        setTally(tallyRef.current);
       }
     };
     rafRef.current = requestAnimationFrame(loop);
@@ -671,6 +695,11 @@ export function CameraNode({
         {recInfo && (
           <div className="absolute left-1 top-1 max-w-[92%] truncate rounded bg-black/70 px-1.5 py-0.5 text-[10px] text-amber-300">
             {recInfo}
+          </div>
+        )}
+        {(phase === "recording" || phase === "stopped") && punchCount > 0 && (
+          <div className="absolute bottom-7 right-1">
+            <PunchDots tally={tally} stance={stance} compact />
           </div>
         )}
         <div className="absolute inset-x-0 bottom-0 flex items-center justify-between bg-black/60 px-2 py-1 text-[11px]">
@@ -758,10 +787,13 @@ export function CameraNode({
       {recInfo && <p className="text-xs text-amber-400">{recInfo}</p>}
 
       {(phase === "recording" || phase === "stopped") && (
-        <p className="text-center text-neutral-300">
-          <span className="text-3xl font-bold tabular-nums text-emerald-400">{punchCount}</span>{" "}
-          <span className="text-sm">punches</span>
-        </p>
+        <div className="space-y-3">
+          <p className="text-center text-neutral-300">
+            <span className="text-3xl font-bold tabular-nums text-emerald-400">{punchCount}</span>{" "}
+            <span className="text-sm">punches</span>
+          </p>
+          <PunchDots tally={tally} stance={stance} />
+        </div>
       )}
 
       {phase === "ready" && (

@@ -17,8 +17,10 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { CameraNode } from "@/components/CameraNode";
 import { JoinQrCard } from "@/components/JoinQrCard";
+import { PunchDots } from "@/components/PunchDots";
 import { RoundTimer } from "@/components/SessionRounds";
-import { api, type Bout, type MulticamDevice, type Session } from "@/lib/api";
+import { api, type Bout, type MulticamDevice, type PunchTally, type Session } from "@/lib/api";
+import { leadingTally } from "@/lib/punchTally";
 
 type Corner = "red" | "blue";
 
@@ -107,6 +109,9 @@ export function BoutCapture({
   const blueCams = blueDevices.filter((d) => d.role === "camera");
   const redCount = redCams.reduce((m, c) => Math.max(m, c.punches), 0);
   const blueCount = blueCams.reduce((m, c) => Math.max(m, c.punches), 0);
+  // Each corner's punches by hand and type, from its camera with the most punches.
+  const redTally = leadingTally(redCams);
+  const blueTally = leadingTally(blueCams);
   const canStart = redCams.length > 0 || blueCams.length > 0 || laptopCorner !== null;
 
   // Live win probability — Laplace-smoothed share of a weighted score (starts 50/50).
@@ -307,6 +312,7 @@ export function BoutCapture({
           corner="red"
           name={redName}
           count={redCount}
+          tally={redTally}
           knockdowns={redKD}
           controlSec={redControl}
           controlling={controlling === "red"}
@@ -324,6 +330,7 @@ export function BoutCapture({
           corner="blue"
           name={blueName}
           count={blueCount}
+          tally={blueTally}
           knockdowns={blueKD}
           controlSec={blueControl}
           controlling={controlling === "blue"}
@@ -370,6 +377,7 @@ function CornerPanel({
   corner,
   name,
   count,
+  tally,
   knockdowns,
   controlSec,
   controlling,
@@ -386,6 +394,7 @@ function CornerPanel({
   corner: Corner;
   name: string;
   count: number;
+  tally: PunchTally | null;
   knockdowns: number;
   controlSec: number;
   controlling: boolean;
@@ -402,6 +411,7 @@ function CornerPanel({
   const tint = corner === "red" ? "border-red-500/40" : "border-sky-500/40";
   const label = corner === "red" ? "text-red-300" : "text-sky-300";
   const phones = cameras.filter((d) => d.device_id !== laptopDeviceId);
+  const stance = cameras.find((c) => c.stance)?.stance ?? null;
 
   return (
     <div className={`space-y-3 rounded-2xl border ${tint} p-4`}>
@@ -413,6 +423,7 @@ function CornerPanel({
           <b className="text-lg text-emerald-400">{count}</b> 👊
         </span>
       </div>
+      {count > 0 && <PunchDots tally={tally} stance={stance} />}
 
       {laptopHere && token && (
         <CameraNode
@@ -443,6 +454,11 @@ function CornerPanel({
                   (e.currentTarget as HTMLImageElement).style.visibility = "visible";
                 }}
               />
+              {d.punches > 0 && (
+                <div className="absolute bottom-7 right-1">
+                  <PunchDots tally={d.tally} stance={stance} compact />
+                </div>
+              )}
               <div className="absolute inset-x-0 bottom-0 flex items-center justify-between bg-black/60 px-2 py-1 text-[11px]">
                 <span className="truncate">📷 {d.label}</span>
                 {d.punches > 0 && <span className="font-semibold text-emerald-400">{d.punches}👊</span>}

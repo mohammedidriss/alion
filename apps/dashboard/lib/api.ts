@@ -1119,12 +1119,27 @@ async function req<T>(path: string, init?: RequestInit): Promise<T> {
 }
 
 // Multi-device capture coordinator (ADR-010).
+/** One hand's live punches: all of them, and those named by type. */
+export interface HandTally {
+  total: number;
+  straight: number; // a jab or a cross, by the fighter's stance
+  hook: number;
+  uppercut: number;
+}
+/** A camera's live punches by hand and type (lib/punchTally.ts). */
+export interface PunchTally {
+  left: HandTally;
+  right: HandTally;
+}
 export interface MulticamDevice {
   device_id: string;
   role: string;
   label: string;
   status: string;
   punches: number;
+  tally?: PunchTally | null;
+  /** "orthodox" | "southpaw" — names jab/cross and lead/rear; null for a switch hitter. */
+  stance?: string | null;
 }
 export interface MulticamJoinInfo {
   join_token: string;
@@ -1136,6 +1151,7 @@ export interface MulticamState {
   start_at_ms: number | null;
   server_now_ms: number;
   paused?: boolean;
+  stance?: string | null; // heartbeat only
 }
 export interface MulticamStartOut {
   command: string;
@@ -1327,11 +1343,12 @@ export const api = {
     status: string,
     punches = 0,
     label?: string, // lets the device re-join the roster if the API restarted
+    tally?: PunchTally, // the same punches by hand and type
   ) =>
     req<MulticamState>(`${capBase(id)}/multicam/heartbeat`, {
       method: "POST",
       headers: { "content-type": "application/json" },
-      body: JSON.stringify({ token, device_id, status, punches, role: "camera", label }),
+      body: JSON.stringify({ token, device_id, status, punches, role: "camera", label, tally: tally ?? null }),
     }),
   multicamState: (id: CaptureRef, token: string) =>
     req<MulticamState>(`${capBase(id)}/multicam/state?token=${encodeURIComponent(token)}`),
