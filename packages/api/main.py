@@ -38,6 +38,7 @@ from api.routes import (
     protocol,
     recordings,
     referees,
+    reliance,
     round_plans,
     rq1,
     sessions,
@@ -225,6 +226,7 @@ app.include_router(studio.router)  # phones link once, follow every capture
 app.include_router(studio.public)
 app.include_router(training.router)  # the dataset's camera punch counter
 app.include_router(rq1.router)
+app.include_router(reliance.router)  # the appropriate-reliance study (ADR-026)
 app.include_router(round_plans.router)
 # Two-fighter bouts (ADR-011) — new endpoints, unversioned.
 app.include_router(bouts.router)

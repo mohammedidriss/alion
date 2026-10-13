@@ -1118,6 +1118,68 @@ async function req<T>(path: string, init?: RequestInit): Promise<T> {
   return r.json();
 }
 
+// The appropriate-reliance study (ADR-026).
+export interface StudyItem {
+  id: string;
+  text: string;
+}
+export interface StudyInstrument {
+  name: string;
+  ready: boolean; // false while the protocol's wording hasn't been pasted in
+  scale: { min: number; max: number; low: string; high: string };
+  trust: StudyItem[];
+  distrust: StudyItem[];
+}
+export interface StudyClaim {
+  id: string;
+  claim_text: string;
+  evidence: Record<string, unknown>;
+  source_stream: string;
+  source_start_ms: number | null;
+  source_end_ms: number | null;
+  evidence_quality: string;
+}
+export interface StudyAdvisory {
+  id: string;
+  summary: string;
+  action_items: string[];
+  claims: StudyClaim[];
+}
+export interface StudyStep {
+  kind: "survey" | "trial" | "done";
+  label: string; // neutral: "Check-in 2", "Advisory 3 of 8"
+  advisory: StudyAdvisory | null;
+  instrument: StudyInstrument | null;
+}
+export interface StudyMe {
+  reviewer_code: string;
+  ready: boolean;
+  decisions: number;
+  total: number;
+  step: StudyStep;
+}
+export type RelianceDecision = "follow" | "adjust" | "reject";
+export interface StudyReviewer {
+  reviewer_code: string;
+  name: string;
+  email: string;
+  role: string;
+  enrolled_at: string;
+  decisions: number;
+  check_ins: number;
+}
+export interface StudySnapshotIndex {
+  id: string;
+  session_id: string;
+  payload_mode: string;
+  model_id: string;
+  prompt_version: string;
+  correctness: string;
+  claims: number;
+  output_sha256: string;
+  created_at: string;
+}
+
 // What the body sensors stored in each session (HRV and IMU tabs).
 export interface HeartRecording {
   beats: number;
@@ -1717,6 +1779,38 @@ export const api = {
     req<number>(`/v2/sessions/${id}/hrv/load`, { method: "POST" }),
 
   // ---- RQ1 study ----
+  // ---- Appropriate-reliance study (ADR-026) ----
+  studyMe: () => req<StudyMe>("/v2/studies/reliance/me"),
+  studySubmitSurvey: (body: { trust_items: Record<string, number>; distrust_items: Record<string, number> }) =>
+    req<{ recorded: boolean }>("/v2/studies/reliance/surveys", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify(body),
+    }),
+  studyOpenEvidence: (claimId: string) =>
+    req<{ recorded: boolean }>(`/v2/studies/reliance/claims/${claimId}/trace-opens`, { method: "POST" }),
+  studyDecide: (snapshotId: string, body: { decision: RelianceDecision; response_ms: number; rationale?: string }) =>
+    req<{ recorded: boolean }>(`/v2/studies/reliance/snapshots/${snapshotId}/trials`, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify(body),
+    }),
+  studyInstrument: () => req<StudyInstrument>("/v2/studies/reliance/instrument"),
+  studyReviewers: () => req<StudyReviewer[]>("/v2/studies/reliance/reviewers"),
+  studyEnrol: (email: string) =>
+    req<StudyReviewer>("/v2/studies/reliance/reviewers", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ email }),
+    }),
+  studySnapshots: () => req<StudySnapshotIndex[]>("/v2/studies/reliance/snapshots"),
+  studyAddSnapshot: (body: unknown) =>
+    req<{ id: string; input_sha256: string; output_sha256: string }>("/v2/studies/reliance/snapshots", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify(body),
+    }),
+  studyExport: () => req<unknown>("/v2/studies/reliance/export"),
   rq1ListRatings: (sessionId: string, raterId?: string) =>
     req<RQ1Rating[]>(
       `/studies/rq1/sessions/${sessionId}/ratings${

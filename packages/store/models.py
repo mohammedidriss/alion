@@ -890,6 +890,122 @@ class RaterScoreRead(SQLModel):
 
 
 # ----------------------------------------------------------------------
+# Appropriate-reliance study (ADR-026; adapted from the Proposal V2 test build).
+#
+# Separate from the RQ1 rating experiment: RQ1 asks which advice a coach prefers;
+# this records whether an expert follows correct advice, rejects incorrect advice,
+# opens its evidence, and how trust and distrust move after an error.
+# ----------------------------------------------------------------------
+
+
+class AdviceCorrectnessEnum(StrEnum):
+    CORRECT = "correct"
+    INCORRECT = "incorrect"
+    INSUFFICIENT_EVIDENCE = "insufficient_evidence"
+
+
+class RelianceDecisionEnum(StrEnum):
+    FOLLOW = "follow"
+    ADJUST = "adjust"
+    REJECT = "reject"
+
+
+class TrustTimepointEnum(StrEnum):
+    PRE_EXPOSURE = "pre_exposure"
+    POST_ERROR = "post_error"
+    POST_RECOVERY = "post_recovery"
+
+
+class StudyReviewerRow(SQLModel, table=True):
+    """An expert a researcher enrolled after checking their signed consent. The
+    code is what every study record carries — never the name."""
+
+    __tablename__ = "study_reviewer"
+    id: UUID = Field(default_factory=uuid4, primary_key=True)
+    user_id: UUID = Field(foreign_key="user.id", unique=True, index=True)
+    reviewer_code: str = Field(min_length=1, max_length=20, unique=True, index=True)
+    enrolled_by: UUID = Field(foreign_key="user.id")
+    enrolled_at: datetime = Field(default_factory=lambda: datetime.now(UTC))
+
+
+class StudyAdviceSnapshotRow(SQLModel, table=True):
+    """An immutable, adjudicated offline-review stimulus."""
+
+    __tablename__ = "study_advice_snapshot"
+    id: UUID = Field(default_factory=uuid4, primary_key=True)
+    session_id: UUID = Field(foreign_key="session.id", index=True)  # never shown to reviewers
+    payload_mode: PayloadModeEnum
+    model_id: str = Field(min_length=1, max_length=160)
+    prompt_version: str = Field(min_length=1, max_length=40)
+    input_json: str
+    advice_json: str
+    input_sha256: str = Field(min_length=64, max_length=64, index=True)
+    prompt_sha256: str = Field(min_length=64, max_length=64)
+    output_sha256: str = Field(min_length=64, max_length=64)
+    correctness: AdviceCorrectnessEnum = Field(sa_column=sa.Column(sa.String, nullable=False))
+    adjudication_note: str = Field(min_length=1)
+    created_by: UUID = Field(foreign_key="user.id")
+    created_at: datetime = Field(default_factory=lambda: datetime.now(UTC))
+
+
+class StudyAdviceClaimRow(SQLModel, table=True):
+    """One advisory claim and the bounded data that supports it."""
+
+    __tablename__ = "study_advice_claim"
+    __table_args__ = (sa.UniqueConstraint("snapshot_id", "ordinal"),)
+    id: UUID = Field(default_factory=uuid4, primary_key=True)
+    snapshot_id: UUID = Field(foreign_key="study_advice_snapshot.id", index=True)
+    ordinal: int = Field(ge=0)
+    claim_text: str = Field(min_length=1)
+    evidence_json: str
+    source_stream: str = Field(min_length=1, max_length=40)
+    source_start_ms: float | None = Field(default=None, ge=0)
+    source_end_ms: float | None = Field(default=None, ge=0)
+    evidence_quality: str = Field(min_length=1, max_length=40)
+
+
+class TraceOpenEventRow(SQLModel, table=True):
+    """A reviewer opened a claim's evidence (once per claim and reviewer)."""
+
+    __tablename__ = "study_trace_open"
+    __table_args__ = (sa.UniqueConstraint("claim_id", "reviewer_code"),)
+    id: UUID = Field(default_factory=uuid4, primary_key=True)
+    claim_id: UUID = Field(foreign_key="study_advice_claim.id", index=True)
+    reviewer_code: str = Field(min_length=1, max_length=20, index=True)
+    opened_at: datetime = Field(default_factory=lambda: datetime.now(UTC))
+
+
+class RelianceTrialRow(SQLModel, table=True):
+    """A reviewer's decision on one frozen advisory — final once submitted."""
+
+    __tablename__ = "study_reliance_trial"
+    __table_args__ = (sa.UniqueConstraint("snapshot_id", "reviewer_code"),)
+    id: UUID = Field(default_factory=uuid4, primary_key=True)
+    snapshot_id: UUID = Field(foreign_key="study_advice_snapshot.id", index=True)
+    reviewer_code: str = Field(min_length=1, max_length=20, index=True)
+    position: int = Field(ge=1)  # 1 = the first advisory this reviewer saw
+    decision: RelianceDecisionEnum = Field(sa_column=sa.Column(sa.String, nullable=False))
+    response_ms: int = Field(ge=0, le=3_600_000)
+    rationale: str | None = None
+    submitted_at: datetime = Field(default_factory=lambda: datetime.now(UTC))
+
+
+class TrustSurveyRow(SQLModel, table=True):
+    """A trust/distrust check-in at a study time point — final once submitted."""
+
+    __tablename__ = "study_trust_survey"
+    __table_args__ = (sa.UniqueConstraint("reviewer_code", "timepoint"),)
+    id: UUID = Field(default_factory=uuid4, primary_key=True)
+    reviewer_code: str = Field(min_length=1, max_length=20, index=True)
+    timepoint: TrustTimepointEnum = Field(sa_column=sa.Column(sa.String, nullable=False))
+    after_trials: int = Field(ge=0)  # how many decisions the reviewer had made by then
+    item_scores_json: str
+    trust_score: float = Field(ge=1, le=7)
+    distrust_score: float = Field(ge=1, le=7)
+    submitted_at: datetime = Field(default_factory=lambda: datetime.now(UTC))
+
+
+# ----------------------------------------------------------------------
 # Coach + Referee profiles
 # ----------------------------------------------------------------------
 

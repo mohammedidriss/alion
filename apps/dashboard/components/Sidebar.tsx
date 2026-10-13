@@ -83,6 +83,11 @@ export function Sidebar({ onNavigate }: { onNavigate?: () => void } = {}) {
   if (user?.is_researcher) {
     navItems.push({ label: "Datasets", href: "/datasets", icon: "▤" });
   }
+  // The appropriate-reliance study (ADR-026): researchers run it; enrolled coaches
+  // and referees take part (the page says if they aren't enrolled).
+  if (user?.is_researcher || activeRole === "coach" || activeRole === "referee") {
+    navItems.push({ label: "Study", href: "/study", icon: "◎" });
+  }
   // Which AI writes the advice — local or remote (ADR-021).
   if (user?.is_researcher || activeRole === "admin") {
     navItems.push({ label: "AI model", href: "/ai-model", icon: "✦" });

@@ -1,0 +1,21 @@
+{
+  "instrument": "Checklist for Trust between People and Automation (Jian, Bisantz & Drury, 2000)",
+  "note": "Paste each item's wording exactly as your approved protocol gives it. The study stays closed to reviewers while any item still starts with '['. Keep the ids: data are stored by id.",
+  "scale": { "min": 1, "max": 7, "low": "Not at all", "high": "Extremely" },
+  "distrust": [
+    { "id": "d1", "text": "[Distrust item 1 — paste the wording from your approved protocol]" },
+    { "id": "d2", "text": "[Distrust item 2 — paste the wording from your approved protocol]" },
+    { "id": "d3", "text": "[Distrust item 3 — paste the wording from your approved protocol]" },
+    { "id": "d4", "text": "[Distrust item 4 — paste the wording from your approved protocol]" },
+    { "id": "d5", "text": "[Distrust item 5 — paste the wording from your approved protocol]" }
+  ],
+  "trust": [
+    { "id": "t1", "text": "[Trust item 1 — paste the wording from your approved protocol]" },
+    { "id": "t2", "text": "[Trust item 2 — paste the wording from your approved protocol]" },
+    { "id": "t3", "text": "[Trust item 3 — paste the wording from your approved protocol]" },
+    { "id": "t4", "text": "[Trust item 4 — paste the wording from your approved protocol]" },
+    { "id": "t5", "text": "[Trust item 5 — paste the wording from your approved protocol]" },
+    { "id": "t6", "text": "[Trust item 6 — paste the wording from your approved protocol]" },
+    { "id": "t7", "text": "[Trust item 7 — paste the wording from your approved protocol]" }
+  ]
+}
