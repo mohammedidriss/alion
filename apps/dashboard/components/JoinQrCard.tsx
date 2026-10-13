@@ -141,6 +141,23 @@ function StudioQr({ sessionId, takeId }: { sessionId?: string; takeId?: string }
             ))
           )}
         </div>
+        {/* A phone's link lasts 30 days; this ends every link now — a lost phone,
+            say — and shows a new QR (ADR-017). */}
+        <button
+          onClick={() => {
+            if (!window.confirm("Unlink every phone? Each will need to scan the new QR.")) return;
+            api
+              .unlinkStudioPhones()
+              .then((st) => {
+                setUrl(phoneUrl(st.join_path, st.lan_ip));
+                setPhones(st.phones);
+              })
+              .catch(() => setErr(true));
+          }}
+          className="mt-2 text-[11px] text-neutral-500 underline hover:text-neutral-300"
+        >
+          Unlink all phones
+        </button>
       </div>
     </div>
   );

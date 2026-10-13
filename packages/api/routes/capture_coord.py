@@ -26,9 +26,6 @@ The same capture routes also serve dataset takes (ADR-013) under `/takes/{id}`
 
 from __future__ import annotations
 
-import base64
-import hashlib
-import hmac
 import json
 import os
 import socket
@@ -43,9 +40,9 @@ from pydantic import BaseModel
 from sqlmodel import Session as DBSession
 
 from api.deps import db_session, session_repo
-from api.routes.auth import SECRET_KEY, require_current_user
+from api.routes.auth import require_current_user
 from api.routes.pose import PoseFrameIn, _to_landmarks, _to_world
-from api.services import cross_check, dataset_store, imu_runner, session_analysis
+from api.services import cross_check, dataset_store, imu_runner, session_analysis, signed
 from contracts import PoseFrame
 from store import SessionRepo, SessionStatus
 
@@ -109,11 +106,23 @@ _lock = threading.Lock()
 _coords: dict[UUID, _Coord] = {}
 
 
+JOIN_TTL_S = 24 * 3600  # a phone's join link works for a day (ADR-017)
+
+
 def _join_token(capture_id: UUID) -> str:
-    """The capture's join token — derived, not random, so the QR a phone scanned
-    stays valid when the API restarts."""
-    mac = hmac.new(SECRET_KEY.encode(), f"multicam-join:{capture_id}".encode(), hashlib.sha256)
-    return base64.urlsafe_b64encode(mac.digest())[:16].decode()
+    """A join token for the capture: signed, not stored — the QR a phone scanned
+    still works after the API restarts — and good for JOIN_TTL_S."""
+    return signed.sign("multicam-join", str(capture_id), JOIN_TTL_S)
+
+
+def current_join_token(capture_id: UUID) -> str:
+    """The capture's join token, renewed when it has under two hours left — what the
+    QR, the studio and join-info hand out (call with `_lock` held)."""
+    c = _ensure(capture_id)
+    exp = signed.expires(c.join_token) or 0
+    if exp - time.time() < 2 * 3600:
+        c.join_token = _join_token(capture_id)
+    return c.join_token
 
 
 def _save_state(capture_id: UUID, c: _Coord) -> None:
@@ -161,7 +170,7 @@ def _ensure(session_id: UUID) -> _Coord:
 
 
 def _check_token(session_id: UUID, token: str) -> _Coord:
-    if not hmac.compare_digest(token.encode(), _join_token(session_id).encode()):
+    if not signed.verify(token, "multicam-join", str(session_id)):
         raise HTTPException(status_code=403, detail="invalid or expired join token")
     return _ensure(session_id)
 
@@ -366,10 +375,10 @@ def join(capture_id: UUID, page_prefix: str) -> JoinInfo:
     """Join token + camera-page path for the QR (`page_prefix` is "/sessions" or
     "/takes"). Callers check the capture exists."""
     with _lock:
-        c = _ensure(capture_id)
+        token = current_join_token(capture_id)
         return JoinInfo(
-            join_token=c.join_token,
-            join_path=f"{page_prefix}/{capture_id}/camera?token={c.join_token}",
+            join_token=token,
+            join_path=f"{page_prefix}/{capture_id}/camera?token={token}",
             lan_ip=_lan_ip(),
         )
 

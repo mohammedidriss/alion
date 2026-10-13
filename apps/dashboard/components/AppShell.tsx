@@ -5,7 +5,7 @@ import { useEffect, useState } from "react";
 import { Sidebar } from "@/components/Sidebar";
 import { MobileTopBar, MobileBottomBar } from "@/components/MobileNav";
 import { TermsGate } from "@/components/TermsGate";
-import { api, type TermsInfo } from "@/lib/api";
+import { api, setPhotoPass, type TermsInfo } from "@/lib/api";
 import { useAuth } from "@/lib/auth";
 
 export function AppShell({ children }: { children: React.ReactNode }) {
@@ -20,6 +20,22 @@ export function AppShell({ children }: { children: React.ReactNode }) {
   useEffect(() => {
     if (user && !terms) api.terms().then(setTerms).catch(() => setTermsFailed(true));
   }, [user, terms]);
+  // Profile photos need a photo pass (ADR-017): fetch it before the app renders,
+  // renew it every six hours (it lasts 24).
+  const accepted = !!user && !!terms && user.terms_version === terms.version;
+  const [photoPass, setPhotoPassReady] = useState(false);
+  useEffect(() => {
+    if (!accepted) return;
+    const load = () =>
+      api
+        .photoPass()
+        .then((p) => setPhotoPass(p.token))
+        .catch(() => {})
+        .finally(() => setPhotoPassReady(true));
+    load();
+    const id = setInterval(load, 6 * 3600 * 1000);
+    return () => clearInterval(id);
+  }, [accepted]);
 
   // The camera slave page (ADR-010) is joined by phones with only a session token —
   // it must render with no login and no app chrome.
@@ -61,6 +77,9 @@ export function AppShell({ children }: { children: React.ReactNode }) {
     return <div className="flex h-screen items-center justify-center text-neutral-400">Loading…</div>;
   }
   if (terms && user.terms_version !== terms.version) return <TermsGate terms={terms} />;
+  if (accepted && !photoPass) {
+    return <div className="flex h-screen items-center justify-center text-neutral-400">Loading…</div>;
+  }
 
   return (
     <div className="flex h-screen overflow-hidden bg-[#0a0a0f]">

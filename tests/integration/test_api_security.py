@@ -61,13 +61,15 @@ def test_protected_routes_work_with_token(authed_client: TestClient) -> None:
 # ── SSE stream stays open (UUID is the access control) ────────────────────────
 
 
-def test_hrv_live_stream_not_auth_gated(client: TestClient) -> None:
-    """EventSource can't send a token; an unknown session returns 404, not 401.
+def test_hrv_live_stream_opens_with_a_signed_link_not_a_login(client: TestClient) -> None:
+    """EventSource can't send a login, so the stream takes a signed link instead
+    (ADR-017): without one it's refused; with one, an unknown session is a 404 —
+    the browser's live chart still works without a header."""
+    from api.services import signed
 
-    A 401 here would mean the stream got an auth gate and would break the
-    live HRV chart in the browser.
-    """
-    assert client.get(f"/v2/sessions/{BOGUS}/hrv/live").status_code == 404
+    assert client.get(f"/v2/sessions/{BOGUS}/hrv/live").status_code == 401
+    t = signed.sign("live", BOGUS, 60)
+    assert client.get(f"/v2/sessions/{BOGUS}/hrv/live?t={t}").status_code == 404
 
 
 # ── Password policy ───────────────────────────────────────────────────────────

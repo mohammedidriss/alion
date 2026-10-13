@@ -444,7 +444,7 @@ export default function ObservationsTab({
                 <div className="flex items-center gap-2 text-xs text-neutral-500">
                   {n.coach_photo_path ? (
                     <img
-                      src={n.coach_photo_path}
+                      src={api.photoUrl(n.coach_photo_path) ?? undefined}
                       alt=""
                       className="h-5 w-5 rounded-full object-cover"
                     />

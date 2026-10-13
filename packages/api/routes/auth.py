@@ -17,7 +17,7 @@ from sqlmodel import Session as DBSession
 from sqlmodel import select
 
 from api.deps import db_session
-from api.services import researchers, terms
+from api.services import researchers, signed, terms
 from store import (
     CoachRepo,
     FighterRepo,
@@ -357,6 +357,20 @@ def get_terms() -> TermsOut:
     """The current terms and conditions — public, so the sign-up form can show them."""
     return TermsOut(
         version=terms.TERMS_VERSION, text=terms.text(), placeholder=terms.is_placeholder()
+    )
+
+
+class PhotoPassOut(BaseModel):
+    token: str  # add as ?t= to /static/photos/… links
+    expires_at: datetime
+
+
+@router.get("/photo-pass", response_model=PhotoPassOut)
+def get_photo_pass(user: User = Depends(require_current_user)) -> PhotoPassOut:
+    """A pass that opens profile photos for the next 24 hours (ADR-017)."""
+    token = signed.photo_pass()
+    return PhotoPassOut(
+        token=token, expires_at=datetime.fromtimestamp(signed.expires(token) or 0, UTC)
     )
 
 

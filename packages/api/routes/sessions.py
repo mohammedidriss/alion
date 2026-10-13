@@ -24,7 +24,7 @@ from api import access
 from api.deps import db_session, fighter_repo, punch_event_repo, resolve_gym_id, session_repo
 from api.routes import capture_coord
 from api.routes.auth import get_current_user, require_current_user
-from api.services import capture_runner, cross_check, hrv_runner, imu_runner
+from api.services import capture_runner, cross_check, hrv_runner, imu_runner, signed
 from capture.hrv import parse_rr_csv
 from contracts import HRSample
 from store import (
@@ -54,7 +54,7 @@ router = APIRouter(
 )
 
 # Separate router for endpoints that can't send auth headers (e.g. <img src>).
-# The unguessable session UUID serves as the access control.
+# It takes a signed, expiring link from /live-links instead (ADR-017).
 preview_router = APIRouter(prefix="/sessions", tags=["sessions"])
 
 _VIDEO_DIR = Path("data/raw/uploaded")
@@ -413,11 +413,37 @@ def capture_status(
     )
 
 
-@preview_router.get("/{session_id}/preview")
+LIVE_LINK_TTL_S = 6 * 3600
+
+
+class LiveLinks(BaseModel):
+    """Signed links for what a browser streams without a login header (ADR-017)."""
+
+    preview: str  # MJPEG for an <img>
+    hrv_live: str  # Server-Sent Events for an EventSource
+    expires_at: datetime.datetime
+
+
+@router.get("/{session_id}/live-links", response_model=LiveLinks)
+def live_links(session_id: UUID, repo: SessionRepo = Depends(session_repo)) -> LiveLinks:
+    """Links to this session's live preview and heart-rate stream, good for six
+    hours — for whoever may see the session (access.guard)."""
+    if repo.get(session_id) is None:
+        raise HTTPException(status_code=404, detail="session not found")
+    t = signed.sign("live", str(session_id), LIVE_LINK_TTL_S)
+    return LiveLinks(
+        preview=f"/sessions/{session_id}/preview?t={t}",
+        hrv_live=f"/v2/sessions/{session_id}/hrv/live?t={t}",
+        expires_at=datetime.datetime.fromtimestamp(signed.expires(t) or 0, datetime.UTC),
+    )
+
+
+@preview_router.get("/{session_id}/preview", dependencies=[Depends(signed.require_live_link)])
 async def preview_stream(session_id: UUID) -> StreamingResponse:
     """MJPEG stream of the latest captured frame with skeleton overlay.
 
-    Consumed natively by <img src="..."> in the dashboard. Closes when capture
+    Consumed natively by <img src="..."> in the dashboard, through a signed link
+    from `/live-links` (an <img> can't send a login). Closes when capture
     finishes (the buffer disappears). Frame rate is bounded by both the capture
     pipeline (~30fps) and a small server-side throttle.
     """

@@ -1,6 +1,6 @@
 # 017. Record-level access control — enforced by the API, on every route
 
-- **Status**: Accepted (part 1 of 2)
+- **Status**: Accepted (part 1; part 2 added the same day)
 - **Date**: 2026-10-13
 - **Phase**: 6
 
@@ -76,7 +76,22 @@ Also in this change:
   is now a coach who is also a researcher (`admin_client` for admin-only routes).
 - The researcher's own account must be listed in `ALION_RESEARCHERS` in `.env`,
   or the datasets close to them too.
-- **Part 2 (open)**: the live camera preview (`/sessions/{id}/preview`) and live
-  heart-rate stream (`/v2/sessions/{id}/hrv/live`) still need no login; capture
-  join tokens and studio tokens never expire; profile photos are served without
-  a login; coach and gym-manager listings aren't scoped beyond gym managers.
+- Still open: coach and gym-manager listings aren't scoped beyond gym managers.
+
+## Part 2 — signed, expiring links
+
+Some things a browser loads can't carry a login header: an `<img>` (the live
+camera preview, profile photos), an `EventSource` (the live heart-rate stream),
+and a phone that joined by QR. They were open to anyone who had the URL. They now
+take a signed link (`api/services/signed.py`): `{expiry}.{HMAC(secret,
+purpose|resource|expiry)}` — bound to what it opens, checked without storing
+anything (so it survives restarts), impossible to stretch or repoint.
+
+| What | How it's opened now | Lasts |
+|---|---|---|
+| live preview, live heart rate | `GET /sessions/{id}/live-links` (signed in, access-checked) → `?t=` links | 6 h |
+| profile photos | `GET /auth/photo-pass` → `?t=` on every photo link (the dashboard adds it, renews every 6 h) | 24 h |
+| a phone's capture join link | signed per capture; renewed by join-info / the studio when under 2 h are left; the old never-expiring kind no longer works | 24 h |
+| a phone's studio link | signed for the coach + a per-coach nonce; **Unlink all phones** changes the nonce and voids every link | 30 days |
+
+`tests/integration/test_signed_links.py` covers each.

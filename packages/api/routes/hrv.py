@@ -17,7 +17,7 @@ from sqlmodel import select
 
 from api.deps import db_session, session_repo
 from api.routes.auth import require_current_user
-from api.services import hrv_runner
+from api.services import hrv_runner, signed
 from contracts import HRMetricsWindow
 from store import HRSampleRead, HRSampleRow, SessionRepo
 from store.models import SessionRead
@@ -35,8 +35,8 @@ _MAX_HRV_UPLOAD_BYTES = 25 * 1024 * 1024  # 25 MB
 
 # Separate router for the SSE live stream. The browser consumes it with
 # `new EventSource(...)`, which cannot attach an Authorization header, so
-# (like the MJPEG preview_router) the unguessable session UUID is the
-# access control here rather than a bearer token.
+# (like the MJPEG preview) it takes a signed, expiring link from
+# `/sessions/{id}/live-links` instead (ADR-017).
 stream_router = APIRouter(prefix="/sessions", tags=["hrv"])
 
 _HRV_DIR = Path("data/raw/hrv")
@@ -274,7 +274,9 @@ def _count_samples(db: DBSession, session_id: UUID) -> int:
     return len(list(rows))
 
 
-@stream_router.get("/{session_id}/hrv/live", tags=["hrv"])
+@stream_router.get(
+    "/{session_id}/hrv/live", tags=["hrv"], dependencies=[Depends(signed.require_live_link)]
+)
 async def hrv_live_stream(
     session_id: UUID,
     repo: SessionRepo = Depends(session_repo),

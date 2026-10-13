@@ -61,31 +61,39 @@ export function HrvPanel({ sessionId, hasPairedDevice = false }: Props) {
     refreshSamples();
   }, [refreshStatus, refreshSamples]);
 
-  // Stream live updates while running.
+  // Stream live updates while running. An EventSource can't send the login, so it
+  // opens through a signed link from the API (ADR-017).
   useEffect(() => {
     if (!status?.is_running) return;
-    const es = new EventSource(`${API_BASE}/v2/sessions/${sessionId}/hrv/live`);
-    evtRef.current = es;
-    es.onmessage = (e) => {
-      try {
-        const payload = JSON.parse(e.data) as HrvStatus;
-        setStatus(payload);
-        if (payload.sample_count !== samples.length) refreshSamples();
-        if (!payload.is_running) {
-          es.close();
-          evtRef.current = null;
-        }
-      } catch {
-        // ignore malformed frames
-      }
-    };
-    es.onerror = () => {
-      es.close();
+    let es: EventSource | null = null;
+    let closed = false;
+    const stop = () => {
+      es?.close();
       evtRef.current = null;
     };
+    api
+      .liveLinks(sessionId)
+      .then((links) => {
+        if (closed) return;
+        const stream = new EventSource(`${API_BASE}${links.hrv_live}`);
+        es = stream;
+        evtRef.current = stream;
+        stream.onmessage = (e) => {
+          try {
+            const payload = JSON.parse(e.data) as HrvStatus;
+            setStatus(payload);
+            if (payload.sample_count !== samples.length) refreshSamples();
+            if (!payload.is_running) stop();
+          } catch {
+            // ignore malformed frames
+          }
+        };
+        stream.onerror = stop;
+      })
+      .catch(() => {});
     return () => {
-      es.close();
-      evtRef.current = null;
+      closed = true;
+      stop();
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [status?.is_running, sessionId]);

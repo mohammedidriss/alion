@@ -60,6 +60,15 @@ export default function SessionPage({ params }: { params: { id: string } }) {
   const [session, setSession] = useState<Session | null>(null);
   const [status, setStatus] = useState<CaptureStatus | null>(null);
   const [events, setEvents] = useState<PunchEvent[]>([]);
+  // The live preview is an <img>, which can't send the login: it loads through a
+  // signed link (ADR-017). Kept up here, before any early return.
+  const [previewSrc, setPreviewSrc] = useState<string | null>(null);
+  useEffect(() => {
+    api
+      .liveLinks(params.id)
+      .then((l) => setPreviewSrc(`${process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:8000"}${l.preview}`))
+      .catch(() => setPreviewSrc(null));
+  }, [params.id]);
   const [caps, setCaps] = useState<Capabilities | null>(null);
   const [err, setErr] = useState<string | null>(null);
   const [uploading, setUploading] = useState(false);
@@ -873,7 +882,7 @@ export default function SessionPage({ params }: { params: { id: string } }) {
                   {/* eslint-disable-next-line @next/next/no-img-element */}
                   <img
                     key={session.id}
-                    src={`${process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:8000"}/sessions/${session.id}/preview`}
+                    src={previewSrc ?? undefined}
                     alt="live capture preview with pose overlay"
                     className="w-full rounded border border-neutral-800 bg-black"
                   />

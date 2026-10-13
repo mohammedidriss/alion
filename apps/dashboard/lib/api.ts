@@ -1032,6 +1032,13 @@ export interface AuthResponse {
   user: AuthUser;
 }
 
+// The signed-in user's photo pass (GET /auth/photo-pass), added to photo links;
+// AppShell fetches it before the app renders and renews it.
+let photoPassToken = "";
+export function setPhotoPass(token: string): void {
+  photoPassToken = token;
+}
+
 async function req<T>(path: string, init?: RequestInit): Promise<T> {
   // Auto-attach auth token from storage
   const token =
@@ -1802,10 +1809,19 @@ export const api = {
     if (!r.ok) throw new Error(`${r.status} ${await r.text()}`);
     return r.json() as Promise<Fighter>;
   },
+  /** A profile photo's link, with the signed-in user's photo pass (ADR-017). */
   photoUrl: (relativePath: string | null) =>
     relativePath
-      ? `${BASE}/static/photos/${relativePath.replace(/^data\/photos\//, "")}`
+      ? `${BASE}/static/photos/${relativePath.replace(/^data\/photos\//, "")}?t=${encodeURIComponent(photoPassToken)}`
       : null,
+  photoPass: () => req<{ token: string; expires_at: string }>("/auth/photo-pass"),
+  /** Signed links to a session's live preview and heart-rate stream — an <img> and
+   *  an EventSource can't send the login (ADR-017). */
+  liveLinks: (sessionId: string) =>
+    req<{ preview: string; hrv_live: string; expires_at: string }>(
+      `/sessions/${sessionId}/live-links`,
+    ),
+  unlinkStudioPhones: () => req<Studio>("/v2/studio/unlink", { method: "POST" }),
 
   // ---- Medical (fighters) ----
   getMedicalRecord: (fighterId: string) =>

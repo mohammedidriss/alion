@@ -7,17 +7,16 @@ dataset take — is the studio's *active* capture; every linked phone joins it o
 its own (with the capture's join token, `capture_coord._join_token`) and then
 follows Start / Stop exactly like a phone that scanned that capture's QR.
 
-The studio token is derived from the coach's user id (HMAC with the server
-secret), so it survives API restarts; the active capture is kept on disk in
-data/capture/. One studio per coach.
+The studio token is signed for the coach's user id (`signed`, ADR-017): it
+survives API restarts, works for 30 days, and "Unlink all phones" voids every
+link at once. The active capture is kept on disk in data/capture/. One studio
+per coach.
 """
 
 from __future__ import annotations
 
-import base64
-import hashlib
-import hmac
 import json
+import secrets
 import threading
 import time
 from pathlib import Path
@@ -31,8 +30,8 @@ from sqlmodel import Session as DBSession
 from api import access
 from api.deps import db_session, session_repo
 from api.routes import capture_coord
-from api.routes.auth import SECRET_KEY, require_current_user
-from api.services import dataset_store
+from api.routes.auth import require_current_user
+from api.services import dataset_store, signed
 from store import SessionRepo, User
 
 router = APIRouter(prefix="/v2/studio", tags=["studio"])  # coach, authenticated
@@ -46,29 +45,51 @@ _active: dict[str, dict[str, str]] = {}  # user id → {"kind", "id"}
 _phones: dict[str, dict[str, dict[str, object]]] = {}  # user id → phone id → info
 
 
-def _sig(user_id: str) -> str:
-    mac = hmac.new(SECRET_KEY.encode(), f"studio:{user_id}".encode(), hashlib.sha256)
-    return base64.urlsafe_b64encode(mac.digest())[:16].decode()
-
-
-def studio_token(user_id: str) -> str:
-    return f"{UUID(user_id).hex}.{_sig(str(UUID(user_id)))}"
-
-
-def _user_of(token: str) -> str:
-    """The coach a studio token belongs to; 403 if it's not a valid token."""
-    try:
-        hex_id, sig = token.split(".", 1)
-        user_id = str(UUID(hex_id))
-    except ValueError as e:
-        raise HTTPException(status_code=403, detail="invalid studio link") from e
-    if not hmac.compare_digest(sig.encode(), _sig(user_id).encode()):
-        raise HTTPException(status_code=403, detail="invalid studio link")
-    return user_id
+STUDIO_TTL_S = 30 * 24 * 3600  # a phone's studio link works for 30 days (ADR-017)
 
 
 def _state_file(user_id: str) -> Path:
     return _STATE_DIR / f"studio-{user_id}.json"
+
+
+def _read_state(user_id: str) -> dict[str, object]:
+    try:
+        data = json.loads(_state_file(user_id).read_text())
+        return data if isinstance(data, dict) else {}
+    except (OSError, ValueError):
+        return {}
+
+
+def _write_state(user_id: str, **fields: object) -> None:
+    data = {**_read_state(user_id), **fields}
+    try:
+        _STATE_DIR.mkdir(parents=True, exist_ok=True)
+        _state_file(user_id).write_text(json.dumps(data))
+    except OSError:
+        pass  # in-memory state still works until a restart
+
+
+def _nonce(user_id: str) -> str:
+    """Changes when the coach unlinks every phone — old links stop working."""
+    return str(_read_state(user_id).get("nonce") or "0")
+
+
+def studio_token(user_id: str) -> str:
+    """The studio link's token: who it's for, signed, good for STUDIO_TTL_S."""
+    uid = str(UUID(user_id))
+    return f"{UUID(uid).hex}.{signed.sign('studio', f'{uid}:{_nonce(uid)}', STUDIO_TTL_S)}"
+
+
+def _user_of(token: str) -> str:
+    """The coach a studio token belongs to; 403 if it isn't valid (any more)."""
+    try:
+        hex_id, rest = token.split(".", 1)
+        user_id = str(UUID(hex_id))
+    except ValueError as e:
+        raise HTTPException(status_code=403, detail="invalid studio link") from e
+    if not signed.verify(rest, "studio", f"{user_id}:{_nonce(user_id)}"):
+        raise HTTPException(status_code=403, detail="invalid or expired studio link")
+    return user_id
 
 
 def _get_active(user_id: str) -> dict[str, str] | None:
@@ -77,9 +98,9 @@ def _get_active(user_id: str) -> dict[str, str] | None:
             return _active[user_id]
     a: dict[str, str] | None
     try:
-        raw = json.loads(_state_file(user_id).read_text()).get("active")
-        a = {"kind": str(raw["kind"]), "id": str(raw["id"])} if raw else None
-    except (OSError, ValueError, KeyError, TypeError):
+        raw = _read_state(user_id).get("active")
+        a = {"kind": str(raw["kind"]), "id": str(raw["id"])} if isinstance(raw, dict) else None
+    except (KeyError, TypeError):
         a = None
     with _lock:
         if a:
@@ -111,6 +132,11 @@ class StudioOut(BaseModel):
     lan_ip: str
     active: ActiveCapture | None
     phones: list[dict[str, object]]
+
+
+def _join_token(capture_id: UUID) -> str:
+    with capture_coord._lock:
+        return capture_coord.current_join_token(capture_id)
 
 
 def _studio_out(user_id: str) -> StudioOut:
@@ -155,11 +181,18 @@ def set_active(
     a = {"kind": body.kind, "id": str(body.id)}
     with _lock:
         _active[uid] = a
-    try:
-        _STATE_DIR.mkdir(parents=True, exist_ok=True)
-        _state_file(uid).write_text(json.dumps({"active": a}))
-    except OSError:
-        pass  # the in-memory state still works until a restart
+    _write_state(uid, active=a)
+    return _studio_out(uid)
+
+
+@router.post("/unlink", response_model=StudioOut)
+def unlink_phones(user: User = Depends(require_current_user)) -> StudioOut:
+    """Unlink every phone from this coach's studio: their links stop working, and
+    the QR shown next is a new one (ADR-017)."""
+    uid = str(user.id)
+    _write_state(uid, nonce=secrets.token_hex(8))
+    with _lock:
+        _phones.pop(uid, None)
     return _studio_out(uid)
 
 
@@ -208,6 +241,6 @@ def station_state(
         active=StationActive(
             kind=a["kind"],  # type: ignore[arg-type]
             id=cid,
-            join_token=capture_coord._join_token(cid),
+            join_token=_join_token(cid),
         )
     )

@@ -8,10 +8,13 @@ from __future__ import annotations
 import os
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
+from urllib.parse import parse_qs
 
 from fastapi import Depends, FastAPI
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import PlainTextResponse
 from fastapi.staticfiles import StaticFiles
+from starlette.types import Receive, Scope, Send
 
 from api import access
 from api.routes import (
@@ -40,6 +43,7 @@ from api.routes import (
     training,
     video,
 )
+from api.services import signed
 from api.services.photos import photos_root
 from common import get_settings, setup_logging
 from store import create_db_and_tables
@@ -136,6 +140,21 @@ def _warm_up_camera_on_macos() -> None:
         pass
 
 
+class PhotoFiles(StaticFiles):
+    """Profile photos — faces — only with a photo pass (`?t=`, from
+    /auth/photo-pass): an <img> can't send a login (ADR-017)."""
+
+    async def __call__(self, scope: Scope, receive: Receive, send: Send) -> None:
+        if scope["type"] == "http":
+            query = parse_qs(scope.get("query_string", b"").decode())
+            if not signed.verify((query.get("t") or [None])[0], "photos", "all"):
+                await PlainTextResponse("photo link missing or expired", status_code=401)(
+                    scope, receive, send
+                )
+                return
+        await super().__call__(scope, receive, send)
+
+
 app = FastAPI(
     title="Alion API",
     version="0.1.0",
@@ -167,7 +186,7 @@ for router in (health.router, cameras.router, fighters.router, sessions.router):
     app.include_router(router)
     app.include_router(router, prefix="/v1")
 
-# MJPEG preview stream — no auth (session UUID is the access control, <img> can't send headers)
+# MJPEG preview stream — an <img> can't send a login, so it takes a signed link (ADR-017)
 app.include_router(sessions.preview_router)
 app.include_router(sessions.preview_router, prefix="/v1")
 
@@ -218,4 +237,4 @@ app.include_router(gym_managers.router)
 # data/photos/{kind}/{id}.{ext} → GET /static/photos/{kind}/{id}.{ext}
 _photos = photos_root()
 _photos.mkdir(parents=True, exist_ok=True)
-app.mount("/static/photos", StaticFiles(directory=str(_photos)), name="photos")
+app.mount("/static/photos", PhotoFiles(directory=str(_photos)), name="photos")
