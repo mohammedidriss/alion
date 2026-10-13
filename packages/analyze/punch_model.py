@@ -270,3 +270,107 @@ def detect(
 ) -> list[tuple[float, Hand, float]]:
     """The model's punches in one camera's pose: (t_ms, hand, probability)."""
     return events(probabilities(model, track(frames)), threshold)
+
+
+# ---------------------------------------------------------------------------
+# Punch type (ADR-020): a second classifier names each punch the counter finds.
+#
+# It learns the motion — straight, hook or uppercut — from the same mirrored arm
+# features over ±300 ms around the punch. Jab and cross are both straights; which
+# one follows from the hand and the stance (a jab is the lead hand's straight), so
+# one model serves orthodox and southpaw fighters alike.
+# ---------------------------------------------------------------------------
+
+TYPE_CLASSES = ("straight", "hook", "uppercut")
+LABEL_CLASS = {"jab": "straight", "cross": "straight", "hook": "hook", "uppercut": "uppercut"}
+TYPE_MATCH_MS = 100.0  # a punch's frame: the nearest pose frame within this
+
+
+def punch_name(motion: str, hand: Hand, stance: str | None) -> str:
+    """jab / cross / hook / uppercut from the motion, the hand and the stance (a
+    jab is the lead hand's straight; orthodox leads with the left)."""
+    if motion != "straight":
+        return motion
+    lead = "right" if stance == "southpaw" else "left"
+    return "jab" if hand == lead else "cross"
+
+
+def arm_windows(tr: Track) -> dict[Hand, np.ndarray]:
+    """Each hand's windowed features for every frame of a camera's pose."""
+    sides: tuple[Hand, Hand] = ("left", "right")
+    return {side: window_features(arm_features(tr, side)) for side in sides}
+
+
+def _frame(tr: Track, t_ms: float) -> int | None:
+    if len(tr.t) == 0:
+        return None
+    i = int(np.argmin(np.abs(tr.t - t_ms)))
+    return i if abs(tr.t[i] - t_ms) <= TYPE_MATCH_MS else None
+
+
+@dataclass(frozen=True)
+class TypeSample:
+    """Typed punches from one camera over one stretch: features and motion class."""
+
+    x: np.ndarray
+    y: np.ndarray  # motion class names
+    group: str
+
+
+def type_samples(
+    tr: Track,
+    punches: Sequence[tuple[float, Hand, str]],
+    t_start: float,
+    t_end: float,
+    group: str,
+    windows: dict[Hand, np.ndarray] | None = None,
+) -> TypeSample | None:
+    """One row per labelled punch (t_ms, hand, jab|cross|hook|uppercut) in the
+    stretch that has a pose frame — the arm around that moment, and its motion."""
+    win = windows if windows is not None else arm_windows(tr)
+    xs, ys = [], []
+    for t, hand, kind in punches:
+        motion = LABEL_CLASS.get(kind)
+        i = _frame(tr, t) if t_start <= t <= t_end and motion else None
+        if i is not None:
+            xs.append(win[hand][i])
+            ys.append(motion)
+    if not xs:
+        return None
+    return TypeSample(x=np.stack(xs), y=np.array(ys), group=group)
+
+
+def fit_types(rows: Sequence[TypeSample], *, seed: int = 0) -> Any:
+    """Train the motion classifier (gradient-boosted trees, classes balanced)."""
+    import sklearn.ensemble  # type: ignore[import-untyped, import-not-found, unused-ignore]
+
+    x = np.concatenate([r.x for r in rows])
+    y = np.concatenate([r.y for r in rows])
+    counts = {c: int((y == c).sum()) for c in set(y.tolist())}
+    weight = np.array([len(y) / (len(counts) * counts[c]) for c in y])
+    model = sklearn.ensemble.HistGradientBoostingClassifier(
+        max_iter=200, learning_rate=0.08, max_leaf_nodes=31, random_state=seed
+    )
+    model.fit(x, y, sample_weight=weight)
+    return model
+
+
+def classify_types(
+    model: Any,
+    tr: Track,
+    punches: Sequence[tuple[float, Hand]],
+    stance: str | None,
+    windows: dict[Hand, np.ndarray] | None = None,
+) -> list[str | None]:
+    """jab / cross / hook / uppercut for each (t_ms, hand) — None where the camera
+    has no pose frame near that moment."""
+    win = windows if windows is not None else arm_windows(tr)
+    out: list[str | None] = []
+    for t, hand in punches:
+        i = _frame(tr, t)
+        if i is None:
+            out.append(None)
+            continue
+        motion = str(model.predict(win[hand][i : i + 1])[0])
+        out.append(punch_name(motion, hand, stance))
+    return out

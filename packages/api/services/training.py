@@ -1,4 +1,5 @@
-"""Train the camera punch counter on a dataset's export (analyze.punch_model).
+"""Train the camera punch counter — and its punch-type classifier — on a dataset's
+export (analyze.punch_model).
 
 Reads the dataset's export manifest (dataset_export: its takes, their pose and
 labels, and the split — which stretches of which takes are for training and
@@ -9,6 +10,12 @@ stretches, and scores it on the test stretches — next to the current heuristic
 counter (`punch_fusion.camera_punches`, as the browser cameras run it), the
 baseline it has to beat. Labels come from the wrist sensors, so neither counter
 is graded against itself.
+
+A second classifier names each punch — jab, cross, hook or uppercut (ADR-020). It
+trains on the labelled punches of the train stretches and is scored on the test
+stretches' typed punches two ways: given the true punch (each label's moment) next
+to the current rule-based namer (`classify_punch_type`), and end to end (the
+counter's own punches that match a label).
 
 Training takes a few minutes, so it runs in a background thread. The model and
 its report land in data/ml/punch_counter/{dataset}/: v{n}.joblib and v{n}.json.
@@ -27,7 +34,7 @@ from uuid import UUID
 
 import numpy as np
 
-from analyze import punch_model
+from analyze import classify_punch_type, punch_model
 from analyze.punch_fusion import camera_punches
 from api.services import dataset_export
 from common import get_logger
@@ -113,9 +120,47 @@ class Stretch:
     labels: list[tuple[float, Hand]]
     tracks: dict[str, punch_model.Track]  # camera → smoothed pose, for the model
     poses: dict[str, Pose] = field(default_factory=dict)  # raw pose, for the baseline
+    typed: list[tuple[float, Hand, str]] = field(default_factory=list)  # labels with a type
+    stance: str | None = None
 
     def truth(self) -> list[GroundTruthPunch]:
         return [GroundTruthPunch(t_ms=t, hand=h) for t, h in self.labels]
+
+
+TYPES = ("jab", "cross", "hook", "uppercut")
+
+
+@dataclass
+class TypeTally:
+    """Punch naming: how many named right, per type, and what each was taken for."""
+
+    right: int = 0
+    total: int = 0
+    unnamed: int = 0  # no pose near the punch, or the namer gave up
+    confusion: dict[str, dict[str, int]] = field(default_factory=dict)  # label → named → n
+
+    def add(self, label: str, named: str | None) -> None:
+        if named is None:
+            self.unnamed += 1
+            return
+        self.total += 1
+        self.right += int(named == label)
+        row = self.confusion.setdefault(label, {})
+        row[named] = row.get(named, 0) + 1
+
+    def out(self) -> dict[str, Any]:
+        per_type = {
+            t: round(self.confusion[t].get(t, 0) / sum(self.confusion[t].values()), 3)
+            for t in TYPES
+            if t in self.confusion
+        }
+        return {
+            "accuracy": round(self.right / self.total, 3) if self.total else None,
+            "punches": self.total,
+            "unnamed": self.unnamed,
+            "per_type": per_type,  # of each type thrown, the share named right
+            "confusion": self.confusion,
+        }
 
 
 @dataclass
@@ -168,7 +213,9 @@ def _stretches(dataset_id: UUID, manifest: dict[str, Any], split: str) -> list[S
     camera's pose is read and smoothed once per take)."""
     root = dataset_export.export_dir(dataset_id)  # the de-identified copy (ADR-014)
     takes = {t["take_id"]: t for t in manifest.get("takes", [])}
-    cache: dict[str, tuple[list[tuple[float, Hand]], dict[str, Any], dict[str, Pose]]] = {}
+    cache: dict[
+        str, tuple[list[tuple[float, Hand, str | None]], dict[str, Any], dict[str, Pose]]
+    ] = {}
     out: list[Stretch] = []
     entries = manifest.get("splits", {}).get(split, [])
     for i, e in enumerate(entries):
@@ -184,7 +231,9 @@ def _stretches(dataset_id: UUID, manifest: dict[str, Any], split: str) -> list[S
                 else []
             )
             labels = [
-                (float(x["t_ms"]), x["hand"]) for x in raw if x.get("hand") in ("left", "right")
+                (float(x["t_ms"]), x["hand"], x.get("punch_type"))
+                for x in raw
+                if x.get("hand") in ("left", "right")
             ]
             poses, tracks = {}, {}
             for rel in take.get("pose", []):
@@ -206,7 +255,9 @@ def _stretches(dataset_id: UUID, manifest: dict[str, Any], split: str) -> list[S
                 block=str(e.get("block") or ""),
                 t_start=lo,
                 t_end=hi,
-                labels=[(t, h) for t, h in labels if lo <= t <= hi],
+                labels=[(t, h) for t, h, _ in labels if lo <= t <= hi],
+                typed=[(t, h, k) for t, h, k in labels if lo <= t <= hi and k in TYPES],
+                stance=take.get("stance"),
                 tracks=tracks,
                 poses=poses,
             )
@@ -252,6 +303,46 @@ def _pick_threshold(dataset_id: UUID, train: list[Stretch]) -> tuple[float, dict
     return best, tallies[best].out()
 
 
+def _score_types(
+    dataset_id: UUID,
+    model: Any,
+    s: Stretch,
+    cam: str,
+    tr: punch_model.Track,
+    detected: list[DetectedPunch],
+    types: dict[str, TypeTally],
+    by_block: dict[str, TypeTally],
+) -> None:
+    """Name the stretch's typed punches on one camera — the classifier and the
+    current rule-based namer, each given the true punch — and the counter's own
+    punches that match a typed label (same hand, within TOLERANCE_MS)."""
+    windows = punch_model.arm_windows(tr)
+    truth = [(t, h) for t, h, _ in s.typed]
+    named = punch_model.classify_types(model, tr, truth, s.stance, windows)
+    for (t, h, label), mine in zip(s.typed, named, strict=True):
+        history = s.poses[cam].frames(t - 400, t, dataset_id)
+        theirs = classify_punch_type(history, h, s.stance) if len(history) >= 2 else None
+        for tally in (types["model"], by_block["model"]):
+            tally.add(label, mine)
+        for tally in (types["baseline"], by_block["baseline"]):
+            tally.add(label, theirs)
+    found = [(d.t_ms, d.hand) for d in detected]
+    found_named = punch_model.classify_types(model, tr, found, s.stance, windows)
+    used: set[int] = set()
+    for t, h, label in s.typed:
+        best = min(
+            (
+                (abs(ft - t), k)
+                for k, (ft, fh) in enumerate(found)
+                if fh == h and k not in used and abs(ft - t) <= TOLERANCE_MS
+            ),
+            default=None,
+        )
+        if best is not None:
+            used.add(best[1])
+            types["end_to_end"].add(label, found_named[best[1]])
+
+
 def run(dataset_id: UUID) -> dict[str, Any]:
     """Train and score; returns (and saves) the report."""
     import joblib  # type: ignore[import-untyped, import-not-found, unused-ignore]
@@ -266,7 +357,22 @@ def run(dataset_id: UUID) -> dict[str, Any]:
     _step(dataset_id, "training the model")
     model = punch_model.fit(_rows(train))
 
+    type_model = None
+    type_rows = [
+        r
+        for s in train
+        for tr in s.tracks.values()
+        if (r := punch_model.type_samples(tr, s.typed, s.t_start, s.t_end, group=s.take_id))
+    ]
+    if type_rows and len({c for r in type_rows for c in r.y.tolist()}) >= 2:
+        _step(dataset_id, "training the punch-type classifier")
+        type_model = punch_model.fit_types(type_rows)
+
     _step(dataset_id, "scoring it against the current counter")
+    types = {"model": TypeTally(), "baseline": TypeTally(), "end_to_end": TypeTally()}
+    types_by_block: dict[str, dict[str, TypeTally]] = defaultdict(
+        lambda: {"model": TypeTally(), "baseline": TypeTally()}
+    )
     overall = {"model": Tally(), "baseline": Tally()}
     by_block: dict[str, dict[str, Tally]] = defaultdict(
         lambda: {"model": Tally(), "baseline": Tally()}
@@ -289,6 +395,10 @@ def run(dataset_id: UUID) -> dict[str, Any]:
                 overall[name].add(s.truth(), found)
                 by_block[s.block][name].add(s.truth(), found)
                 by_camera[cam][name].add(s.truth(), found)
+            if type_model is not None and s.typed:
+                _score_types(
+                    dataset_id, type_model, s, cam, tr, mine, types, types_by_block[s.block]
+                )
 
     out_dir = model_dir(dataset_id)
     out_dir.mkdir(parents=True, exist_ok=True)
@@ -300,6 +410,9 @@ def run(dataset_id: UUID) -> dict[str, Any]:
             "threshold": threshold,
             "offsets": punch_model.OFFSETS,
             "hz": punch_model.HZ,
+            # names each punch: straight / hook / uppercut → jab / cross by stance
+            "type_model": type_model,
+            "type_classes": punch_model.TYPE_CLASSES,
         },
         model_file,
     )
@@ -332,6 +445,19 @@ def run(dataset_id: UUID) -> dict[str, Any]:
             {"camera": c, **{name: t.out() for name, t in v.items()}}
             for c, v in sorted(by_camera.items())
         ],
+        "types": {
+            "trained": type_model is not None,
+            "train_punches": sum(len(s.typed) for s in train),
+            "test_punches": sum(len(s.typed) for s in test),
+            # given the true punch: the new classifier vs the current rule-based namer
+            "test": {"model": types["model"].out(), "baseline": types["baseline"].out()},
+            # the counter's own punches that match a label, named by the classifier
+            "end_to_end": types["end_to_end"].out(),
+            "by_block": [
+                {"block": b, **{name: t.out() for name, t in v.items()}}
+                for b, v in sorted(types_by_block.items())
+            ],
+        },
         "warnings": list(manifest.get("warnings") or []),
     }
     (out_dir / f"v{version}.json").write_text(json.dumps(report, indent=2))
@@ -388,6 +514,9 @@ def status(dataset_id: UUID) -> dict[str, Any]:
             "created_at": r["created_at"],
             "f1_model": r["test"]["model"]["f1"],
             "f1_baseline": r["test"]["baseline"]["f1"],
+            "type_accuracy": ((r.get("types") or {}).get("test") or {})
+            .get("model", {})
+            .get("accuracy"),
         }
         for r in reports
     ]

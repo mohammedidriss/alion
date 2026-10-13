@@ -11,7 +11,7 @@ from uuid import UUID, uuid4
 import pytest
 from fastapi.testclient import TestClient
 
-from tests.unit.test_punch_model import schedule, synthetic
+from tests.unit.test_punch_model import synthetic, typed_schedule
 
 pytest.importorskip("sklearn")
 
@@ -38,15 +38,16 @@ def _export(did: str) -> None:
         tid = str(uuid4())
         folder = root / "export" / "takes" / tid
         (folder / "pose").mkdir(parents=True)
-        punches = schedule(40, 1500 + 100 * k)
+        punches = typed_schedule(40, 1500 + 100 * k)
         write_pose_parquet(folder / "pose" / "cam1.parquet", synthetic(40, punches, seed=k))
         (folder / "labels.json").write_text(
-            json.dumps([{"t_ms": t, "hand": h, "punch_type": None} for t, h in punches])
+            json.dumps([{"t_ms": t, "hand": h, "punch_type": kind} for t, h, kind in punches])
         )
         takes.append(
             {
                 "take_id": tid,
                 "participant": "F-0001",
+                "stance": "orthodox",
                 "folder": f"takes/{tid}",
                 "pose": ["pose/cam1.parquet"],
                 "labels": {"path": "labels.json", "count": len(punches), "reviewed": False},
@@ -95,11 +96,27 @@ def test_training_scores_the_new_counter_against_the_current_one(
     assert {"model", "baseline"} <= set(report["test"])  # …scored next to today's counter
     assert report["by_block"][0]["block"] == "jab"
     assert Path(report["model_file"]).exists()
+    # …and names each punch: jab / cross / hook / uppercut, next to the rule-based namer.
+    types = report["types"]
+    assert types["trained"] is True and types["test_punches"] > 0
+    assert types["test"]["model"]["accuracy"] >= 0.85
+    assert set(types["test"]["model"]["per_type"]) == {"jab", "cross", "hook", "uppercut"}
+    assert types["test"]["baseline"]["punches"] + types["test"]["baseline"]["unnamed"] > 0
+    assert types["end_to_end"]["punches"] > 0
+    import joblib
+
+    saved = joblib.load(report["model_file"])
+    assert saved["type_model"] is not None and saved["type_classes"] == (
+        "straight",
+        "hook",
+        "uppercut",
+    )
     assert st["runs"] == [
         {
             "version": 1,
             "created_at": report["created_at"],
             "f1_model": report["test"]["model"]["f1"],
             "f1_baseline": report["test"]["baseline"]["f1"],
+            "type_accuracy": report["types"]["test"]["model"]["accuracy"],
         }
     ]

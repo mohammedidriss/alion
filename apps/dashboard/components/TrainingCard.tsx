@@ -10,7 +10,13 @@
  */
 
 import { useCallback, useEffect, useState } from "react";
-import { api, type CounterScore, type ProtocolBlockSpec, type TrainingStatus } from "@/lib/api";
+import {
+  api,
+  type CounterScore,
+  type ProtocolBlockSpec,
+  type TrainingReport,
+  type TrainingStatus,
+} from "@/lib/api";
 
 function pct(v: number): string {
   return `${Math.round(v * 100)}%`;
@@ -160,13 +166,19 @@ export function TrainingCard({
               " With one fighter the results show how well it counts you — not other people."}
           </p>
 
+          {r.types && <PunchTypes types={r.types} />}
+
           {st && st.runs.length > 1 && (
             <div className="text-[11px] text-neutral-500">
               Earlier runs:{" "}
               {st.runs
                 .slice(0, -1)
                 .reverse()
-                .map((x) => `v${x.version} ${pct(x.f1_model)} vs ${pct(x.f1_baseline)}`)
+                .map(
+                  (x) =>
+                    `v${x.version} ${pct(x.f1_model)} vs ${pct(x.f1_baseline)}` +
+                    (x.type_accuracy != null ? ` · types ${pct(x.type_accuracy)}` : ""),
+                )
                 .join(" · ")}
             </div>
           )}
@@ -182,5 +194,66 @@ function Score({ s, best = false }: { s: CounterScore; best?: boolean }) {
       <span className={best ? "font-semibold text-emerald-300" : ""}>{pct(s.f1)}</span>
       <span className="ml-1.5 text-neutral-500">counted {s.counted}</span>
     </span>
+  );
+}
+
+const TYPE_NAMES = ["jab", "cross", "hook", "uppercut"] as const;
+
+/** Punch naming (ADR-020): the trained classifier next to the rule-based namer,
+ *  each given the true punch, per type; and end to end on the counter's punches. */
+function PunchTypes({ types }: { types: NonNullable<TrainingReport["types"]> }) {
+  if (!types.trained) {
+    return (
+      <p className="text-[11px] text-neutral-500">
+        Punch types weren&apos;t trained: the training takes need labelled jabs, crosses, hooks or
+        uppercuts (the single-punch categories).
+      </p>
+    );
+  }
+  const m = types.test.model;
+  const b = types.test.baseline;
+  if (!types.test_punches || m.accuracy == null) {
+    return (
+      <p className="text-[11px] text-neutral-500">
+        Punch types trained on {types.train_punches} punches; the test stretches have no typed
+        punches to score them on.
+      </p>
+    );
+  }
+  const better = m.accuracy - (b.accuracy ?? 0);
+  return (
+    <div className="space-y-2">
+      <div
+        className={`rounded-xl border p-3 text-sm ${
+          better > 0.02
+            ? "border-emerald-500/30 bg-emerald-950/30 text-emerald-200"
+            : "border-amber-500/30 bg-amber-950/30 text-amber-200"
+        }`}
+      >
+        Punch type: <strong>{pct(m.accuracy)}</strong> named right vs {b.accuracy != null ? pct(b.accuracy) : "—"}{" "}
+        by the current rules, on {m.punches} test punches it never trained on
+        {types.end_to_end.accuracy != null &&
+          ` · ${pct(types.end_to_end.accuracy)} of the punches it counted itself`}
+        .
+      </div>
+      <table className="w-full max-w-md text-xs">
+        <thead className="text-left text-[10px] uppercase tracking-wide text-neutral-500">
+          <tr>
+            <th className="py-1 pr-3 font-normal">Type</th>
+            <th className="py-1 pr-3 font-normal">Current rules</th>
+            <th className="py-1 font-normal">Trained</th>
+          </tr>
+        </thead>
+        <tbody className="divide-y divide-white/5">
+          {TYPE_NAMES.filter((t) => m.per_type[t] != null).map((t) => (
+            <tr key={t} className="text-neutral-200">
+              <td className="py-1 pr-3 capitalize">{t}</td>
+              <td className="py-1 pr-3 tabular-nums">{b.per_type[t] != null ? pct(b.per_type[t]!) : "—"}</td>
+              <td className="py-1 tabular-nums">{pct(m.per_type[t]!)}</td>
+            </tr>
+          ))}
+        </tbody>
+      </table>
+    </div>
   );
 }

@@ -885,7 +885,25 @@ export interface TrainingReport {
   test: { model: CounterScore; baseline: CounterScore };
   by_block: { block: string; model: CounterScore; baseline: CounterScore }[];
   by_camera: { camera: string; model: CounterScore; baseline: CounterScore }[];
+  /** Punch naming (ADR-020) — absent on runs before it existed. */
+  types?: {
+    trained: boolean;
+    train_punches: number;
+    test_punches: number;
+    test: { model: TypeScore; baseline: TypeScore };
+    end_to_end: TypeScore;
+    by_block: { block: string; model: TypeScore; baseline: TypeScore }[];
+  };
   warnings: string[];
+}
+
+/** How well punches were named: overall, per type, and what each type was taken for. */
+export interface TypeScore {
+  accuracy: number | null;
+  punches: number;
+  unnamed: number;
+  per_type: Partial<Record<"jab" | "cross" | "hook" | "uppercut", number>>;
+  confusion: Record<string, Record<string, number>>;
 }
 
 export interface TrainingStatus {
@@ -893,7 +911,13 @@ export interface TrainingStatus {
   step: string | null;
   error: string | null;
   latest: TrainingReport | null;
-  runs: { version: number; created_at: string; f1_model: number; f1_baseline: number }[];
+  runs: {
+    version: number;
+    created_at: string;
+    f1_model: number;
+    f1_baseline: number;
+    type_accuracy?: number | null;
+  }[];
 }
 
 export interface TakeCrossCheck extends CrossCheckSummary {
