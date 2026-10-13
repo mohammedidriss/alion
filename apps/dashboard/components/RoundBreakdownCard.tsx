@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
+import { SafetyBoundary } from "@/components/SafetyBoundary";
 import {
   api,
   type CrossCheckSummary,
@@ -118,8 +119,8 @@ export function RoundBreakdownCard({ sessionId, status }: Props) {
           <span className="mr-1 rounded bg-sky-900/60 px-1.5 py-0.5 text-[10px] font-medium text-sky-200">
             From the wrist sensors
           </span>
-          Punch counts per round from the wrist IMUs. Score here is impact — the sum of each
-          punch&apos;s peak (g).{" "}
+          Punch counts per round from the wrist IMUs. Score here is output — the sum of each
+          punch&apos;s peak force at the wrist (g), what the fighter delivered, not a hit taken.{" "}
           {xc?.status === "running" ? (
             <span className="animate-pulse text-sky-300/90">
               Cross-checking with the cameras…
@@ -154,7 +155,7 @@ export function RoundBreakdownCard({ sessionId, status }: Props) {
               <th className="py-1.5 pr-3">SDNN</th>
               <th className="py-1.5 pr-3">Peak g</th>
               <th className="py-1.5">
-                {fused ? "Cross-check" : wrist ? "Avg impact" : "CV/IMU match"}
+                {fused ? "Cross-check" : wrist ? "Avg wrist g" : "CV/IMU match"}
               </th>
             </tr>
           </thead>
@@ -171,6 +172,7 @@ export function RoundBreakdownCard({ sessionId, status }: Props) {
           </tbody>
         </table>
       </div>
+      <SafetyBoundary className="mt-3" />
     </section>
   );
 }

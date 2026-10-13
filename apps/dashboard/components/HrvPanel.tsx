@@ -2,6 +2,7 @@
 
 import { useCallback, useEffect, useRef, useState } from "react";
 import { Sparkline } from "@/components/Sparkline";
+import { SafetyBoundary } from "@/components/SafetyBoundary";
 import {
   api,
   type HRSample,
@@ -261,6 +262,7 @@ export function HrvPanel({ sessionId, hasPairedDevice = false }: Props) {
           </div>
         )}
       </div>
+      <SafetyBoundary className="mt-3" />
     </section>
   );
 }

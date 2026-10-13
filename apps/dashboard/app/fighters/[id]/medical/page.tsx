@@ -11,6 +11,7 @@ import {
   type MedicalRecordPatch,
   type Medication,
 } from "@/lib/api";
+import { SafetyBoundary } from "@/components/SafetyBoundary";
 import { useAuth } from "@/lib/auth";
 
 const SEVERITY_TINT: Record<AllergySeverity, string> = {
@@ -92,12 +93,17 @@ export default function MedicalTab({ params }: { params: { id: string } }) {
 
   return (
     <div className="space-y-6 px-4 py-5 sm:px-8 sm:py-6">
-      <header>
-        <h1 className="text-2xl font-semibold">Medical</h1>
+      <header className="space-y-2">
+        <h1 className="text-2xl font-semibold">Health notes</h1>
         <p className="text-sm text-neutral-400">
-          Allergies, current medications, conditions, and contact info.
-          Confidential — local-only storage.
+          Allergies, current medications, conditions, and contact info, kept for the people who
+          look after this fighter. Confidential — local-only storage.
         </p>
+        <p className="text-sm text-neutral-300">
+          Alion doesn&apos;t use these notes in any score, advice or decision. They don&apos;t
+          replace a doctor&apos;s assessment or a ringside physician.
+        </p>
+        <SafetyBoundary />
       </header>
 
       {err && (

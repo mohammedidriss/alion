@@ -7,6 +7,7 @@ import {
   VelocityDistributionChart,
 } from "@/components/AggregateCharts";
 import { HrvMetric, ReadinessGauge } from "@/components/HrvCharts";
+import { SafetyBoundary } from "@/components/SafetyBoundary";
 import {
   api,
   type MatrixResponse,
@@ -481,10 +482,11 @@ function ReadinessSidecar({ sessions }: { sessions: Session[] }) {
           unit="bpm"
         />
       </div>
-      <p className="mt-auto pt-3 text-[11px] text-neutral-500">
+      <p className="mt-auto pt-3 text-[11px] text-neutral-400">
         Latest of {baselined.length} baseline
         {baselined.length === 1 ? "" : "s"}.
       </p>
+      <SafetyBoundary className="mt-2" />
     </div>
   );
 }

@@ -25,7 +25,7 @@ function pageTitle(p: string): string {
   if (/\/sessions/.test(p)) return "Training Sessions";
   if (/\/hrv/.test(p)) return "HRV";
   if (/\/observations/.test(p)) return "Notes";
-  if (/\/medical/.test(p)) return "Medical";
+  if (/\/medical/.test(p)) return "Health notes";
   if (/\/team/.test(p)) return "Team";
   if (/\/imu/.test(p)) return "IMU";
   if (/\/fighters\//.test(p)) return "Fighter";

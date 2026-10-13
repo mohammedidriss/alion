@@ -12,7 +12,7 @@ const TABS: { slug: string; label: string; icon: string; roles?: ProfileKind[] }
   { slug: "sessions", label: "Training sessions", icon: "▷" },
   { slug: "hrv", label: "HRV", icon: "♥" },
   { slug: "observations", label: "Observations", icon: "✎" },
-  { slug: "medical", label: "Medical", icon: "✚" },
+  { slug: "medical", label: "Health notes", icon: "▣" },
   { slug: "team", label: "Team", icon: "◈" },
   { slug: "imu", label: "IMU", icon: "▤" },
 ];

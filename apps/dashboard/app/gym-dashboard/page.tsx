@@ -4,6 +4,7 @@ import Link from "next/link";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
 import { ProfileAvatar } from "@/components/ProfileAvatar";
+import { SafetyBoundary } from "@/components/SafetyBoundary";
 import {
   api,
   type CheckIn,
@@ -143,9 +144,10 @@ export default function GymDashboardPage() {
 
   const readinessLabel = (z: number | null) => {
     if (z == null) return "N/A";
-    if (z >= 0.5) return "Ready";
-    if (z >= -0.5) return "Moderate";
-    return "Fatigued";
+    // Against the fighter's own baseline — a description, not a verdict on fitness.
+    if (z >= 0.5) return "Above baseline";
+    if (z >= -0.5) return "Near baseline";
+    return "Below baseline";
   };
 
   if (!isGymManager) {
@@ -326,6 +328,7 @@ export default function GymDashboardPage() {
             View all members →
           </Link>
         </div>
+        <SafetyBoundary className="mt-2" />
         {fighters.length === 0 ? (
           <p className="mt-4 text-sm text-neutral-500">No fighters yet.</p>
         ) : (

@@ -6,6 +6,7 @@ import { AccessRestricted } from "@/components/AccessRestricted";
 import { HrvScoreScatter } from "@/components/AggregateCharts";
 import { HrvMetric, ReadinessGauge, RmssdTrend } from "@/components/HrvCharts";
 import { getPairedDevice } from "@/components/PolarH10Card";
+import { SafetyBoundary } from "@/components/SafetyBoundary";
 import {
   api,
   type FighterReadiness,
@@ -143,6 +144,7 @@ function HrvTabContent({ params }: { params: { id: string } }) {
           {baselined.length} session{baselined.length === 1 ? "" : "s"} with
           recorded resting baseline.
         </p>
+        <SafetyBoundary className="mt-2" />
       </header>
 
       <PolarH10Config />
@@ -243,8 +245,8 @@ function HrvTabContent({ params }: { params: { id: string } }) {
           <h2 className="text-base font-semibold">RMSSD trend</h2>
           <RmssdTrend sessions={baselined} />
           <p className="mt-2 text-[11px] text-neutral-500">
-            Recovery trend across recorded baselines. Drops 7+ ms over a week
-            often flag overtraining.
+            Trend across recorded resting baselines. A drop of 7+ ms over a week can
+            reflect accumulated training load — a prompt to talk, not a verdict.
           </p>
         </div>
       </div>
@@ -463,20 +465,25 @@ function PolarH10Config() {
           {[
             { icon: "♥", label: "Live HR streaming", desc: "Real-time heart rate during capture via BLE" },
             { icon: "〜", label: "RR intervals", desc: "Beat-to-beat intervals for RMSSD / SDNN calculation" },
-            { icon: "📊", label: "Inter-round recovery", desc: "HR recovery curves between rounds" },
-            { icon: "📈", label: "Day-over-day RMSSD", desc: "Drift tracking to flag overtraining" },
-            { icon: "🔗", label: "Auto-start with capture", desc: "BLE stream starts automatically when a session begins" },
+            { icon: "📈", label: "Day-over-day RMSSD", desc: "Each fighter's own baseline, which the readiness score compares against" },
+            { icon: "🔗", label: "Connects with the session", desc: "The paired strap connects when a training session opens" },
             { icon: "☁", label: "HRV replay upload", desc: "Upload a saved CSV to analyse without the device" },
           ].map((c) => (
             <div key={c.label} className="flex items-start gap-3 rounded-xl border border-white/5 bg-white/[0.02] px-3 py-2.5">
               <span className="mt-0.5 text-base">{c.icon}</span>
               <div>
                 <p className="text-xs font-medium text-neutral-200">{c.label}</p>
-                <p className="mt-0.5 text-[11px] text-neutral-500">{c.desc}</p>
+                <p className="mt-0.5 text-[11px] text-neutral-400">{c.desc}</p>
               </div>
             </div>
           ))}
         </div>
+        <p className="text-[11px] text-neutral-400">
+          <span className="mr-1 rounded bg-neutral-800 px-1.5 py-0.5 text-[10px] font-medium text-neutral-300">
+            Not built yet
+          </span>
+          Heart-rate recovery between rounds — a research plan, not a feature.
+        </p>
       </div>
 
       {/* Setup instructions */}

@@ -8,6 +8,7 @@ import { FighterDashboard } from "@/components/FighterDashboard";
 import { PolarH10Card } from "@/components/PolarH10Card";
 import { ProfileAvatar } from "@/components/ProfileAvatar";
 import { Sparkline } from "@/components/Sparkline";
+import { SafetyBoundary } from "@/components/SafetyBoundary";
 import { useAuth } from "@/lib/auth";
 import {
   api,
@@ -285,13 +286,13 @@ export default function FighterPage({ params }: { params: { id: string } }) {
         <div className="rounded-xl border border-red-500/30 bg-red-500/5 p-4">
           <div className="flex items-center justify-between">
             <h2 className="text-sm font-semibold text-red-200">
-              Medical Alert
+              Health notes to know
             </h2>
             <Link
               href={`/fighters/${id}/medical`}
               className="text-[10px] uppercase tracking-wider text-red-300/60 hover:text-red-200"
             >
-              full medical record →
+              all health notes →
             </Link>
           </div>
           <div className="mt-2 flex flex-wrap gap-2 text-xs">
@@ -324,6 +325,7 @@ export default function FighterPage({ params }: { params: { id: string } }) {
               </span>
             ))}
           </div>
+          <SafetyBoundary className="mt-3" />
         </div>
       )}
 
