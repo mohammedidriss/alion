@@ -654,8 +654,11 @@ function SessionPageContent({ params }: { params: { id: string } }) {
         </div>
       )}
 
-      {/* ── Pending: full setup UI — hidden when browser capture handles it ── */}
-      {session.status === "pending" && (cvAvailable || session.source !== "live_webcam") && (
+      {/* ── Pending: the server-side setup, for uploaded video and HR replay only. A
+          live training session records through the Cameras panel above, whatever
+          the API has installed (with OpenCV + MediaPipe present this used to show a
+          second round setup and Start button under the panel). ── */}
+      {session.status === "pending" && session.source !== "live_webcam" && (
         <section className="space-y-5 rounded-lg border border-neutral-800 bg-neutral-950/60 p-5">
           <h2 className="text-lg font-semibold">Session setup</h2>
 
