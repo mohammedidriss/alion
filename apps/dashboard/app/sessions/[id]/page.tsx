@@ -2,7 +2,8 @@
 
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
+import { AccessRestricted } from "@/components/AccessRestricted";
 import { EvaluationCard } from "@/components/EvaluationCard";
 import { FighterBackLink } from "@/components/FighterBackLink";
 import { HrvPanel } from "@/components/HrvPanel";
@@ -40,23 +41,25 @@ import { useAuth } from "@/lib/auth";
 
 
 export default function SessionPage({ params }: { params: { id: string } }) {
+  const { user: authUser } = useAuth();
+  // Admin cannot view session data — manages accounts only
+  if (authUser?.role === "admin") {
+    return (
+      <AccessRestricted>
+        Training session data is confidential. System administrators manage
+        accounts and general information only.
+      </AccessRestricted>
+    );
+  }
+  return <SessionPageContent params={params} />;
+}
+
+/** The page itself — its hooks run on every render, in the same order. */
+function SessionPageContent({ params }: { params: { id: string } }) {
   const { id } = params;
   const router = useRouter();
   const { user: authUser } = useAuth();
 
-  // Admin cannot view session data — manages accounts only
-  if (authUser?.role === "admin") {
-    return (
-      <div className="space-y-4 px-4 py-8 sm:px-8 sm:py-12">
-        <div className="text-4xl">🔒</div>
-        <h1 className="text-xl font-semibold">Access Restricted</h1>
-        <p className="max-w-md text-sm text-neutral-400">
-          Training session data is confidential. System administrators manage
-          accounts and general information only.
-        </p>
-      </div>
-    );
-  }
   const [session, setSession] = useState<Session | null>(null);
   const [status, setStatus] = useState<CaptureStatus | null>(null);
   const [events, setEvents] = useState<PunchEvent[]>([]);
@@ -78,6 +81,10 @@ export default function SessionPage({ params }: { params: { id: string } }) {
   const [cameraReason, setCameraReason] = useState<string | null>(null);
   const [notesDraft, setNotesDraft] = useState<string>("");
   const [notesDirty, setNotesDirty] = useState(false);
+  // Read by the 1.5 s poll, which would otherwise keep the first render's value and
+  // overwrite notes while they're being typed.
+  const notesDirtyRef = useRef(false);
+  notesDirtyRef.current = notesDirty;
   const [baselineUploading, setBaselineUploading] = useState(false);
   // ---- Pending-state setup UI ----
   const [setupSource, setSetupSource] = useState<SessionSource>("live_webcam");
@@ -119,6 +126,27 @@ export default function SessionPage({ params }: { params: { id: string } }) {
     const t = setInterval(() => setNow(Date.now()), 250);
     return () => clearInterval(t);
   }, [session?.status]);
+
+  const refresh = useCallback(async () => {
+    try {
+      const [s, st, ev] = await Promise.all([
+        api.getSession(id),
+        api.captureStatus(id),
+        api.listEvents(id),
+      ]);
+      setSession(s);
+      setStatus(st);
+      setEvents(ev);
+      // Only sync notes from the server if the user hasn't typed unsaved
+      // changes in the textarea.
+      if (!notesDirtyRef.current) setNotesDraft(s.notes ?? "");
+      // NOTE: setup fields (source, backend, rounds) are seeded once
+      // in a separate effect below — NOT here, because refresh() runs
+      // every 1.5 s and would overwrite the user's local picks.
+    } catch (e) {
+      setErr(String(e));
+    }
+  }, [id]);
 
   // Auto-pause capture during rest, auto-resume during rounds. Skips
   // recording rest frames so the saved video stays small. Reads phase
@@ -192,28 +220,8 @@ export default function SessionPage({ params }: { params: { id: string } }) {
     manualPauseStart,
     breakResumeAccumMs,
     breakResumeStart,
+    refresh,
   ]);
-
-  const refresh = async () => {
-    try {
-      const [s, st, ev] = await Promise.all([
-        api.getSession(id),
-        api.captureStatus(id),
-        api.listEvents(id),
-      ]);
-      setSession(s);
-      setStatus(st);
-      setEvents(ev);
-      // Only sync notes from the server if the user hasn't typed unsaved
-      // changes in the textarea.
-      if (!notesDirty) setNotesDraft(s.notes ?? "");
-      // NOTE: setup fields (source, backend, rounds) are seeded once
-      // in a separate effect below — NOT here, because refresh() runs
-      // every 1.5 s and would overwrite the user's local picks.
-    } catch (e) {
-      setErr(String(e));
-    }
-  };
 
   useEffect(() => {
     refresh();
@@ -228,7 +236,7 @@ export default function SessionPage({ params }: { params: { id: string } }) {
       .catch(() => setCameras([]));
     const t = setInterval(refresh, 1500);
     return () => clearInterval(t);
-  }, [id]);
+  }, [id, refresh]);
 
   // One-shot: seed the setup form from the server's initial values.
   // Runs once on mount, then never again — so the 1.5 s poll can't

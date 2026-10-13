@@ -2,6 +2,7 @@
 
 import Link from "next/link";
 import { useEffect, useState } from "react";
+import { AccessRestricted } from "@/components/AccessRestricted";
 import { HrvScoreScatter } from "@/components/AggregateCharts";
 import { HrvMetric, ReadinessGauge, RmssdTrend } from "@/components/HrvCharts";
 import { getPairedDevice } from "@/components/PolarH10Card";
@@ -16,18 +17,20 @@ import { useAuth } from "@/lib/auth";
 
 export default function HrvTab({ params }: { params: { id: string } }) {
   const { user } = useAuth();
+  // An administrator manages accounts, not training data (ADR-017).
   if (user?.role === "admin") {
     return (
-      <div className="space-y-4 px-4 py-8 sm:px-8 sm:py-12">
-        <div className="text-4xl">🔒</div>
-        <h1 className="text-xl font-semibold">Access Restricted</h1>
-        <p className="max-w-md text-sm text-neutral-400">
-          HRV and biometric data is confidential. System administrators manage
-          accounts and general information only.
-        </p>
-      </div>
+      <AccessRestricted>
+        HRV and biometric data is confidential. System administrators manage
+        accounts and general information only.
+      </AccessRestricted>
     );
   }
+  return <HrvTabContent params={params} />;
+}
+
+/** The page itself — its hooks run on every render, in the same order. */
+function HrvTabContent({ params }: { params: { id: string } }) {
   const [sessions, setSessions] = useState<Session[]>([]);
   const [matrix, setMatrix] = useState<MatrixResponse | null>(null);
   const [readiness, setReadiness] = useState<FighterReadiness | null>(null);

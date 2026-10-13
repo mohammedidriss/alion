@@ -10,6 +10,7 @@ import {
   type Session,
   type WeightAnalysis,
 } from "@/lib/api";
+import { AccessRestricted } from "@/components/AccessRestricted";
 import { AdviceNotice } from "@/components/AdviceNotice";
 import { useAuth } from "@/lib/auth";
 
@@ -27,18 +28,24 @@ export default function ObservationsTab({
   params: { id: string };
 }) {
   const { user } = useAuth();
+  // An administrator manages accounts, not training data (ADR-017).
   if (user?.role === "admin") {
     return (
-      <div className="space-y-4 px-4 py-8 sm:px-8 sm:py-12">
-        <div className="text-4xl">🔒</div>
-        <h1 className="text-xl font-semibold">Access Restricted</h1>
-        <p className="max-w-md text-sm text-neutral-400">
-          Coach observations and performance trends are confidential. System
-          administrators manage accounts and general information only.
-        </p>
-      </div>
+      <AccessRestricted>
+        Coach observations and performance trends are confidential. System
+        administrators manage accounts and general information only.
+      </AccessRestricted>
     );
   }
+  return <ObservationsTabContent params={params} />;
+}
+
+/** The page itself — its hooks run on every render, in the same order. */
+function ObservationsTabContent({
+  params,
+}: {
+  params: { id: string };
+}) {
   const [sessions, setSessions] = useState<Session[]>([]);
   const [err, setErr] = useState<string | null>(null);
   const [aiData, setAiData] = useState<FighterObservationResponse | null>(null);
@@ -446,6 +453,8 @@ export default function ObservationsTab({
               >
                 <div className="flex items-center gap-2 text-xs text-neutral-500">
                   {n.coach_photo_path ? (
+                    // A signed link to the API (ADR-017), not a page asset next/image can serve.
+                    // eslint-disable-next-line @next/next/no-img-element
                     <img
                       src={api.photoUrl(n.coach_photo_path) ?? undefined}
                       alt=""

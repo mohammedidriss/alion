@@ -11,6 +11,7 @@ import {
   type SessionStatus,
 } from "@/lib/api";
 import { useAuth } from "@/lib/auth";
+import { AccessRestricted } from "@/components/AccessRestricted";
 import { SessionCameraPreview } from "@/components/SessionCameraPreview";
 
 const STATUS_TINT: Record<SessionStatus, string> = {
@@ -37,23 +38,25 @@ interface Row {
 
 
 export default function SessionsTab({ params }: { params: { id: string } }) {
+  const { user } = useAuth();
+  // Admin cannot view session data — admin manages accounts, not training data
+  if (user?.role === "admin") {
+    return (
+      <AccessRestricted>
+        Training session data is confidential. System administrators manage
+        accounts and general information only.
+      </AccessRestricted>
+    );
+  }
+  return <SessionsTabContent params={params} />;
+}
+
+/** The page itself — its hooks run on every render, in the same order. */
+function SessionsTabContent({ params }: { params: { id: string } }) {
   const router = useRouter();
   const { user } = useAuth();
   const [rows, setRows] = useState<Row[]>([]);
 
-  // Admin cannot view session data — admin manages accounts, not training data
-  if (user?.role === "admin") {
-    return (
-      <div className="space-y-4 px-4 py-8 sm:px-8 sm:py-12">
-        <div className="text-4xl">🔒</div>
-        <h1 className="text-xl font-semibold">Access Restricted</h1>
-        <p className="max-w-md text-sm text-neutral-400">
-          Training session data is confidential. System administrators manage
-          accounts and general information only.
-        </p>
-      </div>
-    );
-  }
   const [err, setErr] = useState<string | null>(null);
   const [filter, setFilter] = useState<"all" | SessionStatus>("all");
 

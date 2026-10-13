@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { ProfileAvatar } from "@/components/ProfileAvatar";
 import { api, type Coach, type CoachNote, type CoachingLevel, type Fighter } from "@/lib/api";
 
@@ -20,9 +20,9 @@ export default function CoachPage({ params }: { params: { id: string } }) {
   const [noteContent, setNoteContent] = useState("");
   const [noteSaving, setNoteSaving] = useState(false);
 
-  const refreshNotes = () => {
+  const refreshNotes = useCallback(() => {
     api.listCoachNotes(params.id).then(setNotes).catch(() => setNotes([]));
-  };
+  }, [params.id]);
 
   useEffect(() => {
     api
@@ -34,7 +34,7 @@ export default function CoachPage({ params }: { params: { id: string } }) {
       .catch((e) => setErr(String(e)));
     api.listCoachFighters(params.id).then(setFighters).catch(() => setFighters([]));
     refreshNotes();
-  }, [params.id]);
+  }, [params.id, refreshNotes]);
 
   const submitNote = async () => {
     if (!noteTarget || !noteContent.trim()) return;

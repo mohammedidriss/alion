@@ -121,7 +121,8 @@ export default function FighterPage({ params }: { params: { id: string } }) {
     } catch (e) {
       setErr(String(e));
     }
-  }, [id]);
+    // Reloads once the login is known, so the medical banner follows the role.
+  }, [id, user?.role]);
 
   useEffect(() => {
     load();

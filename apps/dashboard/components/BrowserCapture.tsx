@@ -201,7 +201,7 @@ export function BrowserCapture({ sessionId, stance, onDone }: Props) {
     };
     rafRef.current = requestAnimationFrame(loop);
     return () => cancelAnimationFrame(rafRef.current);
-  }, [phase]);
+  }, [phase, stance]);
 
   const stop = useCallback(async () => {
     cancelAnimationFrame(rafRef.current);
