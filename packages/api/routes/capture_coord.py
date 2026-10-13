@@ -99,6 +99,9 @@ class _Coord:
     paused: bool = False  # coach pressed Pause — nodes hold recording, keep the clip
     last_start_ms: float | None = None  # t = 0 of the latest recording, kept after stop
     stopped_ms: float | None = None  # when the coach pressed Stop (server wall clock)
+    # [begin, end] of each pause in this recording (wall ms; end None while paused) —
+    # MediaRecorder cuts them out of the clip, so streams cut them out too.
+    pauses: list[list[float | None]] = field(default_factory=list)
     stance: str | None = None  # the fighter's stance, looked up once (see _stance)
     stance_known: bool = False
     # Cameras that were recording when Stop was pressed (id → label): each owes a clip.
@@ -141,6 +144,7 @@ def _save_state(capture_id: UUID, c: _Coord) -> None:
                     "stopped_ms": c.stopped_ms,
                     "stop_cameras": c.stop_cameras,
                     "paused": c.paused,
+                    "pauses": c.pauses,
                 }
             )
         )
@@ -156,6 +160,7 @@ def _load_state(capture_id: UUID, c: _Coord) -> None:
     c.last_start_ms = st.get("last_start_ms")
     c.stopped_ms = st.get("stopped_ms")
     c.stop_cameras = dict(st.get("stop_cameras") or {})
+    c.pauses = [list(p) for p in st.get("pauses") or [] if isinstance(p, list) and len(p) == 2]
     start_at = st.get("start_at_ms")
     if st.get("command") == "start" and start_at and _now_ms() - start_at < _STATE_MAX_AGE_MS:
         c.command, c.start_at_ms, c.paused = "start", start_at, bool(st.get("paused"))
@@ -187,6 +192,30 @@ def started_at_ms(session_id: UUID) -> float | None:
         if c is None or c.command != "start":
             return None
         return c.start_at_ms
+
+
+def timeline_at_ms(capture_id: UUID, wall_ms: float) -> float | None:
+    """Where a wall-clock instant falls on the recording's video timeline: ms since
+    the cameras' start with paused time cut out, as MediaRecorder cuts it from the
+    clip. None before the start, during a pause, after Stop, or with no recording —
+    nothing was filmed then. Works after Stop and after an API restart, so a stream
+    can store what it buffered late."""
+    with _lock:
+        c = _ensure(capture_id)
+        start = c.last_start_ms
+        if start is None or wall_ms < start or c.command not in ("start", "stop"):
+            return None
+        if c.command == "stop" and c.stopped_ms is not None and wall_ms >= c.stopped_ms:
+            return None
+        cut = 0.0
+        for begin, end in c.pauses:
+            if begin is None:
+                continue
+            if wall_ms >= begin and (end is None or wall_ms < end):
+                return None  # paused right then
+            if end is not None and end <= wall_ms:
+                cut += end - max(begin, start)
+        return wall_ms - start - cut
 
 
 def last_command(capture_id: UUID) -> str | None:
@@ -479,6 +508,7 @@ def start_capture(session_id: UUID) -> StartOut:
         c.start_at_ms = _now_ms() + _START_DELAY_MS
         c.last_start_ms = c.start_at_ms
         c.paused = False
+        c.pauses = []
         _save_state(session_id, c)
         imu_runner.set_t0(session_id, c.start_at_ms)  # pre-connected wrists store from t = 0
         out = StartOut(command=c.command, start_at_ms=c.start_at_ms, devices=len(c.devices))
@@ -499,8 +529,10 @@ def pause_capture(session_id: UUID) -> CaptureState:
     with _lock:
         c = _ensure(session_id)
         c.paused = True
-        _save_state(session_id, c)
         now = _now_ms()
+        if not c.pauses or c.pauses[-1][1] is not None:
+            c.pauses.append([now, None])
+        _save_state(session_id, c)
         imu_runner.pause(session_id, at_ms=now)  # keep the wrist data on the clip's timeline
         return CaptureState(
             command=c.command, start_at_ms=c.start_at_ms, server_now_ms=now, paused=True
@@ -512,8 +544,11 @@ def resume_capture(session_id: UUID) -> CaptureState:
     with _lock:
         c = _ensure(session_id)
         c.paused = False
-        _save_state(session_id, c)
         now = _now_ms()
+        if c.pauses and c.pauses[-1][1] is None:
+            begin = c.pauses[-1][0]
+            c.pauses[-1][1] = max(begin or now, now)
+        _save_state(session_id, c)
         imu_runner.resume(session_id, at_ms=now)
         return CaptureState(
             command=c.command, start_at_ms=c.start_at_ms, server_now_ms=now, paused=False

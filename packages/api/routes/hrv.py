@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import asyncio
 import json
-from collections.abc import AsyncIterator, Iterator
+from collections.abc import AsyncIterator, Callable, Iterator
 from contextlib import contextmanager
 from pathlib import Path
 from uuid import UUID
@@ -16,6 +16,7 @@ from sqlmodel import Session as DBSession
 from sqlmodel import select
 
 from api.deps import db_session, session_repo
+from api.routes import capture_coord
 from api.routes.auth import require_current_user
 from api.services import hrv_runner, signed
 from contracts import HRMetricsWindow
@@ -349,9 +350,35 @@ class BleScanResponse(BaseModel):
     devices: list[BleDevice]
 
 
+def _on_camera_timeline(
+    session_id: UUID, factory: hrv_runner.DBFactory
+) -> Callable[[list[HRSampleRow]], None]:
+    """Row sink for a strap streaming with `wall_clock=True` (each row's t_ms is the
+    beat's arrival): stores only beats the cameras filmed, re-timed onto the clip's
+    timeline — not before t = 0, not during a pause, not after Stop — so heart rate
+    lines up with the video and the wrist sensors (to about a second)."""
+
+    def write(rows: list[HRSampleRow]) -> None:
+        kept = []
+        for r in rows:
+            t = capture_coord.timeline_at_ms(session_id, r.t_ms)
+            if t is not None:
+                r.t_ms = t
+                kept.append(r)
+        if kept:
+            with factory() as db:
+                db.add_all(kept)
+                db.commit()
+
+    return write
+
+
 class BleStartRequest(BaseModel):
     address: str
     window_ms: float = 60_000.0
+    # Connect now, before the cameras start (live heart rate on the page), and store
+    # beats only from the cameras' t = 0 — as a dataset take does.
+    arm: bool = False
 
 
 @ble_router.get("/scan", response_model=BleScanResponse)
@@ -380,36 +407,41 @@ def start_hrv_ble(
     repo: SessionRepo = Depends(session_repo),
     db: DBSession = Depends(db_session),
 ) -> HrvStatusResponse:
-    """Start live Polar H10 BLE streaming for this session."""
+    """Start live Polar H10 BLE streaming for this session (idempotent if running).
+
+    With `arm`, or once the cameras have started, beats are stored on the cameras'
+    timeline (`_on_camera_timeline`): the strap can connect as soon as the page
+    opens and store nothing until t = 0. Without either — a session recorded with
+    no cameras — beats are stored as they come, timed by the strap.
+    """
     _check_hrv_condition(repo, session_id)
     row = repo.get(session_id)
     if row is None:
         raise HTTPException(status_code=404, detail="session not found")
     if hrv_runner.is_running(session_id):
-        raise HTTPException(status_code=409, detail="hrv streaming already running")
+        return HrvStatusResponse(
+            session_id=session_id,
+            is_running=True,
+            sample_count=_count_samples(db, session_id),
+            metrics=None,
+        )
+
+    engine = db.get_bind()  # the request's engine — the test DB in tests, the real one live
 
     @contextmanager
     def factory() -> Iterator[DBSession]:
-        from store import get_session as _gs
-
-        gen = _gs()
-        s = next(gen)
-        try:
+        with DBSession(engine) as s:
             yield s
-        finally:
-            try:
-                next(gen)
-            except StopIteration:
-                pass
 
-    started = hrv_runner.start_ble(
+    on_timeline = body.arm or capture_coord.last_command(session_id) == "start"
+    hrv_runner.start_ble(
         session_id,
         body.address,
         factory,
         window_ms=body.window_ms,
+        write_rows=_on_camera_timeline(session_id, factory) if on_timeline else None,
+        wall_clock=on_timeline,
     )
-    if not started:
-        raise HTTPException(status_code=409, detail="hrv streaming already running")
 
     return HrvStatusResponse(
         session_id=session_id,

@@ -1221,11 +1221,12 @@ export const api = {
     req<HrvStatus>(`/v2${capBase(id)}/hrv/stop`, { method: "POST" }),
   scanBleDevices: () =>
     req<{ devices: { name: string; address: string }[] }>("/v2/ble/scan"),
-  startHrvBle: (id: CaptureRef, address: string) =>
+  /** `arm`: connect now, store beats only from the cameras' start (t = 0). */
+  startHrvBle: (id: CaptureRef, address: string, opts?: { arm?: boolean }) =>
     req<HrvStatus>(`/v2${capBase(id)}/hrv/ble/start`, {
       method: "POST",
       headers: { "content-type": "application/json" },
-      body: JSON.stringify({ address }),
+      body: JSON.stringify({ address, arm: opts?.arm ?? false }),
     }),
   hrvStatus: (id: string) => req<HrvStatus>(`/v2/sessions/${id}/hrv/status`),
   hrvSamples: (id: string, limit?: number) =>

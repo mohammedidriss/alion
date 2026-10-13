@@ -104,8 +104,8 @@ export function MulticamPanel({
   }, [cap]);
 
   // Pre-connect the body sensors as soon as the page is open, so Bluetooth is done
-  // before Start: the wrists (and, on a take, the Polar) stream live but store
-  // nothing until the cameras' t = 0, then everything records together.
+  // before Start: the wrists and the paired Polar stream live but store nothing
+  // until the cameras' t = 0, then everything records together.
   const [sensors, setSensors] = useState<{ l: boolean | null; r: boolean | null; hr: boolean | null }>({
     l: null,
     r: null,
@@ -115,7 +115,7 @@ export function MulticamPanel({
     if (captureStartMs !== null || stopping || deleting) return;
     const polar = getPairedDevice();
     if (imuMine) api.startImuBle(cap, { arm: true }).catch(() => {});
-    if (take && polar) api.startHrvBle(cap, polar.address).catch(() => {});
+    if (polar) api.startHrvBle(cap, polar.address, { arm: true }).catch(() => {});
     let alive = true;
     const poll = async () => {
       const r = await api.liveReading(cap).catch(() => null);

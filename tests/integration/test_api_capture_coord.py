@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from uuid import uuid4
 
+import pytest
 from fastapi.testclient import TestClient
 
 # Import the route so its schemas/state load with the app.
@@ -257,3 +258,34 @@ def test_the_stance_is_not_given_to_a_bad_token(authed_client: TestClient) -> No
         json={"token": "wrong", "device_id": dev_id, "status": "ready"},
     )
     assert r.status_code in (401, 403) and "stance" not in r.text
+
+
+def test_the_video_timeline_cuts_pauses_and_ends_at_stop(
+    authed_client: TestClient, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    from uuid import UUID
+
+    from api.routes import capture_coord as cc
+
+    now = [1_000_000.0]
+    monkeypatch.setattr(cc, "_now_ms", lambda: now[0])
+    sid = _make_session(authed_client)
+    _camera(authed_client, sid)
+    authed_client.post(f"/sessions/{sid}/multicam/start")
+    t0 = now[0] + cc._START_DELAY_MS
+    cap = UUID(sid)
+
+    assert cc.timeline_at_ms(cap, t0 - 1) is None  # a strap connected early stores nothing
+    assert cc.timeline_at_ms(cap, t0 + 5_000) == 5_000
+
+    now[0] = t0 + 10_000
+    authed_client.post(f"/sessions/{sid}/multicam/pause")
+    now[0] = t0 + 14_000
+    authed_client.post(f"/sessions/{sid}/multicam/resume")
+    assert cc.timeline_at_ms(cap, t0 + 12_000) is None  # not filmed: paused
+    assert cc.timeline_at_ms(cap, t0 + 20_000) == 16_000  # the 4 s pause is cut out
+
+    now[0] = t0 + 30_000
+    authed_client.post(f"/sessions/{sid}/multicam/stop")
+    assert cc.timeline_at_ms(cap, t0 + 25_000) == 21_000  # beats buffered till Stop still land
+    assert cc.timeline_at_ms(cap, t0 + 31_000) is None  # after Stop

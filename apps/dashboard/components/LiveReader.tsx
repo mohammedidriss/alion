@@ -345,7 +345,7 @@ function StrapConnect({
     setStep("connecting");
     setNote("Connecting — up to 15 s…");
     try {
-      await api.startHrvBle(cap, address);
+      await api.startHrvBle(cap, address, { arm: true }); // stores from the cameras' start
       setNote(null); // the heart shows "waiting for first beat…", then the rate
     } catch (e) {
       setNote(String(e instanceof Error ? e.message : e).slice(0, 160));
