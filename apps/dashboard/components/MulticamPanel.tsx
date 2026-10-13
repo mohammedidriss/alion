@@ -20,11 +20,14 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { CameraNode } from "@/components/CameraNode";
 import { imuErrorText } from "@/components/ImuSensors";
 import { getPairedDevice } from "@/components/PolarH10Card";
-import { PunchDots } from "@/components/PunchDots";
+import { PunchDots, PunchOverlay } from "@/components/PunchDots";
 import { RoundTimer } from "@/components/SessionRounds";
 import { api, type CaptureRef, type MulticamDevice, type Session, type Take } from "@/lib/api";
 import { say, unlockCues } from "@/lib/cues";
 import { leadingTally } from "@/lib/punchTally";
+
+// A camera's statuses while its recording runs — its punch box shows from the start.
+const RECORDING = ["recording", "paused", "hidden"];
 
 export function MulticamPanel({
   session,
@@ -528,9 +531,9 @@ export function MulticamPanel({
                     (e.currentTarget as HTMLImageElement).style.visibility = "visible";
                   }}
                 />
-                {d.punches > 0 && (
-                  <div className="absolute bottom-7 right-1">
-                    <PunchDots tally={d.tally} stance={stance} compact />
+                {(RECORDING.includes(d.status) || d.punches > 0) && (
+                  <div className="absolute right-1 top-1">
+                    <PunchOverlay total={d.punches} tally={d.tally} stance={stance} />
                   </div>
                 )}
                 <div className="absolute inset-x-0 bottom-0 flex items-center justify-between bg-black/60 px-2 py-1 text-[11px]">

@@ -17,7 +17,7 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { CameraNode } from "@/components/CameraNode";
 import { JoinQrCard } from "@/components/JoinQrCard";
-import { PunchDots } from "@/components/PunchDots";
+import { PunchDots, PunchOverlay } from "@/components/PunchDots";
 import { RoundTimer } from "@/components/SessionRounds";
 import { api, type Bout, type MulticamDevice, type PunchTally, type Session } from "@/lib/api";
 import { leadingTally } from "@/lib/punchTally";
@@ -454,9 +454,9 @@ function CornerPanel({
                   (e.currentTarget as HTMLImageElement).style.visibility = "visible";
                 }}
               />
-              {d.punches > 0 && (
-                <div className="absolute bottom-7 right-1">
-                  <PunchDots tally={d.tally} stance={stance} compact />
+              {(["recording", "paused", "hidden"].includes(d.status) || d.punches > 0) && (
+                <div className="absolute right-1 top-1">
+                  <PunchOverlay total={d.punches} tally={d.tally} stance={stance} />
                 </div>
               )}
               <div className="absolute inset-x-0 bottom-0 flex items-center justify-between bg-black/60 px-2 py-1 text-[11px]">

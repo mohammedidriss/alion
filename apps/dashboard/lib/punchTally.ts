@@ -35,7 +35,7 @@ export interface TallyRow {
   hand: Hand;
   side: "lead" | "rear" | null; // null: stance unknown, or a switch hitter
   total: number;
-  dots: { kind: PunchKind; label: string; count: number }[];
+  dots: { kind: PunchKind; label: string; short: string; count: number }[];
   unnamed: number; // counted, but the camera couldn't tell the type
 }
 
@@ -56,10 +56,16 @@ export function tallyRows(t: PunchTally, stance: string | null | undefined): Tal
         {
           kind: "straight",
           label: side === "lead" ? "Jab" : side === "rear" ? "Cross" : "Straight",
+          short: side === "lead" ? "Jab" : side === "rear" ? "Cross" : "Straight",
           count: h.straight,
         },
-        { kind: "hook", label: prefix ? `${prefix}hook` : "Hook", count: h.hook },
-        { kind: "uppercut", label: prefix ? `${prefix}uppercut` : "Uppercut", count: h.uppercut },
+        { kind: "hook", label: prefix ? `${prefix}hook` : "Hook", short: prefix ? `${prefix}hook` : "Hook", count: h.hook },
+        {
+          kind: "uppercut",
+          label: prefix ? `${prefix}uppercut` : "Uppercut",
+          short: prefix ? `${prefix}upper` : "Upper", // fits a camera tile
+          count: h.uppercut,
+        },
       ],
       unnamed: Math.max(0, h.total - h.straight - h.hook - h.uppercut),
     };

@@ -11,7 +11,7 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { MEDIAPIPE_WASM, poseModelUrl } from "@/lib/mediapipe";
-import { PunchDots } from "@/components/PunchDots";
+import { PunchOverlay } from "@/components/PunchDots";
 import { PunchDetector, classifyPunchType } from "@/lib/punchDetector";
 import { addPunch, emptyTally } from "@/lib/punchTally";
 import { api, type CaptureRef, type PunchTally } from "@/lib/api";
@@ -183,6 +183,8 @@ export function CameraNode({
   const [camId, setCamId] = useState<string | null>(null);
 
   const busy = phase === "countdown" || phase === "recording" || uploading;
+  // The punch box on the video: from the start of recording, and after Stop if any counted.
+  const showPunches = phase === "recording" || (phase === "stopped" && punchCount > 0);
   useEffect(() => {
     onBusy?.(busy);
   }, [busy, onBusy]);
@@ -667,7 +669,7 @@ export function CameraNode({
     return (
       <div className="relative aspect-video w-full overflow-hidden rounded-xl border border-white/10 bg-black">
         <video ref={videoRef} autoPlay playsInline muted className="h-full w-full object-contain" />
-        {cams.length > 1 && (phase === "ready" || phase === "connecting" || phase === "stopped") && (
+        {cams.length > 1 && (phase === "ready" || phase === "connecting" || phase === "stopped") && !showPunches && (
           <select
             value={camId ?? ""}
             onChange={(e) => switchCamera(e.target.value)}
@@ -693,13 +695,17 @@ export function CameraNode({
           </div>
         )}
         {recInfo && (
-          <div className="absolute left-1 top-1 max-w-[92%] truncate rounded bg-black/70 px-1.5 py-0.5 text-[10px] text-amber-300">
+          <div
+            className={`absolute left-1 top-1 truncate rounded bg-black/70 px-1.5 py-0.5 text-[10px] text-amber-300 ${
+              showPunches ? "max-w-[40%]" : "max-w-[92%]"
+            }`}
+          >
             {recInfo}
           </div>
         )}
-        {(phase === "recording" || phase === "stopped") && punchCount > 0 && (
-          <div className="absolute bottom-7 right-1">
-            <PunchDots tally={tally} stance={stance} compact />
+        {showPunches && (
+          <div className="absolute right-1 top-1">
+            <PunchOverlay total={punchCount} tally={tally} stance={stance} />
           </div>
         )}
         <div className="absolute inset-x-0 bottom-0 flex items-center justify-between bg-black/60 px-2 py-1 text-[11px]">
@@ -782,19 +788,15 @@ export function CameraNode({
             )}
           </div>
         )}
+        {showPunches && (
+          // Under the REC badge, so it never runs into it on a narrow phone.
+          <div className={`absolute left-3 ${phase === "recording" ? "top-12" : "top-3"}`}>
+            <PunchOverlay total={punchCount} tally={tally} stance={stance} size="md" />
+          </div>
+        )}
       </div>
 
       {recInfo && <p className="text-xs text-amber-400">{recInfo}</p>}
-
-      {(phase === "recording" || phase === "stopped") && (
-        <div className="space-y-3">
-          <p className="text-center text-neutral-300">
-            <span className="text-3xl font-bold tabular-nums text-emerald-400">{punchCount}</span>{" "}
-            <span className="text-sm">punches</span>
-          </p>
-          <PunchDots tally={tally} stance={stance} />
-        </div>
-      )}
 
       {phase === "ready" && (
         <div className="space-y-2">

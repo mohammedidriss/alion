@@ -10,7 +10,7 @@
 
 import { useCallback, useEffect, useRef, useState } from "react";
 import { MEDIAPIPE_WASM, poseModelUrl, type PoseModel } from "@/lib/mediapipe";
-import { PunchDots } from "@/components/PunchDots";
+import { PunchOverlay } from "@/components/PunchDots";
 import { PunchDetector, classifyPunchType, type PunchEvent } from "@/lib/punchDetector";
 import { addPunch, emptyTally } from "@/lib/punchTally";
 import { api } from "@/lib/api";
@@ -279,6 +279,13 @@ export function BrowserCapture({ sessionId, stance, onDone }: Props) {
           </div>
         )}
 
+        {/* Punch box: the total and each punch type, on the video */}
+        {(phase === "recording" || phase === "uploading") && (
+          <div className="absolute right-1 top-1">
+            <PunchOverlay total={punchCount} tally={tally} stance={stance} />
+          </div>
+        )}
+
         {/* Countdown overlay */}
         {phase === "countdown" && (
           <div className="absolute inset-0 flex items-center justify-center bg-black/60">
@@ -304,11 +311,6 @@ export function BrowserCapture({ sessionId, stance, onDone }: Props) {
             <p className="text-4xl font-black text-emerald-400">{punchCount}</p>
             <p className="text-xs text-neutral-500 mt-1">punches detected</p>
           </div>
-        </div>
-      )}
-      {(phase === "recording" || phase === "uploading") && (
-        <div className="mx-auto max-w-sm">
-          <PunchDots tally={tally} stance={stance} />
         </div>
       )}
 
