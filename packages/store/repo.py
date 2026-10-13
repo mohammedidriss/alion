@@ -366,9 +366,10 @@ class WeighInRepo:
         )
         return list(self._session.exec(stmt).all())
 
-    def delete(self, weigh_in_id: int) -> bool:
+    def delete(self, weigh_in_id: int, fighter_id: UUID | None = None) -> bool:
+        """Delete a weigh-in — only `fighter_id`'s, when given (ADR-017)."""
         row = self._session.get(WeighIn, weigh_in_id)
-        if row is None:
+        if row is None or (fighter_id is not None and row.fighter_id != fighter_id):
             return False
         self._session.delete(row)
         self._session.commit()
@@ -1054,9 +1055,10 @@ class CheckInRepo:
         self._session.refresh(row)
         return row
 
-    def check_out(self, checkin_id: int) -> CheckIn | None:
+    def check_out(self, checkin_id: int, gym_id: UUID | None = None) -> CheckIn | None:
+        """Check out — only a check-in at `gym_id`, when given (ADR-017)."""
         row = self._session.get(CheckIn, checkin_id)
-        if row is None:
+        if row is None or (gym_id is not None and row.gym_id != gym_id):
             return None
         row.checked_out_at = datetime.now(UTC)
         self._session.add(row)

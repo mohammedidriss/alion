@@ -17,7 +17,7 @@ from sqlmodel import Session as DBSession
 from sqlmodel import select
 
 from api.deps import db_session
-from api.services import terms
+from api.services import researchers, terms
 from store import (
     CoachRepo,
     FighterRepo,
@@ -178,6 +178,18 @@ async def require_current_user(user: User = Depends(require_signed_in)) -> User:
     return user
 
 
+def user_out(user: User) -> UserRead:
+    """The account as the API returns it, with whether it may open research datasets."""
+    out = UserRead.model_validate(user, from_attributes=True)
+    out.is_researcher = researchers.is_researcher(user)
+    return out
+
+
+# Roles anyone may sign up as. Admins are made by an admin; gym managers by an
+# admin or through their gym (a gym manager needs a gym). (ADR-017)
+SELF_SIGNUP_ROLES = (UserRole.FIGHTER, UserRole.COACH, UserRole.REFEREE)
+
+
 # --- Request / Response schemas ---
 
 
@@ -229,6 +241,11 @@ def register(
 ) -> TokenResponse:
     """Create a new user account, auto-create a linked profile, and return a JWT.
     Refused unless the current terms were accepted."""
+    if data.role not in SELF_SIGNUP_ROLES:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Sign up as a fighter, coach or referee — other accounts are made by an admin",
+        )
     if not data.accept_terms or data.terms_version != terms.TERMS_VERSION:
         raise HTTPException(
             status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
@@ -264,7 +281,7 @@ def register(
     token = _create_access_token(user.id, user.role)
     return TokenResponse(
         access_token=token,
-        user=UserRead.model_validate(user, from_attributes=True),
+        user=user_out(user),
     )
 
 
@@ -318,7 +335,7 @@ def login(
     token = _create_access_token(user.id, user.role)
     return TokenResponse(
         access_token=token,
-        user=UserRead.model_validate(user, from_attributes=True),
+        user=user_out(user),
     )
 
 
@@ -326,7 +343,7 @@ def login(
 def get_me(user: User = Depends(require_signed_in)) -> UserRead:
     """Return the current authenticated user (also before they've accepted the
     terms: `terms_version` tells the dashboard to ask)."""
-    return UserRead.model_validate(user, from_attributes=True)
+    return user_out(user)
 
 
 class TermsOut(BaseModel):
@@ -360,7 +377,7 @@ def accept_terms(
             status_code=status.HTTP_409_CONFLICT,
             detail=f"The terms have changed — the current version is {terms.TERMS_VERSION}",
         )
-    return UserRead.model_validate(repo.accept_terms(user, data.version), from_attributes=True)
+    return user_out(repo.accept_terms(user, data.version))
 
 
 class UpdateProfileRequest(BaseModel):
@@ -413,7 +430,7 @@ def update_me(
         fields["password_hash"] = _hash_password(data.new_password)
 
     if not fields:
-        return UserRead.model_validate(user, from_attributes=True)
+        return user_out(user)
 
     updated = repo.update(user.id, fields)
     return UserRead.model_validate(updated, from_attributes=True)
@@ -582,7 +599,7 @@ def admin_create_user(
     if profile_id:
         repo.set_profile_id(user.id, profile_id)
         user.profile_id = profile_id
-    return UserRead.model_validate(user, from_attributes=True)
+    return user_out(user)
 
 
 class AdminResetPasswordRequest(BaseModel):
@@ -723,7 +740,7 @@ def seed_admin(
         ),
         _hash_password(data.password),
     )
-    return UserRead.model_validate(user, from_attributes=True)
+    return user_out(user)
 
 
 class AdminSystemStats(BaseModel):

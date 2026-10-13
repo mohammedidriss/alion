@@ -8,6 +8,7 @@ from fastapi import APIRouter, Depends, HTTPException, status
 from pydantic import BaseModel
 from sqlmodel import Session as DBSession
 
+from api import access
 from api.deps import db_session, gym_repo, resolve_gym_id
 from api.routes.auth import get_current_user, require_current_user
 from store import (
@@ -76,7 +77,11 @@ class CheckInBody(BaseModel):
 
 
 @router.post("", response_model=GymRead, status_code=status.HTTP_201_CREATED)
-def create_gym(data: GymCreate, repo: GymRepo = Depends(gym_repo)) -> GymRead:
+def create_gym(
+    data: GymCreate,
+    repo: GymRepo = Depends(gym_repo),
+    _admin: access.Viewer = Depends(access.require_admin_viewer),
+) -> GymRead:
     return GymRead.model_validate(repo.create(data), from_attributes=True)
 
 
@@ -505,7 +510,7 @@ def check_out(
 ) -> CheckInRead:
     """Record a member checking out of the gym."""
     ci_repo = CheckInRepo(session)
-    ci = ci_repo.check_out(checkin_id)
+    ci = ci_repo.check_out(checkin_id, gym_id)
     if ci is None:
         raise HTTPException(status_code=404, detail="check-in not found")
 

@@ -10,6 +10,7 @@ from pydantic import BaseModel
 from sqlmodel import Session as DBSession
 from sqlmodel import select
 
+from api import access
 from api.deps import coach_note_repo, coach_repo, db_session, resolve_gym_id
 from api.routes.auth import get_current_user, require_current_user
 from api.services.photos import delete_photos_for, save_photo
@@ -53,7 +54,17 @@ class CoachUpdate(BaseModel):
 
 
 @router.post("", response_model=CoachRead, status_code=status.HTTP_201_CREATED)
-def create_coach(data: CoachCreate, repo: CoachRepo = Depends(coach_repo)) -> CoachRead:
+def create_coach(
+    data: CoachCreate,
+    repo: CoachRepo = Depends(coach_repo),
+    viewer: access.Viewer = Depends(access.require_viewer),
+) -> CoachRead:
+    """Coach profiles are added by admins and gym managers (ADR-017); a coach who
+    signs up gets theirs automatically."""
+    if not (viewer.admin or viewer.manager_gym is not None):
+        raise HTTPException(status_code=403, detail="Only an admin or a gym manager adds coaches")
+    if viewer.manager_gym is not None:
+        data.gym_id = viewer.manager_gym
     return CoachRead.model_validate(repo.create(data), from_attributes=True)
 
 

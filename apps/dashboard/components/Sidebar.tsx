@@ -79,8 +79,8 @@ export function Sidebar({ onNavigate }: { onNavigate?: () => void } = {}) {
     navItems.push({ label: "Bouts", href: "/bouts", icon: "⚔" });
   }
   // Datasets (ADR-013) — research recordings, kept apart from training sessions.
-  // IRB data: coaches (the researcher) and fighters only.
-  if (activeRole === "coach" || activeRole === "fighter") {
+  // IRB data: researchers only (ALION_RESEARCHERS; the API enforces it, ADR-017).
+  if (user?.is_researcher) {
     navItems.push({ label: "Datasets", href: "/datasets", icon: "▤" });
   }
 

@@ -226,6 +226,7 @@ class UserRead(SQLModel):
     created_at: UtcDatetime
     terms_version: str | None = None
     terms_accepted_at: UtcDatetime | None = None
+    is_researcher: bool = False  # may open research datasets (ADR-017)
 
 
 # ----------------------------------------------------------------------
@@ -1495,3 +1496,30 @@ class DatasetTake(SQLModel, table=True):
     ended_at: datetime | None = None
     duration_ms: float = Field(default=0.0, ge=0)
     notes: str | None = None
+
+
+# ---------------------------------------------------------------------------
+# Access log (ADR-017) — every read or change of a fighter's medical data, and
+# every refused attempt: who, when, which fighter, what — never the content.
+# ---------------------------------------------------------------------------
+
+
+class AccessLog(SQLModel, table=True):
+    __tablename__ = "access_log"
+    id: int | None = Field(default=None, primary_key=True)
+    at: datetime = Field(default_factory=lambda: datetime.now(UTC), index=True)
+    user_id: UUID = Field(index=True)
+    role: str = Field(max_length=20)
+    fighter_id: UUID = Field(index=True)
+    resource: str = Field(max_length=120)  # the route, e.g. /fighters/{fighter_id}/medical
+    action: str = Field(max_length=10)  # read | write
+    allowed: bool
+
+
+class AccessLogRead(SQLModel):
+    at: UtcDatetime
+    user_id: UUID
+    role: str
+    resource: str
+    action: str
+    allowed: bool

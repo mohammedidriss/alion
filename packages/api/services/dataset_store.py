@@ -18,6 +18,7 @@ from __future__ import annotations
 
 import json
 import os
+import re
 import threading
 from collections import deque
 from collections.abc import Callable
@@ -89,16 +90,27 @@ def started(folder: Path) -> bool:
 # ---------------------------------------------------------------------------
 
 
+_DEVICE_ID = re.compile(r"^[A-Za-z0-9_-]{1,64}$")
+
+
+def safe_device_id(device_id: str) -> str:
+    """A camera's id as a file name: letters, digits, "-" and "_" only, so a phone
+    can't name a path outside the take's folder (ADR-017). Raises ValueError."""
+    if not _DEVICE_ID.match(device_id):
+        raise ValueError(f"invalid device id {device_id[:40]!r}")
+    return device_id
+
+
 def clip_path(folder: Path, device_id: str, ext: str) -> Path:
-    return folder / "video" / f"{device_id}{ext}"
+    return folder / "video" / f"{safe_device_id(device_id)}{ext}"
 
 
 def clip_meta_path(folder: Path, device_id: str) -> Path:
-    return folder / "video" / f"{device_id}.json"
+    return folder / "video" / f"{safe_device_id(device_id)}.json"
 
 
 def pose_path(folder: Path, device_id: str) -> Path:
-    return folder / "pose" / f"{device_id}.parquet"
+    return folder / "pose" / f"{safe_device_id(device_id)}.parquet"
 
 
 def clips(folder: Path) -> list[dict[str, Any]]:

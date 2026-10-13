@@ -8,6 +8,7 @@ from fastapi import APIRouter, Depends, HTTPException, status
 from pydantic import BaseModel
 from sqlmodel import Session as DBSession
 
+from api import access
 from api.deps import db_session, gym_manager_repo, gym_repo, resolve_gym_id
 from api.routes.auth import get_current_user, require_current_user
 from store import GymManagerRepo, GymRepo, User
@@ -46,6 +47,7 @@ def create_gym_manager(
     data: GymManagerCreate,
     repo: GymManagerRepo = Depends(gym_manager_repo),
     gyms: GymRepo = Depends(gym_repo),
+    _admin: access.Viewer = Depends(access.require_admin_viewer),
 ) -> GymManagerRead:
     g = gyms.get(data.gym_id)
     if g is None:

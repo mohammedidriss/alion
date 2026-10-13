@@ -17,6 +17,7 @@ from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel
 from sqlmodel import Session as DBSession
 
+from api import access
 from api.deps import db_session, fighter_repo, session_repo
 from api.routes import capture_coord
 from api.routes.auth import require_current_user
@@ -115,7 +116,15 @@ def get_devices(fighters: FighterRepo = Depends(fighter_repo)) -> ImuDevicesOut:
 
 
 @devices_router.put("/devices/owner", response_model=ImuDevicesOut)
-def set_owner(body: ImuOwnerIn, fighters: FighterRepo = Depends(fighter_repo)) -> ImuDevicesOut:
+def set_owner(
+    body: ImuOwnerIn,
+    fighters: FighterRepo = Depends(fighter_repo),
+    viewer: access.Viewer = Depends(access.require_viewer),
+) -> ImuDevicesOut:
+    """Put the wrist sensors on a fighter — yourself, a fighter you coach, or (for a
+    dataset take) a participant, as a researcher (ADR-017)."""
+    if not (viewer.researcher or viewer.can(body.fighter_id, access.Level.TRAINING_WRITE)):
+        raise access.forbidden(access.Level.TRAINING_WRITE)
     if not imu_devices.units_by_hand():
         raise HTTPException(
             status_code=409,

@@ -4,6 +4,8 @@ from store.database import create_db_and_tables, get_session
 from store.models import (
     MAX_ROUND_PLANS,
     WEIGHT_CLASSES,
+    AccessLog,
+    AccessLogRead,
     Allergy,
     AllergyCreate,
     AllergyRead,
@@ -133,6 +135,8 @@ from store.repo import (
 __all__ = [
     "MAX_ROUND_PLANS",
     "WEIGHT_CLASSES",
+    "AccessLog",
+    "AccessLogRead",
     "Allergy",
     "AllergyCreate",
     "AllergyRead",

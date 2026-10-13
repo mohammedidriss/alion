@@ -1004,6 +1004,8 @@ export interface AuthUser {
   /** The terms version they accepted (ADR-016); null until they have. */
   terms_version: string | null;
   terms_accepted_at: string | null;
+  /** May open research datasets — listed in ALION_RESEARCHERS (ADR-017). */
+  is_researcher: boolean;
 }
 
 /** The current terms and conditions (GET /auth/terms). */

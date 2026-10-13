@@ -42,9 +42,9 @@ def test_signing_up_requires_accepting_the_current_terms(client: TestClient) -> 
 
 
 def test_an_account_made_by_an_admin_is_asked_at_first_sign_in(
-    authed_client: TestClient, client: TestClient
+    admin_client: TestClient, client: TestClient
 ) -> None:
-    r = authed_client.post(
+    r = admin_client.post(
         "/auth/admin/users",
         json={
             "email": "lina@alion.test",

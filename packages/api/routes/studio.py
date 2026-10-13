@@ -26,8 +26,10 @@ from uuid import UUID
 
 from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel
+from sqlmodel import Session as DBSession
 
-from api.deps import session_repo
+from api import access
+from api.deps import db_session, session_repo
 from api.routes import capture_coord
 from api.routes.auth import SECRET_KEY, require_current_user
 from api.services import dataset_store
@@ -131,8 +133,17 @@ def set_active(
     body: ActiveCapture,
     user: User = Depends(require_current_user),
     sessions: SessionRepo = Depends(session_repo),
+    db: DBSession = Depends(db_session),
 ) -> StudioOut:
-    """Point the linked phones at this capture (the coach opened it)."""
+    """Point the linked phones at this capture (the coach opened it) — a session
+    you may change, or a dataset take as a researcher (ADR-017)."""
+    viewer = access.Viewer(user, db)
+    if body.kind == "session":
+        row = sessions.get(body.id)
+        if row is not None:
+            viewer.require(row.fighter_id, access.Level.TRAINING_WRITE)
+    else:
+        access.require_researcher(viewer)
     exists = (
         sessions.get(body.id) is not None
         if body.kind == "session"

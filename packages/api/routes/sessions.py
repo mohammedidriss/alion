@@ -20,6 +20,7 @@ from pydantic import BaseModel, Field
 from sqlmodel import Session as DBSession
 
 from analyze import compute_score, mean_hr_bpm, rmssd_ms, sdnn_ms
+from api import access
 from api.deps import db_session, fighter_repo, punch_event_repo, resolve_gym_id, session_repo
 from api.routes import capture_coord
 from api.routes.auth import get_current_user, require_current_user
@@ -76,7 +77,13 @@ class CaptureStatusResponse(BaseModel):
 
 
 @router.post("", response_model=SessionRead, status_code=status.HTTP_201_CREATED)
-def create_session(data: SessionCreate, repo: SessionRepo = Depends(session_repo)) -> SessionRead:
+def create_session(
+    data: SessionCreate,
+    repo: SessionRepo = Depends(session_repo),
+    viewer: access.Viewer = Depends(access.require_viewer),
+) -> SessionRead:
+    """Open a training session — for yourself, or a fighter you coach (ADR-017)."""
+    viewer.require(data.fighter_id, access.Level.TRAINING_WRITE)
     row = repo.create(data)
     return SessionRead.model_validate(row, from_attributes=True)
 
@@ -146,6 +153,13 @@ def list_sessions(
             return [SessionRead.model_validate(s, from_attributes=True) for s in rows]
 
     rows = repo.list_for_fighter(fighter_id) if fighter_id else repo.list_all()
+    # Only sessions of fighters whose training data this account may see (ADR-017).
+    visible = (
+        access.visible_fighters(access.Viewer(current_user, session), access.Level.TRAINING)
+        if current_user
+        else set()
+    )
+    rows = [r for r in rows if visible is None or r.fighter_id in visible]
     if recorded:
         rows = _recorded(rows)
     return [SessionRead.model_validate(s, from_attributes=True) for s in rows]
@@ -1641,7 +1655,8 @@ async def upload_attachment(
         )
     out_dir = _ATTACHMENT_DIR / str(session_id)
     out_dir.mkdir(parents=True, exist_ok=True)
-    fname = file.filename or "unnamed"
+    # Only the name, never a path: "../../x" can't leave the session's folder.
+    fname = Path(file.filename or "").name.strip().lstrip(".") or "unnamed"
     dest = out_dir / fname
     # Avoid clobbering: if a file with the same name exists, append a counter.
     if dest.exists():

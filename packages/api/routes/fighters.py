@@ -10,9 +10,11 @@ from uuid import UUID
 from fastapi import APIRouter, Depends, File, HTTPException, UploadFile, status
 from pydantic import BaseModel
 from sqlmodel import Session as DBSession
+from sqlmodel import select
 
 from analyze import compute_readiness, compute_score, compute_swc
 from analyze.readiness import MIN_HISTORY
+from api import access
 from api.deps import (
     coach_note_repo,
     db_session,
@@ -109,8 +111,31 @@ def fighter_options() -> dict[str, list[str]]:
 
 
 @router.post("", response_model=FighterRead, status_code=status.HTTP_201_CREATED)
-def create_fighter(data: FighterCreate, repo: FighterRepo = Depends(fighter_repo)) -> FighterRead:
+def create_fighter(
+    data: FighterCreate,
+    repo: FighterRepo = Depends(fighter_repo),
+    viewer: access.Viewer = Depends(access.require_viewer),
+    db: DBSession = Depends(db_session),
+) -> FighterRead:
+    """Coaches, gym managers, researchers and admins add fighters (ADR-017). A
+    coach becomes the new fighter's coach; a gym manager's fighter joins their gym
+    — so each keeps access to the profile they made."""
+    if not (
+        viewer.admin
+        or viewer.researcher
+        or viewer.coach_id is not None
+        or viewer.manager_gym is not None
+    ):
+        raise HTTPException(
+            status_code=403, detail="Only coaches, gym managers and admins add fighters"
+        )
+    if viewer.manager_gym is not None:
+        data.gym_id = viewer.manager_gym
     fighter = repo.create(data)
+    if viewer.coach_id is not None:
+        FighterTeamRepo(db).add_coach_assignment(
+            fighter.id, CoachAssignmentCreate(coach_id=viewer.coach_id, role=CoachRole.HEAD_COACH)
+        )
     return FighterRead.model_validate(fighter, from_attributes=True)
 
 
@@ -121,13 +146,22 @@ def list_fighters(
     current_user: User | None = Depends(get_current_user),
     session: DBSession = Depends(db_session),
 ) -> list[FighterRead]:
-    # Gym managers can only see their own gym's fighters
+    # Only the fighters this account may see (ADR-017).
     if current_user and current_user.role == "gym_manager":
         scoped_gym = resolve_gym_id(current_user, session)
         if scoped_gym:
             gym_id = scoped_gym  # override any client-supplied gym_id
     rows = repo.list_for_gym(gym_id) if gym_id else repo.list_all()
-    return [FighterRead.model_validate(f, from_attributes=True) for f in rows]
+    visible = (
+        access.visible_fighters(access.Viewer(current_user, session), access.Level.PROFILE)
+        if current_user
+        else set()
+    )
+    return [
+        FighterRead.model_validate(f, from_attributes=True)
+        for f in rows
+        if visible is None or f.id in visible
+    ]
 
 
 @router.get("/{fighter_id}", response_model=FighterRead)
@@ -198,7 +232,7 @@ def delete_weigh_in(
 ) -> None:
     if repo.get(fighter_id) is None:
         raise HTTPException(status_code=404, detail="fighter not found")
-    if not WeighInRepo(db).delete(weigh_in_id):
+    if not WeighInRepo(db).delete(weigh_in_id, fighter_id):
         raise HTTPException(status_code=404, detail="weigh-in not found")
 
 
@@ -538,6 +572,36 @@ def upsert_medical_record(
         raise HTTPException(status_code=404, detail="fighter not found")
     row = med.upsert_record(fighter_id, data.model_dump(exclude_unset=True))
     return MedicalRecordRead.model_validate(row, from_attributes=True)
+
+
+class MedicalAccessOut(BaseModel):
+    at: datetime
+    who: str  # the account's name
+    role: str
+    resource: str
+    action: str  # read | write
+    allowed: bool
+
+
+@router.get("/{fighter_id}/medical/access-log", response_model=list[MedicalAccessOut])
+def medical_access_log(
+    fighter_id: UUID, db: DBSession = Depends(db_session)
+) -> list[MedicalAccessOut]:
+    """Who opened or changed this fighter's medical records, and who was refused
+    (ADR-017) — open to whoever may see the records themselves."""
+    rows = access.access_log(db, fighter_id)
+    names = {u.id: u.name for u in db.exec(select(User)).all()}
+    return [
+        MedicalAccessOut(
+            at=r.at,
+            who=names.get(r.user_id, "(deleted account)"),
+            role=r.role,
+            resource=r.resource,
+            action=r.action,
+            allowed=r.allowed,
+        )
+        for r in rows
+    ]
 
 
 # --- Allergies ---

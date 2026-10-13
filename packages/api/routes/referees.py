@@ -8,12 +8,19 @@ from uuid import UUID
 from fastapi import APIRouter, Depends, File, HTTPException, UploadFile, status
 from pydantic import BaseModel
 
+from api import access
+from api.access import require_admin_viewer
 from api.deps import referee_repo
+from api.routes.auth import require_current_user
 from api.services.photos import delete_photos_for, save_photo
 from store import RefereeCertLevel, RefereeRepo
 from store.models import RefereeCreate, RefereeRead
 
-router = APIRouter(prefix="/referees", tags=["referees"])
+# Signed in, like every other route (they had no check at all); changes to a
+# referee are for admins and the referee themselves (access.guard, ADR-017).
+router = APIRouter(
+    prefix="/referees", tags=["referees"], dependencies=[Depends(require_current_user)]
+)
 
 
 class RefereeUpdate(BaseModel):
@@ -35,7 +42,11 @@ class RefereeUpdate(BaseModel):
 
 
 @router.post("", response_model=RefereeRead, status_code=status.HTTP_201_CREATED)
-def create_referee(data: RefereeCreate, repo: RefereeRepo = Depends(referee_repo)) -> RefereeRead:
+def create_referee(
+    data: RefereeCreate,
+    repo: RefereeRepo = Depends(referee_repo),
+    _admin: access.Viewer = Depends(require_admin_viewer),
+) -> RefereeRead:
     return RefereeRead.model_validate(repo.create(data), from_attributes=True)
 
 

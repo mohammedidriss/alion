@@ -9,10 +9,11 @@ import os
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
 
-from fastapi import FastAPI
+from fastapi import Depends, FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
 
+from api import access
 from api.routes import (
     auth,
     bouts,
@@ -140,6 +141,9 @@ app = FastAPI(
     version="0.1.0",
     description="Alion — multi-modal AI coaching platform for combat sports (DBA dissertation, GGU).",
     lifespan=lifespan,
+    # Record-level access control on every route (ADR-017): whose data a route
+    # addresses is read from its path, so no route can be left unguarded.
+    dependencies=[Depends(access.guard)],
 )
 
 # CORS — set ALION_CORS_ORIGINS to a comma-separated list of allowed origins.

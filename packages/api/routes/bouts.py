@@ -14,6 +14,7 @@ from uuid import UUID
 from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel
 
+from api import access
 from api.deps import bout_repo
 from api.routes.auth import require_current_user
 from store import (
@@ -24,6 +25,7 @@ from store import (
     CornerEnum,
     SessionRead,
 )
+from store import Session as SessionRow
 
 router = APIRouter(
     prefix="/bouts",
@@ -48,8 +50,21 @@ def create_bout(data: BoutCreate, repo: BoutRepo = Depends(bout_repo)) -> BoutRe
 
 
 @router.get("", response_model=list[BoutRead])
-def list_bouts(repo: BoutRepo = Depends(bout_repo)) -> list[BoutRead]:
-    return [BoutRead.model_validate(b, from_attributes=True) for b in repo.list_all()]
+def list_bouts(
+    repo: BoutRepo = Depends(bout_repo), viewer: access.Viewer = Depends(access.require_viewer)
+) -> list[BoutRead]:
+    """Bouts with a corner this account may see (ADR-017); an empty bout is open to
+    those who set fights up."""
+    visible = access.visible_fighters(viewer, access.Level.TRAINING)
+    sets_up = viewer.coach_id is not None or viewer.manager_gym is not None or viewer.own_fighter
+    out = []
+    for b in repo.list_all():
+        corners = [s.fighter_id for s in repo.participants(b.id)]
+        if (corners and any(visible is None or f in visible for f in corners)) or (
+            not corners and sets_up
+        ):
+            out.append(BoutRead.model_validate(b, from_attributes=True))
+    return out
 
 
 @router.get("/{bout_id}", response_model=BoutRead)
@@ -61,10 +76,20 @@ def get_bout(bout_id: UUID, repo: BoutRepo = Depends(bout_repo)) -> BoutRead:
 
 
 @router.get("/{bout_id}/participants", response_model=list[SessionRead])
-def list_participants(bout_id: UUID, repo: BoutRepo = Depends(bout_repo)) -> list[SessionRead]:
+def list_participants(
+    bout_id: UUID,
+    repo: BoutRepo = Depends(bout_repo),
+    viewer: access.Viewer = Depends(access.require_viewer),
+) -> list[SessionRead]:
+    """The bout's corner sessions this account may see — the other corner's coach
+    doesn't get this fighter's session (ADR-017)."""
     if repo.get(bout_id) is None:
         raise HTTPException(status_code=404, detail="bout not found")
-    return [SessionRead.model_validate(s, from_attributes=True) for s in repo.participants(bout_id)]
+    return [
+        SessionRead.model_validate(s, from_attributes=True)
+        for s in repo.participants(bout_id)
+        if viewer.can(s.fighter_id, access.Level.TRAINING)
+    ]
 
 
 @router.post("/{bout_id}/participants", response_model=SessionRead)
@@ -72,8 +97,13 @@ def assign_participant(
     bout_id: UUID,
     body: AssignCornerBody,
     repo: BoutRepo = Depends(bout_repo),
+    viewer: access.Viewer = Depends(access.require_viewer),
 ) -> SessionRead:
-    """Attach a fighter's session to this bout in the given corner."""
+    """Attach a fighter's session to this bout in the given corner — one you may
+    change (ADR-017)."""
+    sess = viewer.db.get(SessionRow, body.session_id)
+    if sess is not None:
+        viewer.require(sess.fighter_id, access.Level.TRAINING_WRITE)
     try:
         sess = repo.assign_corner(bout_id, body.session_id, body.corner)
     except ValueError as exc:
@@ -91,6 +121,8 @@ def remove_participant(
 ) -> SessionRead:
     if repo.get(bout_id) is None:
         raise HTTPException(status_code=404, detail="bout not found")
+    if session_id not in {s.id for s in repo.participants(bout_id)}:
+        raise HTTPException(status_code=404, detail="that session isn't in this bout")
     sess = repo.remove_participant(session_id)
     if sess is None:
         raise HTTPException(status_code=404, detail="session not found")

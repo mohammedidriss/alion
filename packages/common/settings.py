@@ -32,6 +32,9 @@ class Settings(BaseSettings):
     )
     llm_model: str | None = Field(default=None)
     llm_api_key: str | None = Field(default=None)
+    # Accounts that may use research datasets (ADR-017): comma-separated emails.
+    # Nobody else — coach, fighter, gym manager or admin — can open a dataset.
+    researchers: str = Field(default="")
 
     @property
     def effective_database_url(self) -> str:

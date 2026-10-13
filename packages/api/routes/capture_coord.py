@@ -268,7 +268,16 @@ def _take_folder(capture_id: UUID) -> Path | None:
     return dataset_store.take_dir(capture_id)
 
 
+def _device(device_id: str) -> str:
+    """A phone-supplied device id, checked before it names any file (ADR-017)."""
+    try:
+        return dataset_store.safe_device_id(device_id)
+    except ValueError as e:
+        raise HTTPException(status_code=422, detail=str(e)) from e
+
+
 def _clip_file(capture_id: UUID, device_id: str, ext: str) -> Path:
+    device_id = _device(device_id)
     folder = _take_folder(capture_id)
     if folder is not None:
         return dataset_store.clip_path(folder, device_id, ext)
@@ -276,6 +285,7 @@ def _clip_file(capture_id: UUID, device_id: str, ext: str) -> Path:
 
 
 def _clip_meta_file(capture_id: UUID, device_id: str) -> Path:
+    device_id = _device(device_id)
     folder = _take_folder(capture_id)
     if folder is not None:
         return dataset_store.clip_meta_path(folder, device_id)
@@ -558,6 +568,7 @@ def register_device(session_id: UUID, body: RegisterBody) -> RegisterOut:
 @_slave.post("/{session_id}/multicam/heartbeat", response_model=CaptureState)
 def heartbeat(session_id: UUID, body: HeartbeatBody) -> CaptureState:
     """Keep a device on the roster + report its status; returns the current command."""
+    _device(body.device_id)
     with _lock:
         c = _check_token(session_id, body.token)
         dev = c.devices.get(body.device_id)
@@ -707,11 +718,12 @@ def upload_device_pose(session_id: UUID, body: MulticamPoseBody) -> dict[str, ob
 
     from capture.cv.writer import write_pose_parquet
 
+    device_id = _device(body.device_id)
     folder = _take_folder(session_id)
     if folder is not None:
-        path = dataset_store.pose_path(folder, body.device_id)
+        path = dataset_store.pose_path(folder, device_id)
     else:
-        path = session_analysis.POSE_DIR / f"{session_id}.{body.device_id}.pose.parquet"
+        path = session_analysis.POSE_DIR / f"{session_id}.{device_id}.pose.parquet"
     path.parent.mkdir(parents=True, exist_ok=True)
     write_pose_parquet(path, frames)
     # Cross-check this camera against the wrists and the other cameras once
