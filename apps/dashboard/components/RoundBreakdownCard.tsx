@@ -3,6 +3,8 @@
 import { useEffect, useRef, useState } from "react";
 import { PunchDots } from "@/components/PunchDots";
 import { SafetyBoundary } from "@/components/SafetyBoundary";
+import { useAuth } from "@/lib/auth";
+import { seesModels } from "@/lib/nav";
 import { tallyRows } from "@/lib/punchTally";
 import {
   api,
@@ -43,6 +45,7 @@ function namedBy(sources: Record<string, number> | null | undefined): string {
 }
 
 export function RoundBreakdownCard({ sessionId, status }: Props) {
+  const { user } = useAuth();
   const [data, setData] = useState<RoundsExportResponse | null>(null);
   const [err, setErr] = useState<string | null>(null);
   const prevCompletedRef = useRef(0);
@@ -117,6 +120,8 @@ export function RoundBreakdownCard({ sessionId, status }: Props) {
     0,
   );
   const peakG = data.rounds.reduce((m, r) => Math.max(m, r.imu.peak_g ?? 0), 0);
+  // Model versions and accuracy: researchers and admins only (ADR-046).
+  const models = seesModels(user);
   const hasRest = data.rounds.some((r) => r.rest && (r.rest.drop_30s != null || r.rest.drop_60s != null));
   const clipped = data.rounds.reduce((n, r) => n + (r.imu.clipped ?? 0), 0);
 
@@ -164,8 +169,10 @@ export function RoundBreakdownCard({ sessionId, status }: Props) {
       {fused && xc?.types && (
         <div className="mt-3 space-y-2 rounded-xl border border-white/10 p-3">
           <div className="flex flex-wrap items-baseline justify-between gap-2">
-            <h3 className="text-sm font-semibold">Punch types — {namedBy(xc.types_sources)}</h3>
-            <span className="text-[11px] text-neutral-400">
+            <h3 className="text-sm font-semibold">
+              Punch types{models && ` — ${namedBy(xc.types_sources)}`}
+            </h3>
+            {models && <span className="text-[11px] text-neutral-400">
               {xc.camera_types_model != null && (
                 <>
                   camera model v{xc.camera_types_model}
@@ -185,10 +192,10 @@ export function RoundBreakdownCard({ sessionId, status }: Props) {
                     ` · about ${Math.round(xc.types_other_accuracy * 100)}% on other boxers so far`}
                 </>
               )}
-            </span>
+            </span>}
           </div>
           <PunchDots tally={xc.types} stance={data.stance} />
-          {xc.types_sources && Object.keys(xc.types_sources).length > 1 && (
+          {models && xc.types_sources && Object.keys(xc.types_sources).length > 1 && (
             <p className="text-[11px] text-neutral-500">
               {Object.entries(xc.types_sources)
                 .map(([k, n]) => `${n} by ${SOURCE_LABEL[k] ?? k}`)

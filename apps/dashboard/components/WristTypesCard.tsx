@@ -72,7 +72,8 @@ export function WristTypesCard() {
         <div className="space-y-2 text-sm">
           <p className="text-neutral-200">
             <b>Version {report.version}</b> · {new Date(report.created_at).toLocaleString()} ·{" "}
-            {report.data.punches.toLocaleString()} punches from {report.data.takes} takes,{" "}
+            {report.data.punches.toLocaleString()} punches from {report.data.takes} takes
+            {report.data.sessions ? ` and ${report.data.sessions} recorded session${report.data.sessions === 1 ? "" : "s"}` : ""},{" "}
             {report.data.participants} participant{report.data.participants === 1 ? "" : "s"}
           </p>
           <div className="grid gap-2 sm:grid-cols-2">

@@ -57,6 +57,7 @@ from store import (
     Stance,
     TitleStatus,
     User,
+    UserRole,
     WeighInCreate,
     WeighInRead,
     WeighInRepo,
@@ -879,6 +880,7 @@ def list_coach_assignments(
                 ended_on=a.ended_on,
                 notes=a.notes,
                 created_at=a.created_at,
+                health_access=a.health_access,
             )
         )
     return out
@@ -895,6 +897,7 @@ def add_coach_assignment(
     fighters: FighterRepo = Depends(fighter_repo),
     team: FighterTeamRepo = Depends(fighter_team_repo),
     db: DBSession = Depends(db_session),
+    viewer: access.Viewer = Depends(access.require_viewer),
 ) -> CoachAssignmentRead:
     if fighters.get(fighter_id) is None:
         raise HTTPException(status_code=404, detail="fighter not found")
@@ -903,6 +906,9 @@ def add_coach_assignment(
     coach = CoachRepo(db).get(data.coach_id)
     if coach is None:
         raise HTTPException(status_code=404, detail="coach not found")
+    # Only the fighter (or a researcher) shares their health notes (ADR-046).
+    if data.health_access and not (viewer.own_fighter == fighter_id or viewer.researcher):
+        data = data.model_copy(update={"health_access": False})
     row = team.add_coach_assignment(fighter_id, data)
     return CoachAssignmentRead(
         id=row.id,
@@ -915,7 +921,36 @@ def add_coach_assignment(
         ended_on=row.ended_on,
         notes=row.notes,
         created_at=row.created_at,
+        health_access=row.health_access,
     )
+
+
+class HealthAccessIn(BaseModel):
+    health_access: bool
+
+
+@router.patch("/{fighter_id}/coach-assignments/{assignment_id}", response_model=dict)
+def set_coach_health_access(
+    fighter_id: UUID,
+    assignment_id: int,
+    body: HealthAccessIn,
+    db: DBSession = Depends(db_session),
+    viewer: access.Viewer = Depends(access.require_viewer),
+) -> dict[str, bool]:
+    """The fighter lets a coach see their health notes, or stops (ADR-046)."""
+    from store import CoachAssignment
+
+    if not (viewer.own_fighter == fighter_id or viewer.researcher):
+        raise HTTPException(
+            status_code=403, detail="Only the fighter decides who sees their health notes"
+        )
+    row = db.get(CoachAssignment, assignment_id)
+    if row is None or row.fighter_id != fighter_id:
+        raise HTTPException(status_code=404, detail="assignment not found")
+    row.health_access = body.health_access
+    db.add(row)
+    db.commit()
+    return {"health_access": row.health_access}
 
 
 @router.delete(
@@ -1319,3 +1354,114 @@ def add_pupil_reading(
     db.commit()
     db.refresh(row)
     return PupilReadingOut.model_validate(row, from_attributes=True)
+
+
+# ------------------------------------------------------------------
+# Physicians (ADR-046): the fighter chooses them; they see the fighter's health
+# notes and training data, and change only the health notes.
+# ------------------------------------------------------------------
+
+
+class PhysicianIn(BaseModel):
+    email: str = Field(min_length=3, max_length=200)
+
+
+class PhysicianOut(BaseModel):
+    id: int
+    physician_id: UUID
+    name: str
+    email: str
+    started_at: datetime
+
+
+def _only_the_fighter(viewer: access.Viewer, fighter_id: UUID) -> None:
+    if not (viewer.own_fighter == fighter_id or viewer.researcher):
+        raise HTTPException(status_code=403, detail="Only the fighter chooses their physicians")
+
+
+@router.get("/{fighter_id}/physicians", response_model=list[PhysicianOut])
+def list_physicians(fighter_id: UUID, db: DBSession = Depends(db_session)) -> list[PhysicianOut]:
+    from sqlmodel import col, select
+
+    from store import PhysicianAssignmentRow
+
+    rows = db.exec(
+        select(PhysicianAssignmentRow).where(
+            PhysicianAssignmentRow.fighter_id == fighter_id,
+            col(PhysicianAssignmentRow.ended_at).is_(None),
+        )
+    ).all()
+    out = []
+    for r in rows:
+        u = db.get(User, r.physician_id)
+        if u is not None:
+            out.append(
+                PhysicianOut(
+                    id=r.id or 0,
+                    physician_id=u.id,
+                    name=u.name,
+                    email=u.email,
+                    started_at=r.started_at,
+                )
+            )
+    return out
+
+
+@router.post(
+    "/{fighter_id}/physicians", response_model=PhysicianOut, status_code=status.HTTP_201_CREATED
+)
+def add_physician(
+    fighter_id: UUID,
+    body: PhysicianIn,
+    fighters: FighterRepo = Depends(fighter_repo),
+    db: DBSession = Depends(db_session),
+    viewer: access.Viewer = Depends(access.require_viewer),
+) -> PhysicianOut:
+    from sqlalchemy import func
+    from sqlmodel import col, select
+
+    from store import PhysicianAssignmentRow
+
+    _only_the_fighter(viewer, fighter_id)
+    if fighters.get(fighter_id) is None:
+        raise HTTPException(status_code=404, detail="fighter not found")
+    u = db.exec(select(User).where(func.lower(User.email) == body.email.strip().lower())).first()
+    if u is None or u.role != UserRole.PHYSICIAN:
+        raise HTTPException(status_code=404, detail="No physician account with that email")
+    current = db.exec(
+        select(PhysicianAssignmentRow).where(
+            PhysicianAssignmentRow.fighter_id == fighter_id,
+            PhysicianAssignmentRow.physician_id == u.id,
+            col(PhysicianAssignmentRow.ended_at).is_(None),
+        )
+    ).first()
+    if current is not None:
+        raise HTTPException(status_code=409, detail="Already your physician")
+    row = PhysicianAssignmentRow(fighter_id=fighter_id, physician_id=u.id)
+    db.add(row)
+    db.commit()
+    db.refresh(row)
+    return PhysicianOut(
+        id=row.id or 0, physician_id=u.id, name=u.name, email=u.email, started_at=row.started_at
+    )
+
+
+@router.delete("/{fighter_id}/physicians/{assignment_id}", status_code=status.HTTP_204_NO_CONTENT)
+def remove_physician(
+    fighter_id: UUID,
+    assignment_id: int,
+    db: DBSession = Depends(db_session),
+    viewer: access.Viewer = Depends(access.require_viewer),
+) -> None:
+    """The physician no longer sees this fighter; the assignment is kept as history."""
+    from datetime import UTC
+
+    from store import PhysicianAssignmentRow
+
+    _only_the_fighter(viewer, fighter_id)
+    row = db.get(PhysicianAssignmentRow, assignment_id)
+    if row is None or row.fighter_id != fighter_id or row.ended_at is not None:
+        raise HTTPException(status_code=404, detail="Not one of your physicians")
+    row.ended_at = datetime.now(UTC)
+    db.add(row)
+    db.commit()

@@ -91,6 +91,9 @@ function ObservationsTabContent({
     .sort((a, b) => b.started_at.localeCompare(a.started_at));
 
   const completed = sessions.filter((s) => s.status === "completed");
+  const latestDone = [...completed].sort((a, b) => b.started_at.localeCompare(a.started_at))[0];
+  const scored = trendData.filter((t) => t.score != null);
+  const avgScore = scored.length ? scored.reduce((a, t) => a + (t.score ?? 0), 0) / scored.length : null;
 
   const generateAI = async () => {
     setAiLoading(true);
@@ -113,9 +116,45 @@ function ObservationsTabContent({
       <header>
         <h1 className="text-2xl font-semibold">Observations</h1>
         <p className="text-sm text-neutral-400">
-          AI-powered training analysis, performance trends, and coach notes.
+          Progress over the period you choose, weight, AI training observations and coach notes.
         </p>
       </header>
+
+      {/* Headline strip — the period at a glance */}
+      <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
+        <div className="rounded-2xl border border-white/5 bg-white/[0.02] p-3">
+          <div className="text-[10px] uppercase tracking-wide text-neutral-500">
+            Sessions in period
+          </div>
+          <div className="mt-1 text-2xl font-semibold tabular-nums">
+            {trendData.length}
+          </div>
+        </div>
+        <div className="rounded-2xl border border-white/5 bg-white/[0.02] p-3">
+          <div className="text-[10px] uppercase tracking-wide text-neutral-500">
+            Coach notes
+          </div>
+          <div className="mt-1 text-2xl font-semibold tabular-nums">
+            {coachNotes.length + annotated.length}
+          </div>
+        </div>
+        <div className="rounded-2xl border border-white/5 bg-white/[0.02] p-3">
+          <div className="text-[10px] uppercase tracking-wide text-neutral-500">
+            Latest session
+          </div>
+          <div className="mt-1 text-sm font-semibold">
+            {latestDone ? new Date(latestDone.started_at).toLocaleDateString() : "—"}
+          </div>
+        </div>
+        <div className="rounded-2xl border border-white/5 bg-white/[0.02] p-3">
+          <div className="text-[10px] uppercase tracking-wide text-neutral-500">
+            Average score
+          </div>
+          <div className="mt-1 text-2xl font-semibold tabular-nums">
+            {avgScore != null ? avgScore.toFixed(1) : "—"}
+          </div>
+        </div>
+      </div>
 
       {/* ── Performance Trend Chart ── */}
       <section className="rounded-lg border border-neutral-800 p-5 space-y-4">
@@ -149,47 +188,18 @@ function ObservationsTabContent({
         ) : (
           <TrendChart data={trendData} />
         )}
-        {trendData.length > 0 && <SessionsTable data={trendData} />}
+        {trendData.length > 0 && (
+          <details>
+            <summary className="cursor-pointer text-xs text-neutral-400 hover:text-neutral-200">
+              Every session in the period ({trendData.length})
+            </summary>
+            <div className="mt-2 overflow-x-auto">
+              <SessionsTable data={trendData} />
+            </div>
+          </details>
+        )}
         <SafetyBoundary />
       </section>
-
-      {/* Headline strip */}
-      <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
-        <div className="rounded-2xl border border-white/5 bg-white/[0.02] p-3">
-          <div className="text-[10px] uppercase tracking-wide text-neutral-500">
-            Sessions ({trendMonths} mo)
-          </div>
-          <div className="mt-1 text-2xl font-semibold tabular-nums">
-            {trendData.length || completed.length}
-          </div>
-        </div>
-        <div className="rounded-2xl border border-white/5 bg-white/[0.02] p-3">
-          <div className="text-[10px] uppercase tracking-wide text-neutral-500">
-            Coach notes
-          </div>
-          <div className="mt-1 text-2xl font-semibold tabular-nums">
-            {coachNotes.length + annotated.length}
-          </div>
-        </div>
-        <div className="rounded-2xl border border-white/5 bg-white/[0.02] p-3">
-          <div className="text-[10px] uppercase tracking-wide text-neutral-500">
-            Latest session
-          </div>
-          <div className="mt-1 text-sm font-semibold">
-            {completed[0]
-              ? new Date(completed[0].started_at).toLocaleDateString()
-              : "—"}
-          </div>
-        </div>
-        <div className="rounded-2xl border border-violet-500/30 bg-violet-500/5 p-3">
-          <div className="text-[10px] uppercase tracking-wide text-violet-300/70">
-            AI status
-          </div>
-          <div className="mt-1 text-sm font-semibold text-violet-200">
-            {aiData ? "Generated" : aiLoading ? "Analyzing..." : "Ready"}
-          </div>
-        </div>
-      </div>
 
       {/* ── Weight Management ── */}
       {weightLoading ? (

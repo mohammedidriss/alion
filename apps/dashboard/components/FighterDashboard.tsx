@@ -10,6 +10,7 @@ import { HrvMetric, ReadinessGauge } from "@/components/HrvCharts";
 import { SafetyBoundary } from "@/components/SafetyBoundary";
 import {
   api,
+  type FighterReadiness,
   type MatrixResponse,
   type PunchEvent,
   type Session,
@@ -106,16 +107,49 @@ export function FighterDashboard({ fighterId, sessionsWithEvents }: Props) {
 
   return (
     <section className="space-y-5">
-      {/* HERO: most actionable signals — current score callout + progress + readiness */}
+      {/* SUMMARY: the career at a glance */}
+      <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
+        <StatCard
+          tint="purple"
+          icon="●"
+          label="Total Punches"
+          value={totals.totalPunches.toLocaleString()}
+          hint={`${usable.length} session${usable.length === 1 ? "" : "s"}`}
+        />
+        <StatCard
+          tint="orange"
+          icon="▶"
+          label="Sessions"
+          value={sessionsWithEvents.length}
+          hint={`${usable.length} usable`}
+        />
+        <StatCard
+          tint="red"
+          icon="⏱"
+          label="Active Minutes"
+          value={
+            totals.totalDurationMin >= 1
+              ? totals.totalDurationMin.toFixed(0)
+              : totals.totalDurationMin.toFixed(1)
+          }
+          hint={`${(totals.totalDurationMin / 60).toFixed(1)} hours recorded`}
+        />
+        <StatCard
+          tint="lime"
+          icon="◆"
+          label="Average score"
+          value={usable.length ? totals.avgScore.toFixed(2) : "—"}
+          hint="speed × punch rate × minutes, per session"
+        />
+      </div>
+
+      {/* TREND + READINESS */}
       <div className="grid grid-cols-1 gap-4 lg:grid-cols-3">
         <div className="card lg:col-span-2">
           <div className="flex items-baseline justify-between">
-            <h3 className="text-base font-semibold">TRIMP / Output Trend</h3>
-            <span
-              className="text-xs text-neutral-500"
-              title="Banister TRIMP (Training Impulse) when HRV is available, falling back to ad-hoc Output Index."
-            >
-              load metric
+            <h3 className="text-base font-semibold">Output per session</h3>
+            <span className="text-xs text-neutral-500" title="Score = speed (p90) × punches per second × minutes">
+              score
             </span>
           </div>
           {usable.length === 0 ? (
@@ -190,11 +224,12 @@ export function FighterDashboard({ fighterId, sessionsWithEvents }: Props) {
           )}
         </div>
         <ReadinessSidecar
+          fighterId={fighterId}
           sessions={sessionsWithEvents.map((s) => s.session)}
         />
       </div>
 
-      {/* SECONDARY CHART ROW: aggregate distributions across all sessions */}
+      {/* BREAKDOWNS across all sessions */}
       <div className="grid grid-cols-1 gap-4 lg:grid-cols-3">
         <div className="card">
           <div className="flex items-baseline justify-between">
@@ -210,7 +245,9 @@ export function FighterDashboard({ fighterId, sessionsWithEvents }: Props) {
         <div className="card">
           <div className="flex items-baseline justify-between">
             <h3 className="text-base font-semibold">Velocity distribution</h3>
-            <span className="text-xs text-neutral-500">amber=L · blue=R</span>
+            <span className="text-xs text-neutral-500">
+              <span className="text-amber-400">■</span> left · <span className="text-blue-400">■</span> right
+            </span>
           </div>
           <p className="mt-1 text-[11px] text-neutral-500">
             Punch peak velocities, bucketed; bars stack by hand.
@@ -237,41 +274,6 @@ export function FighterDashboard({ fighterId, sessionsWithEvents }: Props) {
         </div>
       </div>
 
-      {/* TERTIARY: cumulative volume — totals are reference, not actionable */}
-      <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
-        <StatCard
-          tint="purple"
-          icon="●"
-          label="Total Punches"
-          value={totals.totalPunches.toLocaleString()}
-          hint={`${usable.length} session${usable.length === 1 ? "" : "s"}`}
-        />
-        <StatCard
-          tint="orange"
-          icon="▶"
-          label="Sessions"
-          value={sessionsWithEvents.length}
-          hint={`${usable.length} usable`}
-        />
-        <StatCard
-          tint="red"
-          icon="⏱"
-          label="Active Minutes"
-          value={
-            totals.totalDurationMin >= 1
-              ? totals.totalDurationMin.toFixed(0)
-              : totals.totalDurationMin.toFixed(1)
-          }
-          hint={`${(totals.totalDurationMin / 60).toFixed(2)} h capture`}
-        />
-        <StatCard
-          tint="lime"
-          icon="◆"
-          label="Avg Load"
-          value={usable.length ? totals.avgScore.toFixed(2) : "—"}
-          hint="TRIMP / Output Index"
-        />
-      </div>
     </section>
   );
 }
@@ -426,65 +428,52 @@ function ProgressChart({ series }: { series: PerSessionMetrics[] }) {
 }
 
 
-function ReadinessSidecar({ sessions }: { sessions: Session[] }) {
-  const baselined = sessions
+/** Readiness from the server (one calculation everywhere): the latest resting
+ *  baseline against the fighter's own history — "above / near / below baseline". */
+function ReadinessSidecar({ fighterId, sessions }: { fighterId: string; sessions: Session[] }) {
+  const [r, setR] = useState<FighterReadiness | null>(null);
+  const [loaded, setLoaded] = useState(false);
+  useEffect(() => {
+    api
+      .fighterReadiness(fighterId)
+      .then(setR)
+      .catch(() => setR(null))
+      .finally(() => setLoaded(true));
+  }, [fighterId]);
+  const latest = sessions
     .filter((s) => s.baseline_rmssd_ms != null)
-    .sort((a, b) =>
-      (b.baseline_recorded_at ?? "").localeCompare(a.baseline_recorded_at ?? ""),
-    );
-  const latest = baselined[0];
+    .sort((a, b) => b.started_at.localeCompare(a.started_at))[0];
 
-  if (!latest) {
+  if (loaded && !r) {
     return (
       <div className="card flex flex-col">
-        <div className="flex items-baseline justify-between">
-          <h3 className="text-base font-semibold">Readiness</h3>
-          <span className="text-[10px] uppercase tracking-wider text-neutral-500">
-            HRV
-          </span>
-        </div>
+        <h3 className="text-base font-semibold">Readiness</h3>
         <div className="mt-4 flex flex-1 flex-col items-center justify-center text-center text-xs text-neutral-500">
-          <p>No HRV baseline yet.</p>
-          <p className="mt-1">
-            Upload a 5-min RR CSV on a pending session to populate this.
-          </p>
+          <p>No resting baseline yet.</p>
+          <p className="mt-1">Record a 5-minute resting heart rate before a session to see it.</p>
         </div>
       </div>
     );
   }
-
-  const rmssd = latest.baseline_rmssd_ms!;
-  const readiness = Math.round(
-    Math.max(0, Math.min(1, (rmssd - 20) / 70)) * 100,
-  );
-
+  const label =
+    r?.z == null ? "first baselines" : r.z >= 0.5 ? "above baseline" : r.z >= -0.5 ? "near baseline" : "below baseline";
   return (
     <div className="card flex flex-col">
       <div className="flex items-baseline justify-between">
         <h3 className="text-base font-semibold">Readiness</h3>
-        <span className="text-[10px] uppercase tracking-wider text-neutral-500">
-          RMSSD-based
-        </span>
+        <span className="text-xs text-neutral-500">{label}</span>
       </div>
       <div className="mt-2 flex justify-center">
-        <ReadinessGauge value={readiness} />
+        <ReadinessGauge value={r?.score ?? 0} />
       </div>
       <div className="mt-2 grid grid-cols-3 gap-2 text-center text-xs">
-        <HrvMetric label="RMSSD" value={rmssd.toFixed(1)} unit="ms" />
-        <HrvMetric
-          label="SDNN"
-          value={latest.baseline_sdnn_ms?.toFixed(1)}
-          unit="ms"
-        />
-        <HrvMetric
-          label="Mean HR"
-          value={latest.baseline_mean_hr_bpm?.toFixed(0)}
-          unit="bpm"
-        />
+        <HrvMetric label="RMSSD" value={r?.rmssd_ms?.toFixed(1)} unit="ms" />
+        <HrvMetric label="SDNN" value={latest?.baseline_sdnn_ms?.toFixed(1)} unit="ms" />
+        <HrvMetric label="Resting HR" value={latest?.baseline_mean_hr_bpm?.toFixed(0)} unit="bpm" />
       </div>
       <p className="mt-auto pt-3 text-[11px] text-neutral-400">
-        Latest of {baselined.length} baseline
-        {baselined.length === 1 ? "" : "s"}.
+        {r ? `Against ${r.history_n} earlier baseline${r.history_n === 1 ? "" : "s"}` : "…"}
+        {r && r.mode !== "z_score" && ` — calibrates after ${r.min_history_required}`}
       </p>
       <SafetyBoundary className="mt-2" />
     </div>

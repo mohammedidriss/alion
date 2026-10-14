@@ -101,12 +101,15 @@ export default function GymDashboardPage() {
 
   const activeTitles = titles.filter((t) => t.status === "active");
 
+  // The same readiness everywhere: a /100 score against each fighter's own baseline.
   const avgReadiness = useMemo(() => {
-    const scores = [...readinessMap.values()]
-      .filter((r): r is FighterReadiness => r?.z != null)
-      .map((r) => r.z!);
-    if (scores.length === 0) return null;
-    return scores.reduce((a, b) => a + b, 0) / scores.length;
+    const rs = [...readinessMap.values()].filter((r): r is FighterReadiness => r != null);
+    if (rs.length === 0) return null;
+    const zs = rs.filter((r) => r.z != null).map((r) => r.z!);
+    return {
+      score: rs.reduce((a, r) => a + r.score, 0) / rs.length,
+      z: zs.length ? zs.reduce((a, b) => a + b, 0) / zs.length : null,
+    };
   }, [readinessMap]);
 
   // Recent sessions (last 5)
@@ -198,18 +201,55 @@ export default function GymDashboardPage() {
           <p className="mt-1 text-3xl font-bold">{gymSessions.length}</p>
         </div>
         <div className="card text-center">
-          <p className="text-xs uppercase tracking-wider text-neutral-500">Avg Readiness</p>
-          <p className={`mt-1 text-3xl font-bold ${readinessColor(avgReadiness)}`}>
-            {avgReadiness != null
-              ? `${avgReadiness > 0 ? "+" : ""}${avgReadiness.toFixed(2)}z`
-              : "—"}
+          <p className="text-xs uppercase tracking-wider text-neutral-500">Average readiness</p>
+          <p className={`mt-1 text-3xl font-bold ${readinessColor(avgReadiness?.z ?? null)}`}>
+            {avgReadiness != null ? Math.round(avgReadiness.score) : "—"}
+            {avgReadiness != null && <span className="text-base font-medium text-neutral-500"> /100</span>}
           </p>
-          {avgReadiness != null && (
-            <p className={`text-xs ${readinessColor(avgReadiness)}`}>
-              {readinessLabel(avgReadiness)}
-            </p>
+          {avgReadiness?.z != null && (
+            <p className={`text-xs ${readinessColor(avgReadiness.z)}`}>{readinessLabel(avgReadiness.z)}</p>
           )}
         </div>
+      </div>
+
+      {/* Roster readiness overview */}
+      <div className="card">
+        <div className="flex items-center justify-between">
+          <h3 className="font-semibold">Fighter Readiness</h3>
+          <Link
+            href="/gym-dashboard/members"
+            className="text-xs text-emerald-400 hover:text-emerald-300"
+          >
+            View all members →
+          </Link>
+        </div>
+        <SafetyBoundary className="mt-2" />
+        {fighters.length === 0 ? (
+          <p className="mt-4 text-sm text-neutral-500">No fighters yet.</p>
+        ) : (
+          <div className="mt-3 grid grid-cols-2 gap-2 sm:grid-cols-3 lg:grid-cols-4">
+            {fighters.map((f) => {
+              const r = readinessMap.get(f.id);
+              return (
+                <Link
+                  key={f.id}
+                  href={`/fighters/${f.id}`}
+                  className="flex items-center gap-2 rounded-lg border border-white/5 bg-white/[0.02] p-2.5 hover:border-white/15 hover:bg-white/[0.04]"
+                >
+                  <ProfileAvatar name={f.name} photo_path={f.photo_path} size={28} />
+                  <div className="min-w-0 flex-1">
+                    <p className="truncate text-xs font-medium">{f.name}</p>
+                    <p className={`text-[10px] ${readinessColor(r?.z ?? null)}`}>
+                      {r
+                        ? `${r.score}/100${r.z != null ? ` · ${readinessLabel(r.z)}` : ""}`
+                        : "No baseline yet"}
+                    </p>
+                  </div>
+                </Link>
+              );
+            })}
+          </div>
+        )}
       </div>
 
       {/* Today's Attendance */}
@@ -251,7 +291,7 @@ export default function GymDashboardPage() {
         )}
       </div>
 
-      {/* Second row: Titles + Quick links */}
+      {/* The gym: titles held, and who trains here */}
       <div className="grid grid-cols-1 gap-4 lg:grid-cols-2">
         {/* Active Titles / Trophies */}
         <div className="card">
@@ -302,10 +342,10 @@ export default function GymDashboardPage() {
                 <div key={level} className="flex items-center justify-between py-1">
                   <span className="text-sm capitalize text-neutral-300">{level}</span>
                   <div className="flex items-center gap-2">
-                    <div className="h-1.5 rounded-full bg-emerald-500/30" style={{ width: `${Math.max(16, (count / fighters.length) * 120)}px` }}>
+                    <div className="h-1.5 w-28 rounded-full bg-white/10">
                       <div
                         className="h-full rounded-full bg-emerald-500"
-                        style={{ width: "100%" }}
+                        style={{ width: `${(count / Math.max(1, fighters.length)) * 100}%` }}
                       />
                     </div>
                     <span className="w-6 text-right text-xs text-neutral-500">{count}</span>
@@ -324,46 +364,6 @@ export default function GymDashboardPage() {
             </div>
           </div>
         </div>
-      </div>
-
-      {/* Roster readiness overview */}
-      <div className="card">
-        <div className="flex items-center justify-between">
-          <h3 className="font-semibold">Fighter Readiness</h3>
-          <Link
-            href="/gym-dashboard/members"
-            className="text-xs text-emerald-400 hover:text-emerald-300"
-          >
-            View all members →
-          </Link>
-        </div>
-        <SafetyBoundary className="mt-2" />
-        {fighters.length === 0 ? (
-          <p className="mt-4 text-sm text-neutral-500">No fighters yet.</p>
-        ) : (
-          <div className="mt-3 grid grid-cols-2 gap-2 sm:grid-cols-3 lg:grid-cols-4">
-            {fighters.map((f) => {
-              const r = readinessMap.get(f.id);
-              return (
-                <Link
-                  key={f.id}
-                  href={`/fighters/${f.id}`}
-                  className="flex items-center gap-2 rounded-lg border border-white/5 bg-white/[0.02] p-2.5 hover:border-white/15 hover:bg-white/[0.04]"
-                >
-                  <ProfileAvatar name={f.name} photo_path={f.photo_path} size={28} />
-                  <div className="min-w-0 flex-1">
-                    <p className="truncate text-xs font-medium">{f.name}</p>
-                    <p className={`text-[10px] ${readinessColor(r?.z ?? null)}`}>
-                      {r?.z != null
-                        ? `${r.z > 0 ? "+" : ""}${r.z.toFixed(1)}z · ${readinessLabel(r.z)}`
-                        : "No data"}
-                    </p>
-                  </div>
-                </Link>
-              );
-            })}
-          </div>
-        )}
       </div>
 
       {/* Recent Sessions */}

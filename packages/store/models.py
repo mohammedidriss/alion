@@ -187,6 +187,7 @@ class UserRole(StrEnum):
     REFEREE = "referee"
     GYM_MANAGER = "gym_manager"
     ADMIN = "admin"
+    PHYSICIAN = "physician"  # chosen by a fighter: their health notes and training (ADR-046)
 
 
 class User(SQLModel, table=True):
@@ -226,7 +227,9 @@ class UserRead(SQLModel):
     created_at: UtcDatetime
     terms_version: str | None = None
     terms_accepted_at: UtcDatetime | None = None
-    is_researcher: bool = False  # may open research datasets (ADR-017)
+    is_researcher: bool = False  # all data, every tab, administration (ADR-017, ADR-046)
+    is_reviewer: bool = False  # enrolled in the appropriate-reliance study (ADR-026)
+    is_rq1_rater: bool = False  # chosen to rate RQ1 advice (ADR-045)
 
 
 # ----------------------------------------------------------------------
@@ -1521,6 +1524,20 @@ class CoachAssignment(SQLModel, table=True):
     ended_on: date | None = None  # None = current
     notes: str | None = None
     created_at: datetime = Field(default_factory=lambda: datetime.now(UTC))
+    # The fighter lets this coach see their health notes (ADR-046): off for a new
+    # coach; the fighter turns it on.
+    health_access: bool = False
+
+
+class PhysicianAssignmentRow(SQLModel, table=True):
+    """A physician a fighter chose (ADR-046): their health notes and training data."""
+
+    __tablename__ = "physician_assignment"
+    id: int | None = Field(default=None, primary_key=True)
+    fighter_id: UUID = Field(foreign_key="fighter.id", index=True)
+    physician_id: UUID = Field(foreign_key="user.id", index=True)  # the physician's account
+    started_at: datetime = Field(default_factory=lambda: datetime.now(UTC))
+    ended_at: datetime | None = None  # None = current
 
 
 class CoachAssignmentCreate(SQLModel):
@@ -1529,6 +1546,7 @@ class CoachAssignmentCreate(SQLModel):
     started_on: date | None = None
     ended_on: date | None = None
     notes: str | None = None
+    health_access: bool = False
 
 
 class CoachAssignmentRead(SQLModel):
@@ -1542,6 +1560,7 @@ class CoachAssignmentRead(SQLModel):
     ended_on: date | None = None
     notes: str | None = None
     created_at: UtcDatetime
+    health_access: bool = False
 
 
 # ----------------------------------------------------------------------

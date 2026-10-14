@@ -35,6 +35,7 @@ from api.routes import (
     imu_ble,
     live,
     llm,
+    physicians,
     pose,
     privacy,
     protocol,
@@ -233,6 +234,7 @@ app.include_router(reliance.router)  # the appropriate-reliance study (ADR-026)
 app.include_router(privacy.router)  # what's kept, who sees it, requests (ADR-033)
 app.include_router(gym_invitations.router)  # a fighter accepts a gym (ADR-035)
 app.include_router(rest_cards.router)  # the minute between rounds (ADR-041)
+app.include_router(physicians.router)  # a physician's fighters (ADR-046)
 app.include_router(round_plans.router)
 # Two-fighter bouts (ADR-011) — new endpoints, unversioned.
 app.include_router(bouts.router)

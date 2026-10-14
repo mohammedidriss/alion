@@ -146,9 +146,10 @@ export default function PrivacyPage() {
             </thead>
             <tbody className="text-neutral-200">
               <tr className="border-t border-white/5"><td className="py-1.5 pr-3">You</td><td>Yes</td><td>Yes</td></tr>
-              <tr className="border-t border-white/5"><td className="py-1.5 pr-3">Your current coaches</td><td>Yes</td><td>Yes</td></tr>
+              <tr className="border-t border-white/5"><td className="py-1.5 pr-3">Your current coaches</td><td>Yes</td><td>Only if you share them (Team page)</td></tr>
+              <tr className="border-t border-white/5"><td className="py-1.5 pr-3">Physicians you choose</td><td>Yes, to read</td><td>Yes</td></tr>
               <tr className="border-t border-white/5"><td className="py-1.5 pr-3">Managers of gyms you joined</td><td>Yes, once you accept</td><td>No</td></tr>
-              <tr className="border-t border-white/5"><td className="py-1.5 pr-3">Researchers</td><td>Research datasets only, by code</td><td>No</td></tr>
+              <tr className="border-t border-white/5"><td className="py-1.5 pr-3">The researcher running the study</td><td>Yes, all of it</td><td>Yes — every look is logged</td></tr>
               <tr className="border-t border-white/5"><td className="py-1.5 pr-3">Administrators</td><td>No — accounts only</td><td>No</td></tr>
             </tbody>
           </table>
@@ -157,6 +158,15 @@ export default function PrivacyPage() {
           <p className="text-neutral-300">
             Right now:{" "}
             {me.viewers.coaches.length ? <>coaches <b>{me.viewers.coaches.join(", ")}</b></> : "no coach"}
+            {me.viewers.coaches_with_health && me.viewers.coaches_with_health.length > 0 && (
+              <> (health notes shared with {me.viewers.coaches_with_health.join(", ")})</>
+            )}
+            {" · "}
+            {me.viewers.physicians && me.viewers.physicians.length ? (
+              <>physicians <b>{me.viewers.physicians.join(", ")}</b></>
+            ) : (
+              "no physician"
+            )}
             {" · "}
             {me.viewers.gyms.length ? (
               <>

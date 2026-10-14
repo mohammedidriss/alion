@@ -22,8 +22,8 @@ const ZONES = [
 ];
 
 const WRIST_COLOR: Record<ImuHand, string> = {
-  left: "rgb(56, 189, 248)",
-  right: "rgb(34, 197, 94)",
+  left: "#fbbf24", // the hands' colours everywhere: left amber, right blue
+  right: "#60a5fa",
 };
 
 export function LiveReader({

@@ -3,6 +3,7 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { api, type AuthUser, type Gym, type GymManager } from "@/lib/api";
 import { useAuth } from "@/lib/auth";
+import { isAdmin } from "@/lib/nav";
 
 export default function AdminGymManagersPage() {
   const { user: me } = useAuth();
@@ -137,7 +138,7 @@ export default function AdminGymManagersPage() {
     }
   };
 
-  if (me?.role !== "admin") {
+  if (!isAdmin(me)) {
     return <div className="px-4 py-8 text-neutral-400">Admin access required.</div>;
   }
 

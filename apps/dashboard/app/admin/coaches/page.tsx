@@ -5,6 +5,7 @@ import { useCallback, useEffect, useMemo, useState } from "react";
 import { ProfileAvatar } from "@/components/ProfileAvatar";
 import { api, type Coach } from "@/lib/api";
 import { useAuth } from "@/lib/auth";
+import { isAdmin } from "@/lib/nav";
 
 export default function AdminCoachesPage() {
   const { user } = useAuth();
@@ -34,7 +35,7 @@ export default function AdminCoachesPage() {
     [coaches, q],
   );
 
-  if (user?.role !== "admin") {
+  if (!isAdmin(user)) {
     return <div className="px-4 py-8 sm:px-8 sm:py-12 text-neutral-400">Admin access required.</div>;
   }
 

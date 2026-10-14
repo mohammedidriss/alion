@@ -4,6 +4,7 @@ import Link from "next/link";
 import { useEffect, useState } from "react";
 import { api, type AdminSystemStats } from "@/lib/api";
 import { useAuth } from "@/lib/auth";
+import { isAdmin } from "@/lib/nav";
 
 export default function AdminDashboard() {
   const { user } = useAuth();
@@ -14,7 +15,7 @@ export default function AdminDashboard() {
     api.adminStats().then(setStats).catch((e) => setError(e.message));
   }, []);
 
-  if (user?.role !== "admin") {
+  if (!isAdmin(user)) {
     return (
       <div className="px-4 py-8 sm:px-8 sm:py-12 text-neutral-400">
         Admin access required.

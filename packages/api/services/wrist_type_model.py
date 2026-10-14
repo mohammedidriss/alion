@@ -4,7 +4,9 @@ Trained on every completed dataset take's typed labels (read-only), straight
 from the take folders — no export needed: each label (t_ms, hand, jab | cross |
 hook | uppercut) gives one row of `analyze.wrist_types` features and its motion
 (straight / hook / uppercut). Before the final fit it is scored on takes it never
-saw (5-fold, grouped by take), and that score is saved with the model:
+saw (5-fold, grouped by take), and that score is saved with the model. Every
+recorded training session someone labelled with punch types joins in too
+(ADR-047, `session_corpus`), its wrist samples read from the database:
 
     data/ml/wrist_types/v{n}.joblib   the model
     data/ml/wrist_types/v{n}.json     its report
@@ -26,7 +28,7 @@ from typing import Any
 import numpy as np
 
 from analyze import wrist_types as wt
-from api.services import dataset_store
+from api.services import dataset_store, session_corpus
 from common import get_logger
 
 log = get_logger(__name__)
@@ -120,8 +122,25 @@ def typed_punches(
         if len(ys) > before:
             participants.add(take.get("participant"))
             stances[str(take.get("stance"))] += 1
+    takes = len(set(groups))
+    # Recorded sessions someone labelled (ADR-047). Whose they are isn't a dataset
+    # participant code, so they sit out the leave-one-person-out score.
+    for m in session_corpus.typed_sessions():
+        streams = session_corpus.imu_streams(m.session_id)
+        for t_ms, hand, punch_type in m.typed:
+            t, imu = streams[hand]
+            win = wt.window(t, imu, t_ms) if len(t) else None
+            if win is None:
+                continue
+            xs.append(wt.features(win, hand))
+            ys.append(wt.TYPE_TO_MOTION[punch_type])
+            hands.append(hand)
+            groups.append(m.group)
+            kinds.append("session")
+            people.append("")
     meta = {
-        "takes": len(set(groups)),
+        "takes": takes,
+        "sessions": len(set(groups)) - takes,
         "participants": len(participants - {None}),
         "stances": dict(stances),
     }
@@ -171,13 +190,14 @@ def _train(datasets: Path | None) -> dict[str, Any]:
     x, y, hands, groups, meta = typed_punches(datasets)
     kinds = np.array(meta.pop("kinds"))
     people = np.array(meta.pop("people"))
-    if meta["takes"] < MIN_TAKES or len(set(y.tolist())) < 2:
+    n_groups = meta["takes"] + meta["sessions"]
+    if n_groups < MIN_TAKES or len(set(y.tolist())) < 2:
         raise ValueError(
-            f"needs typed punches from at least {MIN_TAKES} takes with wrist data "
-            f"(found {meta['takes']})"
+            f"needs typed punches from at least {MIN_TAKES} takes or sessions with wrist data "
+            f"(found {n_groups})"
         )
     pred = np.empty_like(y)
-    for tr, te in GroupKFold(n_splits=min(FOLDS, meta["takes"])).split(x, y, groups):
+    for tr, te in GroupKFold(n_splits=min(FOLDS, n_groups)).split(x, y, groups):
         pred[te] = wt.classify(wt.fit(x[tr], y[tr]), x[te])
     held_out = score(y, pred, hands)
     combos = None
@@ -192,11 +212,13 @@ def _train(datasets: Path | None) -> dict[str, Any]:
     by_person = None
     named = sorted({p for p in people.tolist() if p})
     if len(named) >= 2:
-        pred_p = np.empty_like(y)
+        pred_p = np.full_like(y, "")
+        from_takes = np.array([not session_corpus.is_session(g) for g in groups.tolist()])
         for person in named:
             te = people == person
-            if len(set(y[~te].tolist())) >= 2:
-                pred_p[te] = wt.classify(wt.fit(x[~te], y[~te]), x[te])
+            fit_on = ~te & from_takes
+            if len(set(y[fit_on].tolist())) >= 2:
+                pred_p[te] = wt.classify(wt.fit(x[fit_on], y[fit_on]), x[te])
             else:
                 pred_p[te] = ""
         known = pred_p != ""

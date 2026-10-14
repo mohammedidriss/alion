@@ -128,6 +128,22 @@ export interface CoachAssignment {
   ended_on: string | null;
   notes: string | null;
   created_at: string;
+  health_access?: boolean; // the fighter shares their health notes with this coach (ADR-046)
+}
+
+/** A physician a fighter chose (ADR-046). */
+export interface FighterPhysician {
+  id: number;
+  physician_id: string;
+  name: string;
+  email: string;
+  started_at: string;
+}
+export interface PhysicianFighter {
+  fighter_id: string;
+  name: string;
+  photo_path: string | null;
+  since: string;
 }
 
 export type CoachingLevel = "amateur" | "professional" | "both";
@@ -941,6 +957,9 @@ export interface TrainingReport {
     test_stretches: number;
     train_punches: number;
     test_punches: number;
+    // recorded training sessions, trained on and never scored (ADR-047; absent before it)
+    sessions?: number;
+    session_punches?: number;
     reviewed_labels: boolean;
   };
   train_cv: CounterScore;
@@ -1016,7 +1035,7 @@ export interface WristTypeScore {
 export interface WristTypesReport {
   version: number;
   created_at: string;
-  data: { takes: number; participants: number; stances: Record<string, number>; punches: number; per_motion: Record<string, number> };
+  data: { takes: number; sessions?: number; participants: number; stances: Record<string, number>; punches: number; per_motion: Record<string, number> };
   held_out_takes: WristTypeScore;
   combos: WristTypeScore | null;
   other_boxers?: (WristTypeScore & { dataset: string }) | null; // a public set it never saw
@@ -1031,7 +1050,7 @@ export interface CameraTypeScore {
 export interface CameraTypesReport {
   version: number;
   created_at: string;
-  data: { takes: number; participants: number; punches: number; views: number; per_motion: Record<string, number> };
+  data: { takes: number; sessions?: number; participants: number; punches: number; views: number; per_motion: Record<string, number> };
   held_out_views: CameraTypeScore; // one camera at a time
   held_out_punches: CameraTypeScore; // all the punch's cameras averaged
 }
@@ -1117,7 +1136,7 @@ export interface CaptureStatus {
   punch_count: number;
 }
 
-export type UserRole = "fighter" | "coach" | "referee" | "gym_manager" | "admin";
+export type UserRole = "fighter" | "coach" | "referee" | "gym_manager" | "admin" | "physician";
 
 export interface AuthUser {
   id: string;
@@ -1131,8 +1150,12 @@ export interface AuthUser {
   /** The terms version they accepted (ADR-016); null until they have. */
   terms_version: string | null;
   terms_accepted_at: string | null;
-  /** May open research datasets — listed in ALION_RESEARCHERS (ADR-017). */
+  /** Listed in ALION_RESEARCHERS: all data, every tab, administration (ADR-017, ADR-046). */
   is_researcher: boolean;
+  /** Enrolled in the appropriate-reliance study (ADR-026). */
+  is_reviewer?: boolean;
+  /** Chosen to rate RQ1 advice (ADR-045). */
+  is_rq1_rater?: boolean;
 }
 
 /** One of the coach's AI setups (ADR-021). */
@@ -1245,7 +1268,13 @@ export interface PrivacyMe {
   terms_accepted_at: string | null;
   terms_current: string;
   holdings: { what: string; count: number }[];
-  viewers: { coaches: string[]; gyms: string[]; gym_managers: string[] } | null;
+  viewers: {
+    coaches: string[];
+    coaches_with_health?: string[];
+    physicians?: string[];
+    gyms: string[];
+    gym_managers: string[];
+  } | null;
   datasets: { dataset: string; code: string | null; consent: string; consent_date: string | null }[];
   requests: DataRequest[];
   disk_encrypted?: "on" | "off" | "unknown"; // this computer's disk (ADR-044)
@@ -2432,6 +2461,22 @@ export const api = {
     req<void>(`/fighters/${fighterId}/coach-assignments/${assignmentId}`, {
       method: "DELETE",
     }),
+  setCoachHealthAccess: (fighterId: string, assignmentId: number, healthAccess: boolean) =>
+    req<{ health_access: boolean }>(`/fighters/${fighterId}/coach-assignments/${assignmentId}`, {
+      method: "PATCH",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ health_access: healthAccess }),
+    }),
+  listPhysicians: (fighterId: string) => req<FighterPhysician[]>(`/fighters/${fighterId}/physicians`),
+  addPhysician: (fighterId: string, email: string) =>
+    req<FighterPhysician>(`/fighters/${fighterId}/physicians`, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ email }),
+    }),
+  removePhysician: (fighterId: string, assignmentId: number) =>
+    req<void>(`/fighters/${fighterId}/physicians/${assignmentId}`, { method: "DELETE" }),
+  physicianFighters: () => req<PhysicianFighter[]>("/physicians/me/fighters"),
 
   // ---- Detector evaluation (manual labels vs detections) ----
   getLabels: (sessionId: string) =>

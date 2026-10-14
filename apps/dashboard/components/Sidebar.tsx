@@ -6,9 +6,7 @@ import { AlionWordmark } from "@/components/AlionLogo";
 import { ProfileAvatar } from "@/components/ProfileAvatar";
 import { useAuth } from "@/lib/auth";
 import { api } from "@/lib/api";
-
-/** `hint`: what the page is, in plain words — shown on hover and to screen readers. */
-type NavItem = { label: string; href: string; icon: string; hint?: string };
+import { canStartSession, fighterTabsFor, navSections, type NavItem } from "@/lib/nav";
 
 /** Extract fighter ID from pathname like /fighters/abc-123/sessions */
 function extractFighterId(pathname: string): string | null {
@@ -22,96 +20,18 @@ function extractCoachId(pathname: string): string | null {
   return m ? m[1] : null;
 }
 
-const FIGHTER_TABS: { slug: string; label: string; icon: string; hint: string }[] = [
-  { slug: "", label: "Dashboard", icon: "▦", hint: "This fighter at a glance" },
-  { slug: "sessions", label: "Training sessions", icon: "▷", hint: "Every recorded training session" },
-  { slug: "hrv", label: "Heart rate", icon: "♥", hint: "Heart rate in every session, and resting heart-rate variability (HRV)" },
-  { slug: "observations", label: "Observations", icon: "✎", hint: "Progress over time, coach notes and AI training observations" },
-  { slug: "medical", label: "Health notes", icon: "▣", hint: "Allergies, medications and contacts, kept for the people looking after this fighter" },
-  { slug: "team", label: "Team", icon: "◈", hint: "This fighter's coaches and gym" },
-  { slug: "imu", label: "Wrist sensors", icon: "▤", hint: "Punch force and rotation from the sensors on each wrist (IMU)" },
-];
-
 export function Sidebar({ onNavigate }: { onNavigate?: () => void } = {}) {
   const pathname = usePathname();
   const router = useRouter();
   const { user, logout } = useAuth();
-  const activeRole = user?.role ?? null;
 
   const fighterId = extractFighterId(pathname);
   const coachId = extractCoachId(pathname);
 
-  // Compute the user's "home" URL based on role
-  const homeHref = (() => {
-    if (!user) return "/";
-    if (user.role === "fighter" && user.profile_id) return `/fighters/${user.profile_id}`;
-    if (user.role === "coach" && user.profile_id) return `/coaches/${user.profile_id}`;
-    if (user.role === "referee" && user.profile_id) return `/referees/${user.profile_id}`;
-    if (user.role === "gym_manager") return "/gym-dashboard";
-    if (user.role === "admin") return "/admin";
-    return "/";
-  })();
-
-  // Build nav items based on context
-  const navItems: NavItem[] = [];
-
-  // Always show Home (points to user's profile page)
-  navItems.push({ label: "Home", href: homeHref, icon: "H" });
-
-  // Role-specific global items
-  if (activeRole === "admin") {
-    navItems.push({ label: "Admin Dashboard", href: "/admin", icon: "⚙" });
-    navItems.push({ label: "Users", href: "/admin/users", icon: "◉" });
-    navItems.push({ label: "All Fighters", href: "/admin/fighters", icon: "⊕" });
-    navItems.push({ label: "All Coaches", href: "/admin/coaches", icon: "◈" });
-    navItems.push({ label: "Gym Managers", href: "/admin/gym-managers", icon: "M" });
-    navItems.push({ label: "All Gyms", href: "/admin/gyms", icon: "⌂" });
-    navItems.push({ label: "Compare Backends", href: "/compare", icon: "C" });
-  }
-  if (activeRole === "gym_manager") {
-    navItems.push({ label: "Dashboard", href: "/gym-dashboard", icon: "▦" });
-    navItems.push({ label: "Members", href: "/gym-dashboard/members", icon: "◉" });
-    navItems.push({ label: "Coaches", href: "/gym-dashboard/coaches", icon: "◈" });
-    navItems.push({ label: "Gyms", href: "/gym-dashboard/gyms", icon: "⌂" });
-  }
-  // Bouts (ADR-011) — two-fighter fights; for everyone who runs sessions (not admin,
-  // who is restricted from training data).
-  if (activeRole && activeRole !== "admin") {
-    navItems.push({ label: "Fights", href: "/bouts", icon: "⚔", hint: "Two-fighter bouts: both corners recorded together" });
-  }
-  // Datasets (ADR-013) — research recordings, kept apart from training sessions.
-  // IRB data: researchers only (ALION_RESEARCHERS; the API enforces it, ADR-017).
-  if (user?.is_researcher) {
-    navItems.push({ label: "Research datasets", href: "/datasets", icon: "▤", hint: "Recordings for training the models — researchers only" });
-  }
-  // The appropriate-reliance study (ADR-026): researchers run it; enrolled coaches
-  // and referees take part (the page says if they aren't enrolled).
-  if (user?.is_researcher || activeRole === "coach" || activeRole === "referee") {
-    navItems.push({ label: "Study", href: "/study", icon: "◎", hint: "The advisory review study" });
-  }
-  // Which AI writes the advice — local or remote (ADR-021).
-  if (user?.is_researcher || activeRole === "admin") {
-    navItems.push({ label: "AI model", href: "/ai-model", icon: "✦", hint: "Which computer writes the AI training advice" });
-  }
-  // Privacy and consent (ADR-033): everyone; the requests to act on, for the
-  // people who handle them.
-  if (user) {
-    navItems.push({ label: "Privacy & consent", href: "/privacy", icon: "◐", hint: "What Alion keeps about you, who can see it, and your requests" });
-  }
-  if (user?.is_researcher || activeRole === "admin") {
-    navItems.push({ label: "Data requests", href: "/privacy/requests", icon: "✉", hint: "People's requests for a copy, a deletion or to leave the research" });
-  }
-
-  // Fighter context tabs (when viewing any fighter page)
-  // Privacy: admin only sees general info (Dashboard + Team); gym_manager can't see Medical
-  const CONFIDENTIAL_SLUGS = ["sessions", "hrv", "observations", "medical", "imu"];
-  const visibleTabs = activeRole === "admin"
-    ? FIGHTER_TABS.filter((t) => !CONFIDENTIAL_SLUGS.includes(t.slug))
-    : activeRole === "gym_manager"
-      ? FIGHTER_TABS.filter((t) => t.slug !== "medical")
-      : FIGHTER_TABS;
+  // The menu comes from what this account may do (lib/nav.ts, ADR-046).
+  const sections = navSections(user);
   const fighterTabs: NavItem[] = fighterId
-    ? visibleTabs.map((t) => ({
+    ? fighterTabsFor(user).map((t) => ({
         label: t.label,
         href: t.slug ? `/fighters/${fighterId}/${t.slug}` : `/fighters/${fighterId}`,
         icon: t.icon,
@@ -140,24 +60,33 @@ export function Sidebar({ onNavigate }: { onNavigate?: () => void } = {}) {
       </div>
 
       <nav className="flex-1 space-y-0.5 overflow-y-auto px-2">
-        {/* Global nav */}
-        {navItems.map((item) => (
-          <Link
-            key={item.href + item.label}
-            href={item.href}
-            title={item.hint}
-            onClick={onNavigate}
-            className={`flex items-center gap-2.5 rounded-lg px-3 py-2 text-sm transition-colors ${
-              isTabActive(item.href)
-                ? "bg-white/[0.08] text-white font-medium"
-                : "text-neutral-400 hover:bg-white/[0.04] hover:text-neutral-200"
-            }`}
-          >
-            <span className="flex h-5 w-5 items-center justify-center rounded text-[11px] bg-white/[0.06]">
-              {item.icon}
-            </span>
-            {item.label}
-          </Link>
+        {/* Global nav, by section */}
+        {sections.map((sec) => (
+          <div key={sec.title ?? "mine"} className={sec.title ? "pt-3" : ""}>
+            {sec.title && (
+              <div className="mb-1 px-3 text-[10px] font-semibold uppercase tracking-wider text-neutral-600">
+                {sec.title}
+              </div>
+            )}
+            {sec.items.map((item) => (
+              <Link
+                key={item.href + item.label}
+                href={item.href}
+                title={item.hint}
+                onClick={onNavigate}
+                className={`flex items-center gap-2.5 rounded-lg px-3 py-2 text-sm transition-colors ${
+                  isTabActive(item.href)
+                    ? "bg-white/[0.08] text-white font-medium"
+                    : "text-neutral-400 hover:bg-white/[0.04] hover:text-neutral-200"
+                }`}
+              >
+                <span className="flex h-5 w-5 items-center justify-center rounded text-[11px] bg-white/[0.06]">
+                  {item.icon}
+                </span>
+                {item.label}
+              </Link>
+            ))}
+          </div>
         ))}
 
         {/* Fighter context section */}
@@ -191,8 +120,8 @@ export function Sidebar({ onNavigate }: { onNavigate?: () => void } = {}) {
               );
             })}
 
-            {/* Training session button (coaches only — admin manages accounts, not sessions) */}
-            {activeRole !== "fighter" && activeRole !== "gym_manager" && activeRole !== "admin" && (
+            {/* Training session button: coaches and researchers */}
+            {canStartSession(user) && (
               <button
                 onClick={async (e) => {
                   const btn = e.currentTarget;
@@ -249,6 +178,7 @@ export function Sidebar({ onNavigate }: { onNavigate?: () => void } = {}) {
                 <p className="truncate text-xs font-medium">{user.name}</p>
                 <p className="truncate text-[10px] capitalize text-neutral-500">
                   {user.role === "gym_manager" ? "gym manager" : user.role}
+                  {user.is_researcher && " · researcher"}
                 </p>
               </div>
             </Link>

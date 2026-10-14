@@ -4,6 +4,7 @@ import Link from "next/link";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { api, type Gym } from "@/lib/api";
 import { useAuth } from "@/lib/auth";
+import { isAdmin } from "@/lib/nav";
 
 export default function AdminGymsPage() {
   const { user } = useAuth();
@@ -33,7 +34,7 @@ export default function AdminGymsPage() {
     [gyms, q],
   );
 
-  if (user?.role !== "admin") {
+  if (!isAdmin(user)) {
     return <div className="px-4 py-8 sm:px-8 sm:py-12 text-neutral-400">Admin access required.</div>;
   }
 

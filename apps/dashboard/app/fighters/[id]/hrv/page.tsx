@@ -33,6 +33,7 @@ export default function HrvTab({ params }: { params: { id: string } }) {
 
 /** The page itself — its hooks run on every render, in the same order. */
 function HrvTabContent({ params }: { params: { id: string } }) {
+  const { user } = useAuth();
   const [sessions, setSessions] = useState<Session[]>([]);
   const [matrix, setMatrix] = useState<MatrixResponse | null>(null);
   const [readiness, setReadiness] = useState<FighterReadiness | null>(null);
@@ -151,10 +152,6 @@ function HrvTabContent({ params }: { params: { id: string } }) {
         <SafetyBoundary className="mt-2" />
       </header>
 
-      <SessionRecordingsCard fighterId={params.id} sensor="heart" />
-
-      <PolarH10Config />
-
       {/* HEADLINE STATS — most important numbers, scannable */}
       <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
         <HeadlineStat
@@ -184,14 +181,10 @@ function HrvTabContent({ params }: { params: { id: string } }) {
           tone="orange"
         />
         <HeadlineStat
-          label="HRV vs Score r"
-          value={r != null ? r.toFixed(2) : "—"}
-          unit={correlationStrength}
-          tone={
-            r != null && n >= STRENGTH_MIN_N && Math.abs(r) >= 0.5
-              ? "lime"
-              : "neutral"
-          }
+          label="Resting baselines"
+          value={baselined.length.toString()}
+          unit={baselined.length === 1 ? "recorded" : "recorded"}
+          tone="neutral"
         />
       </div>
 
@@ -205,60 +198,20 @@ function HrvTabContent({ params }: { params: { id: string } }) {
         </div>
       )}
 
-      {/* PRIMARY CHARTS — readiness gauge + trend, both clearly visible */}
-      <div className="grid grid-cols-1 gap-4 lg:grid-cols-3">
-        <div className="card">
-          <div className="flex items-baseline justify-between">
-            <h2 className="text-base font-semibold">Readiness gauge</h2>
-            <span className="text-[10px] uppercase tracking-wider text-neutral-500">
-              RMSSD-based
-            </span>
-          </div>
-          <div className="mt-2 flex justify-center">
-            <ReadinessGauge value={readinessScore} />
-          </div>
-          <div className="mt-2 grid grid-cols-3 gap-2 text-center text-xs">
-            <HrvMetric label="RMSSD" value={rmssd.toFixed(1)} unit="ms" />
-            <HrvMetric
-              label="SDNN"
-              value={latest.baseline_sdnn_ms?.toFixed(1)}
-              unit="ms"
-            />
-            <HrvMetric
-              label="Mean HR"
-              value={latest.baseline_mean_hr_bpm?.toFixed(0)}
-              unit="bpm"
-            />
-          </div>
-          <p className="mt-3 text-[11px] text-neutral-500">
-            {readinessMode === "z_score" && readiness ? (
-              <>
-                Per-fighter z-score: today&apos;s RMSSD vs this
-                fighter&apos;s rolling baseline (n={readiness.history_n},
-                mean {readiness.baseline_mean_ms?.toFixed(1)} ms ± SD{" "}
-                {readiness.baseline_sd_ms?.toFixed(1)} ms · z={readiness.z}).
-              </>
-            ) : (
-              <>
-                Cold-start formula: clamp((RMSSD − 20)/70). Universal remap;
-                will switch to per-fighter z-score after enough baselines.
-              </>
-            )}
-          </p>
-        </div>
-
-        <div className="card lg:col-span-2">
-          <h2 className="text-base font-semibold">RMSSD trend</h2>
-          <RmssdTrend sessions={baselined} />
-          <p className="mt-2 text-[11px] text-neutral-500">
-            Trend across recorded resting baselines. A drop of 7+ ms over a week can
-            reflect accumulated training load — a prompt to talk, not a verdict.
-          </p>
-        </div>
+      {/* TREND */}
+      <div className="card">
+        <h2 className="text-base font-semibold">Resting RMSSD over time</h2>
+        <RmssdTrend sessions={baselined} />
+        <p className="mt-2 text-[11px] text-neutral-500">
+          {readinessMode === "z_score" && readiness
+            ? `Readiness compares the latest baseline with this fighter's own ${readiness.history_n} earlier ones (mean ${readiness.baseline_mean_ms?.toFixed(1)} ms).`
+            : "Readiness uses a general formula until there are enough baselines to compare with this fighter's own."}{" "}
+          A drop of 7+ ms over a week can reflect accumulated training load — a prompt to talk, not a verdict.
+        </p>
       </div>
 
       {/* CORRELATION SCATTER — readiness vs performance, inline */}
-      {matrix && matrix.points.length > 0 && (
+      {user?.is_researcher && matrix && matrix.points.length > 0 && (
         <div className="card">
           <h2 className="text-base font-semibold">
             Resting HRV vs performance score
@@ -297,6 +250,8 @@ function HrvTabContent({ params }: { params: { id: string } }) {
           )}
         </div>
       )}
+
+      <SessionRecordingsCard fighterId={params.id} sensor="heart" />
 
       <div className="card">
         <h2 className="text-base font-semibold">Session baselines</h2>
@@ -339,6 +294,12 @@ function HrvTabContent({ params }: { params: { id: string } }) {
         </table>
       </div>
 
+      <details className="card">
+        <summary className="cursor-pointer text-sm font-semibold text-neutral-200">Chest strap setup</summary>
+        <div className="mt-3">
+          <PolarH10Config />
+        </div>
+      </details>
     </div>
   );
 }

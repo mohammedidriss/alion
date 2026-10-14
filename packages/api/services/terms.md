@@ -27,7 +27,24 @@ During sessions the platform may record: video from cameras, wrist-sensor motion
 data, heart-rate data from a chest strap, and the punches detected from them.
 Video is recorded **without sound**.
 
-## 4. Research datasets
+## 4. Who can see your data
+
+- You see everything about yourself.
+- Your coaches see your training sessions; they see your health notes only if
+  you share them on your Team page.
+- Physicians you choose see your health notes and training sessions.
+- Managers of a gym you joined see your training sessions, not your health notes.
+- The researcher running this study can see all data on the platform, including
+  health notes, for the study. Every look at health notes is logged.
+- Administrators manage accounts and gyms; they don't see training or health data.
+
+## 5. How your recordings are used
+
+Recorded sessions — video, wrist-sensor and heart-rate data, and the punches
+detected from them — are used by the research team to develop and improve the
+platform, including the models that detect and name punches.
+
+## 6. Research datasets
 
 If you take part in a research dataset, what goes into it is **de-identified**:
 
@@ -37,23 +54,23 @@ If you take part in a research dataset, what goes into it is **de-identified**:
   produced;
 - datasets are not shared with anyone [outside the research team].
 
-## 5. Advice from the platform
+## 7. Advice from the platform
 
 The platform is an early version still in development. It can make mistakes. Any
 advice it shows is non-binding: a person makes every decision.
 
-## 6. Withdrawing
+## 8. Withdrawing
 
 You can withdraw from a research dataset at any time by contacting
 Mohammed.idriss@hotmail.com, or by asking on the Privacy & consent page. Your
 recordings in that dataset are then deleted. Models already trained on the data
 are not changed.
 
-## 7. How long data is kept
+## 9. How long data is kept
 
 [Retention periods — e.g. raw recordings destroyed [N] years after capture.]
 
-## 8. Changes to these terms
+## 10. Changes to these terms
 
 If these terms change, you will be asked to accept the new version the next time
 you sign in.

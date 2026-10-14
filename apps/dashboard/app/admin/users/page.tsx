@@ -4,6 +4,7 @@ import { useCallback, useEffect, useMemo, useState } from "react";
 import { ProfileAvatar } from "@/components/ProfileAvatar";
 import { api, type AuthUser, type Gym, type UnifiedPerson, type UserRole } from "@/lib/api";
 import { useAuth } from "@/lib/auth";
+import { isAdmin } from "@/lib/nav";
 
 const ROLES: UserRole[] = ["fighter", "coach", "referee", "gym_manager", "admin"];
 
@@ -172,7 +173,7 @@ export default function AdminUsersPage() {
     }
   };
 
-  if (me?.role !== "admin") {
+  if (!isAdmin(me)) {
     return <div className="px-4 py-8 sm:px-8 sm:py-12 text-neutral-400">Admin access required.</div>;
   }
 

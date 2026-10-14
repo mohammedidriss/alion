@@ -12,8 +12,9 @@ function profileUrlFor(u: AuthUser): string | null {
   if (u.role === "fighter" && u.profile_id) return `/fighters/${u.profile_id}`;
   if (u.role === "coach" && u.profile_id) return `/coaches/${u.profile_id}`;
   if (u.role === "referee" && u.profile_id) return `/referees/${u.profile_id}`;
+  if (u.role === "physician") return "/physician";
   if (u.role === "gym_manager") return "/gym-dashboard";
-  if (u.role === "admin") return "/admin";
+  if (u.role === "admin" || u.is_researcher) return "/admin";
   // No linked profile — cannot redirect (avoids infinite loop on "/")
   return null;
 }
@@ -158,6 +159,7 @@ export default function Home() {
                     <option value="coach">Coach</option>
                     <option value="referee">Referee</option>
                     <option value="gym_manager">Gym Manager</option>
+                    <option value="physician">Physician</option>
                   </select>
                 </div>
                 {role === "gym_manager" && (

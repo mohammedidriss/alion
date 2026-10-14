@@ -19,7 +19,9 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { StreamStrip } from "@/components/StreamStrip";
 import { api, type RestCard, type RestCards, type RestFact, type StreamHealth } from "@/lib/api";
+import { useAuth } from "@/lib/auth";
 import { say } from "@/lib/cues";
+import { seesModels } from "@/lib/nav";
 
 const LABEL: Record<RestCard["slot"], string> = {
   opportunity: "Opportunity",
@@ -61,6 +63,8 @@ export function RestMode({
   live?: boolean;
   onBackToLive: () => void;
 }) {
+  const { user } = useAuth();
+  const models = seesModels(user); // how a card was written: researchers and admins (ADR-046)
   const [data, setData] = useState<RestCards | null>(null);
   const [err, setErr] = useState<string | null>(null);
   const [drawer, setDrawer] = useState<RestCard | null>(null);
@@ -233,7 +237,7 @@ export function RestMode({
                     {"○".repeat(4 - c.confidence)}
                   </span>{" "}
                   {c.streams.join(" + ")}
-                  {c.source === "model" && " · phrased by the model, checked"}
+                  {models && c.source === "model" && " · phrased by the model, checked"}
                 </p>
                 <div className="flex flex-wrap gap-2">
                   <button
@@ -313,9 +317,14 @@ export function RestMode({
                   </li>
                 ))}
             </ul>
-            <p className={`mt-3 text-xs ${t.muted}`}>
-              Facts {data?.facts_sha256.slice(0, 12)} · {drawer.source === "model" ? "phrased by the model and checked against these facts" : "written from these facts by fixed rules"}
-            </p>
+            {models && (
+              <p className={`mt-3 text-xs ${t.muted}`}>
+                Facts {data?.facts_sha256.slice(0, 12)} ·{" "}
+                {drawer.source === "model"
+                  ? "phrased by the model and checked against these facts"
+                  : "written from these facts by fixed rules"}
+              </p>
+            )}
           </div>
         </div>
       )}

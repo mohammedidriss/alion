@@ -179,16 +179,39 @@ async def require_current_user(user: User = Depends(require_signed_in)) -> User:
 
 
 def user_out(user: User) -> UserRead:
-    """The account as the API returns it, with whether it may open research datasets."""
+    """The account as the API returns it: whether it is a researcher, and whether
+    it takes part in a study as a reviewer or an RQ1 rater (what its menu shows)."""
+    from sqlalchemy.orm import object_session
+    from sqlmodel import select as _sel
+
+    from store import Rq1RaterRow
+    from store.models import StudyReviewerRow
+
     out = UserRead.model_validate(user, from_attributes=True)
     out.is_researcher = researchers.is_researcher(user)
+    db = object_session(user)
+    if db is not None:
+        out.is_reviewer = (
+            db.execute(_sel(StudyReviewerRow.id).where(StudyReviewerRow.user_id == user.id)).first()
+            is not None
+        )
+        out.is_rq1_rater = (
+            db.execute(_sel(Rq1RaterRow.id).where(Rq1RaterRow.user_id == user.id)).first()
+            is not None
+        )
     return out
 
 
 # Roles anyone may sign up as. Admins are made by an admin (ADR-017). A gym manager
 # signs up with a new gym of their own (ADR-030); managing an existing gym is set
 # up by an admin — so nobody can sign up into someone else's gym and its members.
-SELF_SIGNUP_ROLES = (UserRole.FIGHTER, UserRole.COACH, UserRole.REFEREE, UserRole.GYM_MANAGER)
+SELF_SIGNUP_ROLES = (
+    UserRole.FIGHTER,
+    UserRole.COACH,
+    UserRole.REFEREE,
+    UserRole.GYM_MANAGER,
+    UserRole.PHYSICIAN,  # sees nothing until a fighter chooses them (ADR-046)
+)
 
 
 # --- Request / Response schemas ---
@@ -493,8 +516,9 @@ def _sync_profile_name(user: User, new_name: str, session: DBSession) -> None:
 
 
 def _require_admin(user: User = Depends(require_current_user)) -> User:
-    """Dependency that enforces admin role."""
-    if user.role != UserRole.ADMIN:
+    """Dependency that enforces admin role — or a researcher, who has every
+    administrator power (ADR-046)."""
+    if user.role != UserRole.ADMIN and not researchers.is_researcher(user):
         raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Admin access required")
     return user
 

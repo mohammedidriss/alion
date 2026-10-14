@@ -23,9 +23,14 @@ export function Sparkline({
   const w = 600;
   const h = height;
   const pad = 4;
-  const min = Math.min(...values, 0);
-  const max = Math.max(...values, 1);
-  const range = max - min || 1;
+  // Scaled to the data, with a little room: a weight of ~70 kg isn't drawn flat
+  // against a zero baseline.
+  const lo = Math.min(...values);
+  const hi = Math.max(...values);
+  const span = hi - lo || Math.max(Math.abs(hi) * 0.1, 1);
+  const min = lo - span * 0.1;
+  const max = hi + span * 0.1;
+  const range = max - min;
   const stepX = values.length > 1 ? (w - pad * 2) / (values.length - 1) : 0;
   const points = values.map((v, i) => {
     const x = pad + i * stepX;
@@ -40,7 +45,8 @@ export function Sparkline({
       <svg
         viewBox={`0 0 ${w} ${h}`}
         preserveAspectRatio="none"
-        className="block h-20 w-full"
+        className="block w-full"
+        style={{ height }}
       >
         <path d={path} fill="none" stroke={color} strokeWidth="2" />
         {/* Last-value dot */}
@@ -53,7 +59,9 @@ export function Sparkline({
       </svg>
       <figcaption className="mt-1 flex justify-between text-xs text-neutral-500">
         <span>{labels?.[0] ?? "first"}</span>
-        <span>min {min.toFixed(1)} · max {max.toFixed(1)}</span>
+        <span>
+          low {lo.toFixed(1)} · high {hi.toFixed(1)}
+        </span>
         <span>{labels?.[labels.length - 1] ?? "latest"}</span>
       </figcaption>
     </figure>

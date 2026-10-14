@@ -2,6 +2,8 @@
 
 import { useCallback, useEffect, useRef, useState } from "react";
 import { api, type IMUSample, type PunchEvent } from "@/lib/api";
+import { useAuth } from "@/lib/auth";
+import { seesModels } from "@/lib/nav";
 
 interface Props {
   sessionId: string;
@@ -10,10 +12,10 @@ interface Props {
   punchEvents?: PunchEvent[];
 }
 
-// Same colours as the CV punch ticks: left = sky, right = green.
+// The hands' colours everywhere: left amber, right blue.
 const HAND_COLOR: Record<string, string> = {
-  left: "rgb(56, 189, 248)",
-  right: "rgb(34, 197, 94)",
+  left: "#fbbf24",
+  right: "#60a5fa",
   none: "rgb(251, 191, 36)", // synthetic / unlabelled stream
 };
 
@@ -23,6 +25,7 @@ const HAND_COLOR: Record<string, string> = {
  * every few seconds while the wrist sensors are recording.
  */
 export function IMUPanel({ sessionId, punchEvents = [] }: Props) {
+  const { user } = useAuth();
   const [samples, setSamples] = useState<IMUSample[] | null>(null);
   const [live, setLive] = useState(false);
   const [busy, setBusy] = useState(false);
@@ -79,7 +82,7 @@ export function IMUPanel({ sessionId, punchEvents = [] }: Props) {
   return (
     <section className="rounded-lg border border-neutral-800 bg-neutral-950/40 p-4">
       <div className="flex items-baseline justify-between">
-        <h2 className="font-medium">IMU (wrist accelerometers)</h2>
+        <h2 className="font-medium">Wrist sensors</h2>
         <span className="flex items-center gap-2 text-xs text-neutral-500">
           {live && (
             <span className="flex items-center gap-1 text-red-300">
@@ -94,16 +97,15 @@ export function IMUPanel({ sessionId, punchEvents = [] }: Props) {
         <div className="mt-2 space-y-2">
           <p className="text-xs text-neutral-500">
             No wrist data for this session. The sensors record when the cameras start, if this
-            session&apos;s fighter wears them (see the fighter&apos;s IMU tab). To dry-run the
-            fused pipeline without hardware, synthesize a stream from the CV punches.
+            session&apos;s fighter wears them (see the fighter&apos;s Wrist sensors tab).
           </p>
-          <button
+          {seesModels(user) && <button
             disabled={busy}
             onClick={synth}
             className="rounded-xl border border-amber-600/60 px-3 py-1.5 text-xs font-medium text-amber-300 hover:bg-amber-600/10 disabled:opacity-40"
           >
-            {busy ? "Synthesizing…" : "Synthesize from CV punches"}
-          </button>
+            {busy ? "Synthesizing…" : "Synthesize from CV punches (testing)"}
+          </button>}
         </div>
       ) : (
         <IMUTrace samples={samples!} punchEvents={punchEvents} />

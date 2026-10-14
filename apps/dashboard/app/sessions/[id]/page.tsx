@@ -5,6 +5,7 @@ import { useRouter } from "next/navigation";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { AccessRestricted } from "@/components/AccessRestricted";
 import { EvaluationCard } from "@/components/EvaluationCard";
+import { seesModels } from "@/lib/nav";
 import { FighterBackLink } from "@/components/FighterBackLink";
 import { HrvPanel } from "@/components/HrvPanel";
 import { IMUPanel } from "@/components/IMUPanel";
@@ -503,7 +504,7 @@ function SessionPageContent({ params }: { params: { id: string } }) {
   })();
 
   return (
-    <main className="space-y-6 p-8">
+    <main className="space-y-6 px-4 py-5 sm:px-8 sm:py-6">
       <div className="flex items-center justify-between">
         {session.fighter_id ? (
           <FighterBackLink fighterId={session.fighter_id} />
@@ -596,7 +597,7 @@ function SessionPageContent({ params }: { params: { id: string } }) {
             }`}>
               {session.pose_backend === "yolov8" ? "YOLOv8" : "MediaPipe"}
             </span>
-            {session.study_condition && (
+            {session.study_condition && seesModels(authUser) && (
               <span className="rounded-full bg-amber-900/60 px-3 py-1 text-xs font-medium text-amber-200">
                 RQ2: {session.study_condition.replace(/_/g, " ")}
               </span>
@@ -723,8 +724,8 @@ function SessionPageContent({ params }: { params: { id: string } }) {
             </div>
           </div>
 
-          {/* RQ2 study condition */}
-          <div>
+          {/* RQ2 study condition — research only */}
+          {seesModels(authUser) && <div>
             <label className="text-xs text-neutral-400">
               Study condition <span className="text-neutral-600">(RQ2)</span>
             </label>
@@ -752,7 +753,7 @@ function SessionPageContent({ params }: { params: { id: string } }) {
                 </button>
               ))}
             </div>
-          </div>
+          </div>}
 
           {/* Round structure — reuses RoundConfigCard which includes
               saved plans, presets (3×3 pro, 12×3 fight, 3×2 amateur),
@@ -1008,7 +1009,10 @@ function SessionPageContent({ params }: { params: { id: string } }) {
                 {/* Quick stats row */}
                 <div className="grid grid-cols-2 gap-2">
                   <MiniStat label="Frames" value={status?.frame_count ?? 0} />
-                  <MiniStat label="Duration" value={`${((durationMs) / 1000).toFixed(1)}s`} />
+                  <MiniStat
+                    label="Duration"
+                    value={`${Math.floor(durationMs / 60000)}:${String(Math.floor(durationMs / 1000) % 60).padStart(2, "0")}`}
+                  />
                   <MiniStat label="Punches" value={status?.punch_count ?? 0} />
                   <MiniStat label="PPM" value={ppmVal !== null ? ppmVal.toFixed(0) : "—"} />
                 </div>
@@ -1086,13 +1090,11 @@ function SessionPageContent({ params }: { params: { id: string } }) {
           })()}
         </aside>
         <div className="space-y-6">
-      {/* HRV panel — above per-round breakdown so live HR is immediately visible.
-          Gated by study condition; always shown when no condition is set so the
-          CSV replay fallback is always accessible regardless of device pairing. */}
-      {(!session.study_condition || ["hrv_only", "fused"].includes(session.study_condition)) && (
-        <HrvPanel sessionId={session.id} hasPairedDevice={getPairedDevice() !== null} />
-      )}
+      {/* 1. The corner's view: rounds, rest cards. */}
+      <RoundBreakdownCard sessionId={session.id} status={session.status} />
+      {session.status === "completed" && <RestDebrief sessionId={session.id} />}
 
+      {/* 2. The recording. */}
       {session.video_path && (
         <div className="card">
           <h2 className="mb-3 text-lg font-semibold">Recording</h2>
@@ -1100,20 +1102,7 @@ function SessionPageContent({ params }: { params: { id: string } }) {
         </div>
       )}
 
-      <RoundBreakdownCard sessionId={session.id} status={session.status} />
-      {session.status === "completed" && <RestDebrief sessionId={session.id} />}
-
-      {/* Detector evaluation — labels-vs-detections accuracy.
-          Shown for any completed session; the card itself handles the
-          "no labels yet" empty state. */}
-      {session.status === "completed" && events.length > 0 && (
-        <EvaluationCard sessionId={id} />
-      )}
-      {(!session.study_condition || ["imu_only", "fused"].includes(session.study_condition)) && (
-        <IMUPanel sessionId={session.id} punchEvents={events} />
-      )}
-      <RQ1RaterCard sessionId={session.id} />
-
+      {/* 3. The punches: by hand and type, over time, by speed. */}
       <PunchChart events={events} />
 
       {events.length > 0 && status?.duration_ms && status.duration_ms > 0 && (
@@ -1129,7 +1118,8 @@ function SessionPageContent({ params }: { params: { id: string } }) {
         </section>
       )}
 
-      {events.length > 1 && (
+      {events.length > 1 &&
+        Math.max(...events.map((e) => e.velocity_ms)) - Math.min(...events.map((e) => e.velocity_ms)) >= 0.01 && (
         <section className="rounded-lg border border-neutral-800 p-4">
           <h2 className="font-medium">Velocity distribution</h2>
           <p className="mt-1 text-xs text-neutral-500">
@@ -1140,6 +1130,16 @@ function SessionPageContent({ params }: { params: { id: string } }) {
             <VelocityHistogram events={events} />
           </div>
         </section>
+      )}
+
+      {/* 4. The body sensors. */}
+      {/* Heart rate in the session (gated by study condition). */}
+      {(!session.study_condition || ["hrv_only", "fused"].includes(session.study_condition)) && (
+        <HrvPanel sessionId={session.id} hasPairedDevice={getPairedDevice() !== null} />
+      )}
+
+      {(!session.study_condition || ["imu_only", "fused"].includes(session.study_condition)) && (
+        <IMUPanel sessionId={session.id} punchEvents={events} />
       )}
 
       <section className="rounded-lg border border-neutral-800 p-4">
@@ -1265,7 +1265,8 @@ function SessionPageContent({ params }: { params: { id: string } }) {
         {events.length === 0 ? (
           <p className="mt-2 text-sm text-neutral-500">No events yet.</p>
         ) : (
-          <table className="mt-3 w-full text-sm">
+          <div className="mt-3 overflow-x-auto">
+          <table className="w-full min-w-[520px] text-sm">
             <thead className="text-left text-xs uppercase text-neutral-500">
               <tr>
                 <th className="py-1">#</th>
@@ -1295,8 +1296,19 @@ function SessionPageContent({ params }: { params: { id: string } }) {
               ))}
             </tbody>
           </table>
+          </div>
         )}
       </section>
+      {/* 5. Research — researchers and chosen raters only. */}
+      <RQ1RaterCard sessionId={session.id} />
+
+
+      {/* Detector evaluation — labels-vs-detections accuracy.
+          Shown for any completed session; the card itself handles the
+          "no labels yet" empty state. */}
+      {session.status === "completed" && events.length > 0 && seesModels(authUser) && (
+        <EvaluationCard sessionId={id} />
+      )}
         </div>
         <aside className="space-y-4 xl:sticky xl:top-4 xl:self-start">
           {session.study_condition !== "coach_only" && (
@@ -1306,10 +1318,9 @@ function SessionPageContent({ params }: { params: { id: string } }) {
               completedRounds={completedRounds}
             />
           )}
-          <DetectorComparisonCard
-            sessionId={session.id}
-            status={session.status}
-          />
+          {seesModels(authUser) && (
+            <DetectorComparisonCard sessionId={session.id} status={session.status} />
+          )}
         </aside>
       </div>
       )}

@@ -16,7 +16,13 @@ def test_a_fighter_sees_what_is_kept_and_who_can_see_it(client: TestClient) -> N
     assert me["terms_accepted_at"]
     kept = {h["what"]: h["count"] for h in me["holdings"]}
     assert kept["Training sessions (video clips, pose, punches)"] == 0
-    assert me["viewers"] == {"coaches": [], "gyms": [], "gym_managers": []}
+    assert me["viewers"] == {
+        "coaches": [],
+        "coaches_with_health": [],  # ADR-046: only the coaches the fighter shares them with
+        "physicians": [],
+        "gyms": [],
+        "gym_managers": [],
+    }
 
     # Amir makes Carla his coach: she now appears among those who can see his data.
     r = client.post(

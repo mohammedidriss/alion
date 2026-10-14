@@ -3,6 +3,7 @@
 import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
 import { useAuth } from "@/lib/auth";
+import { canStartSession, fighterTabsFor, homeHref as navHome, isAdmin } from "@/lib/nav";
 import { api } from "@/lib/api";
 
 function extractFighterId(p: string) {
@@ -46,14 +47,7 @@ export function MobileTopBar({
   const router = useRouter();
   const { user } = useAuth();
 
-  const homeHref = (() => {
-    if (!user) return "/";
-    if (user.role === "fighter" && user.profile_id) return `/fighters/${user.profile_id}`;
-    if (user.role === "coach" && user.profile_id) return `/coaches/${user.profile_id}`;
-    if (user.role === "gym_manager") return "/gym-dashboard";
-    if (user.role === "admin") return "/admin";
-    return "/";
-  })();
+  const homeHref = navHome(user);
 
   const depth = pathname.split("/").filter(Boolean).length;
   const isDeep = depth > 1 && pathname !== homeHref;
@@ -111,14 +105,7 @@ export function MobileBottomBar() {
   const { user } = useAuth();
   const fighterId = extractFighterId(pathname);
 
-  const homeHref = (() => {
-    if (!user) return "/";
-    if (user.role === "fighter" && user.profile_id) return `/fighters/${user.profile_id}`;
-    if (user.role === "coach" && user.profile_id) return `/coaches/${user.profile_id}`;
-    if (user.role === "gym_manager") return "/gym-dashboard";
-    if (user.role === "admin") return "/admin";
-    return "/";
-  })();
+  const homeHref = navHome(user);
 
   const tabs: Tab[] = [];
 
@@ -134,8 +121,9 @@ export function MobileBottomBar() {
     ),
   });
 
-  // Context-aware middle tabs
-  if (fighterId) {
+  // Context-aware middle tabs, as the menu allows (lib/nav.ts)
+  const tabSlugs = new Set(fighterTabsFor(user).map((t) => t.slug));
+  if (fighterId && tabSlugs.has("sessions")) {
     tabs.push({
       id: "sessions",
       label: "Training",
@@ -157,7 +145,7 @@ export function MobileBottomBar() {
         </svg>
       ),
     });
-  } else if (user?.role === "admin") {
+  } else if (!fighterId && isAdmin(user)) {
     tabs.push({
       id: "users",
       label: "Users",
@@ -182,7 +170,7 @@ export function MobileBottomBar() {
         </svg>
       ),
     });
-  } else if (user?.role === "gym_manager") {
+  } else if (!fighterId && user?.role === "gym_manager") {
     tabs.push({
       id: "members",
       label: "Members",
@@ -199,7 +187,8 @@ export function MobileBottomBar() {
   }
 
   // Record button (coaches/fighters in fighter context)
-  const canRecord = fighterId && user?.role !== "admin" && user?.role !== "gym_manager";
+  const canRecord =
+    !!fighterId && (canStartSession(user) || (user?.role === "fighter" && user.profile_id === fighterId));
 
   // Profile always last
   tabs.push({

@@ -3,9 +3,11 @@
 The ADR-020 classifier (`analyze.punch_model`: the arm's 3D motion relative to its
 shoulder, from MediaPipe's world landmarks) trained straight from the dataset
 takes — every completed take's typed labels, as each of its cameras saw them, no
-export needed. Before the final fit it is scored on takes it never saw (5-fold,
-grouped by take): one camera view at a time, and each punch with the views of
-all its cameras averaged. Saved with that score:
+export needed — and every recorded training session someone labelled with punch
+types (ADR-047, `session_corpus`), each camera's clock matched to the session's.
+Before the final fit it is scored on takes it never saw (5-fold, grouped by take
+or session): one camera view at a time, and each punch with the views of all its
+cameras averaged. Saved with that score:
 
     data/ml/camera_types/v{n}.joblib   the model
     data/ml/camera_types/v{n}.json     its report
@@ -22,6 +24,7 @@ import datetime
 import json
 import threading
 from collections import Counter
+from collections.abc import Callable
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
@@ -30,9 +33,10 @@ import numpy as np
 
 from analyze import punch_model
 from analyze.wrist_types import MOTIONS, TYPE_TO_MOTION
-from api.services import dataset_store
+from api.services import dataset_store, session_corpus
 from capture.cv.writer import read_pose_parquet
 from common import get_logger
+from contracts import Hand
 
 log = get_logger(__name__)
 
@@ -55,6 +59,25 @@ class _Punch:
     motion: str
     views: list[np.ndarray] = field(default_factory=list)
     person: str = ""
+
+
+def _add_views(
+    punches: list[_Punch],
+    labels: list[tuple[float, Hand]],
+    cam: Path,
+    shift: Callable[[float], float] | None = None,
+) -> None:
+    """Each labelled punch's arm window as this camera saw it (`shift`: a label's
+    time on the camera's clock)."""
+    frames = read_pose_parquet(cam)
+    if len(frames) < 10:
+        return
+    tr = punch_model.track(frames)
+    win = punch_model.arm_windows(tr)
+    for p, (t, hand) in zip(punches, labels, strict=True):
+        i = punch_model._frame(tr, shift(t) if shift else t)
+        if i is not None:
+            p.views.append(win[hand][i])
 
 
 def _punches(datasets: Path | None = None) -> tuple[list[_Punch], dict[str, Any]]:
@@ -84,20 +107,24 @@ def _punches(datasets: Path | None = None) -> tuple[list[_Punch], dict[str, Any]
             for lab in typed
         ]
         for cam in cams:
-            frames = read_pose_parquet(cam)
-            if len(frames) < 10:
-                continue
-            tr = punch_model.track(frames)
-            win = punch_model.arm_windows(tr)
-            for p, lab in zip(mine, typed, strict=True):
-                i = punch_model._frame(tr, float(lab["t_ms"]))
-                if i is not None:
-                    p.views.append(win[lab["hand"]][i])
+            _add_views(mine, [(float(lab["t_ms"]), lab["hand"]) for lab in typed], cam)
         seen = [p for p in mine if p.views]
         if seen:
             participants.add(take.get("participant"))
             out += seen
-    meta = {"takes": len({p.take for p in out}), "participants": len(participants - {None})}
+    takes = len({p.take for p in out})
+    # Recorded sessions someone labelled (ADR-047): whose they are isn't a dataset
+    # participant code, so they sit out the leave-one-person-out score.
+    for m in session_corpus.typed_sessions():
+        mine = [_Punch(m.group, TYPE_TO_MOTION[k]) for _, _, k in m.typed]
+        for c in m.cameras:
+            _add_views(mine, [(t, h) for t, h, _ in m.typed], c.pose_path, c.cam_t)
+        out += [p for p in mine if p.views]
+    meta = {
+        "takes": takes,
+        "sessions": len({p.take for p in out}) - takes,
+        "participants": len(participants - {None}),
+    }
     return out, meta
 
 
@@ -147,16 +174,18 @@ def _train(datasets: Path | None) -> dict[str, Any]:
     )
 
     punches, meta = _punches(datasets)
-    if meta["takes"] < MIN_TAKES or len({p.motion for p in punches}) < 2:
+    n_groups = meta["takes"] + meta["sessions"]
+    if n_groups < MIN_TAKES or len({p.motion for p in punches}) < 2:
         raise ValueError(
-            f"needs typed punches from at least {MIN_TAKES} takes with camera pose (found {meta['takes']})"
+            f"needs typed punches from at least {MIN_TAKES} takes or sessions with camera pose "
+            f"(found {n_groups})"
         )
     groups = np.array([p.take for p in punches])
     view_y: list[str] = []
     view_pred: list[str] = []
     punch_y: list[str] = []
     punch_pred: list[str] = []
-    folds = min(FOLDS, meta["takes"])
+    folds = min(FOLDS, n_groups)
     for tr, te in GroupKFold(n_splits=folds).split(
         np.zeros(len(punches)), np.zeros(len(punches)), groups
     ):
@@ -175,7 +204,9 @@ def _train(datasets: Path | None) -> dict[str, Any]:
         pp: list[str] = []
         per: dict[str, float] = {}
         for person in named:
-            train_p = [p for p in punches if p.person != person]
+            train_p = [
+                p for p in punches if p.person != person and not session_corpus.is_session(p.take)
+            ]
             test_p = [p for p in punches if p.person == person]
             if len({p.motion for p in train_p}) < 2:
                 continue

@@ -322,6 +322,8 @@ def run_now(
         "hands": cc.hands,
         "hands_swapped": cc.hands_swapped,
         "cameras_skipped": skipped,  # too little pose to vote
+        # where each wrist wasn't streaming, on the wrists' clock (ADR-047 trains around them)
+        "wrist_gaps": gaps,
         "types_model": wrist_type_model.current_version(),  # names the wrist punches
         "camera_types_model": camera_type_model.current_version(),  # names what cameras saw
         "totals": {
@@ -346,6 +348,7 @@ def run_now(
                 "punches": r.punches,
                 "offset_ms": r.offset_ms,
                 "drift_ppm": r.drift_ppm,
+                "drift_ref_ms": r.drift_ref_ms,
                 "agreement": r.agreement,
                 "coverage": r.coverage,
                 "hands": r.hands,

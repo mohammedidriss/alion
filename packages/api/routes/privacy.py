@@ -42,6 +42,7 @@ from store import (
     IMUSampleRow,
     MedicalCondition,
     Medication,
+    PhysicianAssignmentRow,
     User,
 )
 from store import Session as SessionRow
@@ -71,7 +72,9 @@ class Holding(BaseModel):
 
 
 class Viewers(BaseModel):
-    coaches: list[str]  # current coaches: training data and health notes
+    coaches: list[str]  # current coaches: training data
+    coaches_with_health: list[str] = []  # …and the health notes, shared by the fighter (ADR-046)
+    physicians: list[str] = []  # chosen by the fighter: health notes and training data
     gyms: list[str]  # gyms they're a member of: training data, not health notes
     gym_managers: list[str]
 
@@ -204,8 +207,33 @@ def my_privacy(
         managers = db.exec(
             select(GymManager).where(col(GymManager.gym_id).in_(gym_ids or {UUID(int=0)}))
         ).all()
+        shared = {
+            a.coach_id
+            for a in db.exec(
+                select(CoachAssignment).where(
+                    CoachAssignment.fighter_id == fid, col(CoachAssignment.health_access)
+                )
+            ).all()
+            if (a.ended_on is None or a.ended_on >= today)
+        } & coach_ids
+        with_health = [
+            c.name
+            for c in db.exec(select(Coach).where(col(Coach.id).in_(shared or {UUID(int=0)}))).all()
+        ]
+        physicians = [
+            u.name
+            for a in db.exec(
+                select(PhysicianAssignmentRow).where(
+                    PhysicianAssignmentRow.fighter_id == fid,
+                    col(PhysicianAssignmentRow.ended_at).is_(None),
+                )
+            ).all()
+            if (u := db.get(User, a.physician_id)) is not None
+        ]
         viewers = Viewers(
             coaches=sorted(coaches),
+            coaches_with_health=sorted(with_health),
+            physicians=sorted(physicians),
             gyms=sorted(g.name for g in gyms),
             gym_managers=sorted(m.name for m in managers),
         )

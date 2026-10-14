@@ -76,7 +76,9 @@ export function CameraTypesCard() {
           <p className="text-neutral-200">
             <b>Version {report.version}</b> · {new Date(report.created_at).toLocaleString()} ·{" "}
             {report.data.punches.toLocaleString()} punches ({report.data.views.toLocaleString()} camera views) from{" "}
-            {report.data.takes} takes, {report.data.participants} participant
+            {report.data.takes} takes
+            {report.data.sessions ? ` and ${report.data.sessions} recorded session${report.data.sessions === 1 ? "" : "s"}` : ""},{" "}
+            {report.data.participants} participant
             {report.data.participants === 1 ? "" : "s"}
           </p>
           <div className="grid gap-2 sm:grid-cols-2">

@@ -11,6 +11,11 @@ counter (`punch_fusion.camera_punches`, as the browser cameras run it), the
 baseline it has to beat. Labels come from the wrist sensors, so neither counter
 is graded against itself.
 
+Every cross-checked training session recorded with the wrists and cameras joins
+the training stretches too (ADR-047, `session_corpus`): the punches the wrists
+felt, moved onto each camera's clock. Sessions never join the test stretches, so
+the scores stay the dataset's.
+
 A second classifier names each punch — jab, cross, hook or uppercut (ADR-020). It
 trains on the labelled punches of the train stretches and is scored on the test
 stretches' typed punches two ways: given the true punch (each label's moment) next
@@ -36,7 +41,7 @@ import numpy as np
 
 from analyze import classify_punch_type, punch_model
 from analyze.punch_fusion import camera_punches
-from api.services import dataset_export
+from api.services import dataset_export, session_corpus
 from common import get_logger
 from contracts import Hand, Landmark, PoseFrame, WorldLandmark
 from studies import DetectedPunch, match_events
@@ -47,6 +52,8 @@ log = get_logger(__name__)
 MODELS_DIR = Path("data/ml/punch_counter")
 THRESHOLDS = tuple(round(x, 2) for x in np.arange(0.3, 0.96, 0.05))
 TOLERANCE_MS = 200.0
+SESSION_MARGIN_MS = 2000.0  # pose kept around a session's first and last punch
+SESSION_MIN_MS = 5000.0  # a shorter piece between a session's wrist gaps is left out
 BACKGROUND = True  # tests switch the thread off and call run()
 
 _lock = threading.Lock()
@@ -265,6 +272,52 @@ def _stretches(dataset_id: UUID, manifest: dict[str, Any], split: str) -> list[S
     return out
 
 
+def _pieces(lo: float, hi: float, gaps: list[tuple[float, float]]) -> list[tuple[float, float]]:
+    """[lo, hi] without the gaps."""
+    out, at = [], lo
+    for a, b in sorted(gaps):
+        if a > at:
+            out.append((at, min(a, hi)))
+        at = max(at, b)
+    if at < hi:
+        out.append((at, hi))
+    return [(a, b) for a, b in out if b - a >= SESSION_MIN_MS]
+
+
+def _session_stretches(dataset_id: UUID) -> list[Stretch]:
+    """Every cross-checked training session, per camera: from a couple of seconds
+    before the wrists' first punch to after their last, cut where a wrist wasn't
+    streaming, the punches on the camera's own clock (ADR-047)."""
+    out: list[Stretch] = []
+    found = session_corpus.sessions()
+    for i, m in enumerate(found):
+        _step(dataset_id, f"reading recorded sessions ({i + 1}/{len(found)})")
+        for cam in m.cameras:
+            pose = read_pose(cam.pose_path)
+            if len(pose.t) <= 30:
+                continue
+            labels = [(cam.cam_t(t), h) for t, h in m.punches]
+            typed = [(cam.cam_t(t), h, k) for t, h, k in m.typed]
+            gaps = [(cam.cam_t(a), cam.cam_t(b)) for a, b in m.gaps]
+            lo = max(min(t for t, _ in labels) - SESSION_MARGIN_MS, float(pose.t[0]))
+            hi = min(max(t for t, _ in labels) + SESSION_MARGIN_MS, float(pose.t[-1]))
+            track = punch_model.track_arrays(pose.t, pose.wl[:, :, :3], pose.wl[:, :, 3])
+            for a, b in _pieces(lo, hi, gaps):
+                out.append(
+                    Stretch(
+                        take_id=m.group,
+                        block="session",
+                        t_start=a,
+                        t_end=b,
+                        labels=[(t, h) for t, h in labels if a <= t <= b],
+                        typed=[(t, h, k) for t, h, k in typed if a <= t <= b],
+                        tracks={cam.device: track},
+                        poses={cam.device: pose},
+                    )
+                )
+    return out
+
+
 def _rows(stretches: list[Stretch]) -> list[punch_model.Sample]:
     rows = []
     for s in stretches:
@@ -352,6 +405,8 @@ def run(dataset_id: UUID) -> dict[str, Any]:
     test = _stretches(dataset_id, manifest, "test")
     if not train or not any(s.labels for s in train):
         raise ValueError("the export has no labelled training stretches")
+    sessions = _session_stretches(dataset_id)  # for training only (ADR-047)
+    train += sessions
 
     threshold, cv = _pick_threshold(dataset_id, train)
     _step(dataset_id, "training the model")
@@ -425,12 +480,16 @@ def run(dataset_id: UUID) -> dict[str, Any]:
         "model_file": str(model_file),
         "threshold": threshold,
         "data": {
-            "takes": len({s.take_id for s in train + test}),
+            "takes": len({s.take_id for s in train + test} - {s.take_id for s in sessions}),
             "fighters": len({t["participant"] for t in manifest.get("takes", [])}),
             "train_stretches": len(train),
             "test_stretches": len(test),
             "train_punches": sum(len(s.labels) for s in train),
             "test_punches": sum(len(s.labels) for s in test),
+            # recorded training sessions, trained on and never scored (ADR-047)
+            "sessions": len({s.take_id for s in sessions}),
+            "session_stretches": len(sessions),
+            "session_punches": sum(len(s.labels) for s in sessions),
             "reviewed_labels": all(
                 (t.get("labels") or {}).get("reviewed") for t in manifest.get("takes", [])
             ),

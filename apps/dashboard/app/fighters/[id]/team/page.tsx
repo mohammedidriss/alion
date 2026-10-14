@@ -1,12 +1,13 @@
 "use client";
 
 import Link from "next/link";
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import { ProfileAvatar } from "@/components/ProfileAvatar";
 import {
   api,
   type Coach,
   type CoachAssignment,
+  type FighterPhysician,
   type CoachRole,
   type Fighter,
   type FighterSponsor,
@@ -37,7 +38,9 @@ const STATUS_TINT: Record<TitleStatus, string> = {
 export default function TeamTab({ params }: { params: { id: string } }) {
   const fighterId = params.id;
   const { user } = useAuth();
-  const readOnly = user?.role === "gym_manager";
+  const readOnly = user?.role === "gym_manager" || user?.role === "physician";
+  // Only the fighter (or a researcher) decides who sees their health notes (ADR-046).
+  const ownsHealth = (user?.role === "fighter" && user.profile_id === fighterId) || !!user?.is_researcher;
   const [fighter, setFighter] = useState<Fighter | null>(null);
   const [titles, setTitles] = useState<FighterTitle[]>([]);
   const [sponsors, setSponsors] = useState<FighterSponsor[]>([]);
@@ -191,7 +194,15 @@ export default function TeamTab({ params }: { params: { id: string } }) {
           await api.deleteCoachAssignment(fighterId, id);
           refresh();
         }}
+        canShareHealth={ownsHealth}
+        onShareHealth={async (id, on) => {
+          await api.setCoachHealthAccess(fighterId, id, on);
+          refresh();
+        }}
       />
+
+      {/* PHYSICIANS (ADR-046) */}
+      <PhysiciansSection fighterId={fighterId} canManage={ownsHealth} />
 
       {/* TITLES */}
       <TitlesSection
@@ -233,7 +244,11 @@ function CoachesSection({
   readOnly,
   onAdd,
   onDelete,
+  canShareHealth = false,
+  onShareHealth,
 }: {
+  canShareHealth?: boolean;
+  onShareHealth?: (id: number, on: boolean) => Promise<void>;
   fighter: Fighter;
   coaches: CoachAssignment[];
   allCoaches: Coach[];
@@ -379,6 +394,18 @@ function CoachesSection({
                     ? ` · until ${new Date(a.ended_on).toLocaleDateString()}`
                     : ""}
                 </div>
+                {canShareHealth && onShareHealth ? (
+                  <label className="mt-1 flex items-center gap-1.5 text-xs text-neutral-300">
+                    <input
+                      type="checkbox"
+                      checked={!!a.health_access}
+                      onChange={(e) => void onShareHealth(a.id, e.target.checked)}
+                    />
+                    Sees my health notes
+                  </label>
+                ) : (
+                  a.health_access && <p className="mt-1 text-xs text-neutral-400">Sees the health notes</p>
+                )}
               </div>
               {!readOnly && (
                 <button
@@ -750,5 +777,86 @@ function Select({
         ))}
       </select>
     </div>
+  );
+}
+
+/* ---------- Physicians section (ADR-046) ---------- */
+
+function PhysiciansSection({ fighterId, canManage }: { fighterId: string; canManage: boolean }) {
+  const [rows, setRows] = useState<FighterPhysician[]>([]);
+  const [email, setEmail] = useState("");
+  const [msg, setMsg] = useState<string | null>(null);
+
+  const load = useCallback(() => {
+    api
+      .listPhysicians(fighterId)
+      .then(setRows)
+      .catch(() => setRows([]));
+  }, [fighterId]);
+  useEffect(() => load(), [load]);
+
+  const add = async () => {
+    setMsg(null);
+    try {
+      await api.addPhysician(fighterId, email.trim());
+      setEmail("");
+      load();
+    } catch (e) {
+      const raw = e instanceof Error ? e.message : String(e);
+      setMsg(raw.replace(/^\d{3} /, "").replace(/^\{"detail":"(.*)"\}$/, "$1"));
+    }
+  };
+
+  return (
+    <section className="card space-y-3">
+      <div>
+        <h2 className="text-base font-semibold">Physicians</h2>
+        <p className="text-xs text-neutral-400">
+          A physician you add sees your health notes and training sessions, and can add to your health
+          notes. They can&apos;t change your training. Every look at your health notes is logged.
+        </p>
+      </div>
+      {rows.length === 0 ? (
+        <p className="text-sm text-neutral-500">No physician yet.</p>
+      ) : (
+        <ul className="space-y-2">
+          {rows.map((r) => (
+            <li key={r.id} className="flex items-center justify-between gap-3 rounded-xl border border-white/5 bg-white/[0.02] p-3 text-sm">
+              <span className="min-w-0">
+                <span className="font-medium">{r.name}</span>{" "}
+                <span className="text-neutral-500">· {r.email} · since {new Date(r.started_at).toLocaleDateString()}</span>
+              </span>
+              {canManage && (
+                <button
+                  onClick={() => void api.removePhysician(fighterId, r.id).then(load)}
+                  className="text-xs text-neutral-500 hover:text-red-400"
+                >
+                  remove
+                </button>
+              )}
+            </li>
+          ))}
+        </ul>
+      )}
+      {canManage && (
+        <div className="flex flex-wrap gap-2">
+          <input
+            id="physician-email"
+            value={email}
+            onChange={(e) => setEmail(e.target.value)}
+            placeholder="your physician's account email"
+            className="min-w-[220px] flex-1 rounded-xl border border-white/10 bg-black/30 px-3 py-2 text-sm outline-none focus:border-emerald-500/50"
+          />
+          <button
+            onClick={() => void add()}
+            disabled={!email.includes("@")}
+            className="rounded-xl bg-emerald-500 px-4 py-2 text-sm font-semibold text-black hover:bg-emerald-400 disabled:opacity-40"
+          >
+            Add physician
+          </button>
+        </div>
+      )}
+      {msg && <p className="text-sm text-amber-200">{msg}</p>}
+    </section>
   );
 }

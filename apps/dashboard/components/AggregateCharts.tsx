@@ -127,7 +127,7 @@ export function VelocityDistributionChart({
               y={H - padB - lH - rH}
               width={w}
               height={rH}
-              fill="#0ea5e9"
+              fill="#60a5fa"
               opacity={0.75}
             >
               <title>

@@ -87,13 +87,22 @@ def test_medical_records_are_the_fighter_and_their_coaches_only_and_every_access
     assert client.get(url, headers=bea.headers).status_code == 403
     assert client.get(url, headers=coach.headers).status_code == 403  # not Amir's coach yet
 
-    # Amir makes Carla his coach — now she can.
+    # Amir makes Carla his coach: his health notes stay closed until he shares them
+    # (ADR-046), then she can.
     r = client.post(
         f"/fighters/{amir.profile_id}/coach-assignments",
         json={"coach_id": coach.profile_id, "role": "head_coach"},
         headers=amir.headers,
     )
     assert r.status_code in (200, 201), r.text
+    assert r.json()["health_access"] is False
+    assert client.get(url, headers=coach.headers).status_code == 403
+    share = client.patch(
+        f"/fighters/{amir.profile_id}/coach-assignments/{r.json()['id']}",
+        json={"health_access": True},
+        headers=amir.headers,
+    )
+    assert share.status_code == 200, share.text
     assert client.get(url, headers=coach.headers).json()["blood_type"] == "O+"
 
     log = client.get(f"{url}/access-log", headers=amir.headers).json()

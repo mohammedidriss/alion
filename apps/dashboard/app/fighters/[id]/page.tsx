@@ -52,8 +52,9 @@ export default function FighterPage({ params }: { params: { id: string } }) {
   const { id } = params;
   const router = useRouter();
   const { user } = useAuth();
-  const canEdit = !!user && user.role !== "fighter";
-  const isAdmin = user?.role === "admin";
+  // A researcher sees and changes everything (ADR-046); a physician only reads here.
+  const canEdit = !!user && ((user.role !== "fighter" && user.role !== "physician") || user.is_researcher);
+  const isAdmin = user?.role === "admin"; // an admin without the researcher's access
   const canCreateSession =
     (canEdit && user?.role !== "gym_manager" && !isAdmin) ||
     (user?.role === "fighter" && user?.profile_id === id);
@@ -362,12 +363,28 @@ export default function FighterPage({ params }: { params: { id: string } }) {
         }))}
       />}
 
-      {/* RECORD */}
-      <section className="grid grid-cols-1 gap-4 md:grid-cols-3">
-        <div className="md:col-span-2" />
+      {/* BEST SESSIONS — training data, hidden from admin */}
+      {!isAdmin && (
+      <section className="grid grid-cols-1 gap-4 md:grid-cols-2">
+        <BestList
+          title="Most punches"
+          rows={aggregate.bestByPunches}
+          metric={(s) => `${s.totalPunches}`}
+          metricLabel="punches"
+        />
+        <BestList
+          title="Hardest punch (peak velocity)"
+          rows={aggregate.bestByPeak}
+          metric={(s) => `${s.peakVelocity.toFixed(2)} m/s`}
+          metricLabel="peak"
+        />
+      </section>
+      )}
 
-        <aside className="rounded-2xl border border-white/5 bg-[#13131a] p-4">
-          <h2 className="text-sm font-medium text-neutral-300">Record</h2>
+      {/* PROFILE: record, physical, professional */}
+      <section className="grid grid-cols-1 gap-4 md:grid-cols-3">
+        <div className="rounded-lg border border-neutral-800 p-4">
+          <h2 className="font-medium">Record</h2>
           <p className="mt-2 text-2xl font-semibold">
             {fighter.record_wins}
             <span className="text-neutral-500"> · </span>
@@ -384,11 +401,7 @@ export default function FighterPage({ params }: { params: { id: string } }) {
               {fighter.years_training} yr{fighter.years_training === 1 ? "" : "s"} training
             </p>
           )}
-        </aside>
-      </section>
-
-      {/* PHYSICAL + PROFESSIONAL */}
-      <section className="grid grid-cols-1 gap-4 md:grid-cols-2">
+        </div>
         <div className="rounded-lg border border-neutral-800 p-4">
           <h2 className="font-medium">Physical</h2>
           <dl className="mt-3 grid grid-cols-2 gap-3 text-sm">
@@ -587,58 +600,6 @@ export default function FighterPage({ params }: { params: { id: string } }) {
         </div>
       </section>}
 
-      {/* PERFORMANCE — hidden from admin */}
-      {!isAdmin && <>
-      <section className="rounded-lg border border-neutral-800 p-4">
-        <h2 className="font-medium">Performance — career totals</h2>
-        <dl className="mt-3 grid grid-cols-2 gap-3 text-sm sm:grid-cols-3 md:grid-cols-6">
-          <Cell label="Sessions" value={aggregate.totalSessions} />
-          <Cell label="Completed" value={aggregate.completedSessions} />
-          <Cell label="Total punches" value={aggregate.totalPunches} />
-          <Cell
-            label="Total duration"
-            value={`${(aggregate.totalDurationS / 60).toFixed(1)}m`}
-          />
-          <Cell label="Peak velocity" value={`${aggregate.peakVelocity.toFixed(2)} m/s`} />
-          <Cell label="Mean velocity" value={`${aggregate.meanVelocity.toFixed(2)} m/s`} />
-        </dl>
-      </section>
-
-      <section className="grid grid-cols-1 gap-4 md:grid-cols-2">
-        <div className="rounded-lg border border-neutral-800 p-4">
-          <h2 className="font-medium">Punches per session</h2>
-          <p className="mt-1 text-xs text-neutral-500">
-            Across {aggregate.completedSessions} completed session
-            {aggregate.completedSessions === 1 ? "" : "s"}, oldest → newest.
-          </p>
-          <div className="mt-3">
-            <Sparkline values={aggregate.punchesPerSession} color="#34d399" />
-          </div>
-        </div>
-        <div className="rounded-lg border border-neutral-800 p-4">
-          <h2 className="font-medium">Peak velocity per session</h2>
-          <p className="mt-1 text-xs text-neutral-500">m/s, oldest → newest.</p>
-          <div className="mt-3">
-            <Sparkline values={aggregate.peakPerSession} color="#60a5fa" />
-          </div>
-        </div>
-      </section>
-
-      <section className="grid grid-cols-1 gap-4 md:grid-cols-2">
-        <BestList
-          title="Most punches"
-          rows={aggregate.bestByPunches}
-          metric={(s) => `${s.totalPunches}`}
-          metricLabel="punches"
-        />
-        <BestList
-          title="Hardest punch (peak velocity)"
-          rows={aggregate.bestByPeak}
-          metric={(s) => `${s.peakVelocity.toFixed(2)} m/s`}
-          metricLabel="peak"
-        />
-      </section>
-      </>}
 
       {editing && (
         <EditModal
@@ -701,14 +662,6 @@ function Field({
   );
 }
 
-function Cell({ label, value }: { label: string; value: string | number }) {
-  return (
-    <div>
-      <dt className="text-xs text-neutral-500">{label}</dt>
-      <dd className="mt-0.5 text-lg font-semibold">{value}</dd>
-    </div>
-  );
-}
 
 function MiniStat({ label, value }: { label: string; value: string }) {
   return (

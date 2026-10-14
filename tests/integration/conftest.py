@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from pathlib import Path
+
 import pytest
 
 
@@ -14,3 +16,16 @@ def _no_background_cross_check(monkeypatch: pytest.MonkeyPatch) -> None:
 
     monkeypatch.setattr(cross_check, "BACKGROUND", False)
     monkeypatch.setattr(pose_backfill, "BACKGROUND", False)
+
+
+@pytest.fixture(autouse=True)
+def recorded(tmp_path_factory: pytest.TempPathFactory, monkeypatch: pytest.MonkeyPatch) -> Path:
+    """Model training also reads the recorded sessions on disk (ADR-047); a test
+    sees none unless it lays some down here."""
+    from api.services import session_corpus
+
+    root = tmp_path_factory.mktemp("recorded")
+    monkeypatch.setattr(session_corpus, "LABELS_DIR", root / "labels")
+    monkeypatch.setattr(session_corpus, "POSE_DIR", root / "processed")
+    monkeypatch.setattr(session_corpus, "imu_streams", lambda sid: {})  # not the real database
+    return root

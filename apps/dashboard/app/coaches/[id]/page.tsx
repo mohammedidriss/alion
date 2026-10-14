@@ -21,6 +21,8 @@ export default function CoachPage({ params }: { params: { id: string } }) {
   const [err, setErr] = useState<string | null>(null);
   const photoInput = useRef<HTMLInputElement>(null);
   const [fighters, setFighters] = useState<Fighter[]>([]);
+  // Each fighter's most recent session (null: none yet).
+  const [lastSession, setLastSession] = useState<Record<string, string | null>>({});
   const [notes, setNotes] = useState<CoachNote[]>([]);
   const [noteTarget, setNoteTarget] = useState<string | null>(null);
   const [noteContent, setNoteContent] = useState("");
@@ -29,6 +31,22 @@ export default function CoachPage({ params }: { params: { id: string } }) {
   const refreshNotes = useCallback(() => {
     api.listCoachNotes(params.id).then(setNotes).catch(() => setNotes([]));
   }, [params.id]);
+
+  useEffect(() => {
+    let alive = true;
+    for (const f of fighters) {
+      api
+        .listSessions(f.id, { recorded: true })
+        .then((ss) => {
+          const latest = ss.map((x) => x.started_at).sort().at(-1) ?? null;
+          if (alive) setLastSession((m) => ({ ...m, [f.id]: latest }));
+        })
+        .catch(() => alive && setLastSession((m) => ({ ...m, [f.id]: null })));
+    }
+    return () => {
+      alive = false;
+    };
+  }, [fighters]);
 
   useEffect(() => {
     api
@@ -312,6 +330,86 @@ export default function CoachPage({ params }: { params: { id: string } }) {
         </section>
       ) : (
         <>
+          {/* ── Assigned fighters ── */}
+          <section className="card space-y-4">
+            <h2 className="text-base font-semibold">My fighters</h2>
+            {fighters.length === 0 ? (
+              <p className="text-sm text-neutral-500">
+                No fighters currently assigned. Assign this coach from a
+                fighter&apos;s Team tab.
+              </p>
+            ) : (
+              <ul className="grid grid-cols-1 gap-2 sm:grid-cols-2">
+                {fighters.map((f) => (
+                  <li
+                    key={f.id}
+                    className="flex items-center justify-between rounded-xl border border-white/5 bg-black/30 p-3"
+                  >
+                    <div className="min-w-0">
+                      <Link
+                        href={`/fighters/${f.id}`}
+                        className="text-sm font-medium text-emerald-400 hover:underline"
+                      >
+                        {f.name}
+                      </Link>
+                      <p className="text-xs text-neutral-500">
+                        {lastSession[f.id] === undefined
+                          ? "…"
+                          : lastSession[f.id]
+                            ? `last session ${new Date(lastSession[f.id] as string).toLocaleDateString()}`
+                            : "no sessions yet"}
+                      </p>
+                    </div>
+                    <button
+                      onClick={() => {
+                        setNoteTarget(f.id);
+                        setNoteContent("");
+                      }}
+                      className="rounded-lg border border-violet-500/30 bg-violet-500/10 px-2.5 py-1 text-xs text-violet-300 hover:bg-violet-500/20"
+                    >
+                      + Note
+                    </button>
+                  </li>
+                ))}
+              </ul>
+            )}
+
+            {/* New note form */}
+            {noteTarget && (
+              <div className="rounded-xl border border-violet-500/30 bg-violet-500/5 p-4 space-y-3">
+                <div className="text-xs text-violet-300/70">
+                  Writing note for{" "}
+                  <span className="font-semibold text-violet-200">
+                    {fighters.find((f) => f.id === noteTarget)?.name}
+                  </span>
+                </div>
+                <textarea
+                  rows={4}
+                  value={noteContent}
+                  onChange={(e) => setNoteContent(e.target.value)}
+                  placeholder="Observations, feedback, training notes..."
+                  className="w-full rounded-xl border border-white/5 bg-black/30 px-3 py-2 text-sm focus:border-violet-500/50 focus:outline-none"
+                />
+                <div className="flex gap-2">
+                  <button
+                    onClick={submitNote}
+                    disabled={noteSaving || !noteContent.trim()}
+                    className="rounded-xl bg-violet-500 px-4 py-2 text-sm font-medium text-white hover:bg-violet-400 disabled:opacity-50"
+                  >
+                    {noteSaving ? "Saving..." : "Save note"}
+                  </button>
+                  <button
+                    onClick={() => setNoteTarget(null)}
+                    className="rounded-xl bg-neutral-800 px-3 py-2 text-sm hover:bg-neutral-700"
+                  >
+                    Cancel
+                  </button>
+                </div>
+              </div>
+            )}
+          </section>
+
+          <div className="grid grid-cols-1 gap-4 lg:grid-cols-2">
           <section className="card">
             <h2 className="text-base font-semibold">Identity</h2>
             <dl className="mt-3 grid grid-cols-1 gap-3 text-sm sm:grid-cols-3">
@@ -376,76 +474,8 @@ export default function CoachPage({ params }: { params: { id: string } }) {
               </div>
             </div>
           </section>
+          </div>
 
-          {/* ── Assigned fighters ── */}
-          <section className="card space-y-4">
-            <h2 className="text-base font-semibold">Assigned Fighters</h2>
-            {fighters.length === 0 ? (
-              <p className="text-sm text-neutral-500">
-                No fighters currently assigned. Assign this coach from a
-                fighter&apos;s Team tab.
-              </p>
-            ) : (
-              <ul className="grid grid-cols-1 gap-2 sm:grid-cols-2">
-                {fighters.map((f) => (
-                  <li
-                    key={f.id}
-                    className="flex items-center justify-between rounded-xl border border-white/5 bg-black/30 p-3"
-                  >
-                    <Link
-                      href={`/fighters/${f.id}`}
-                      className="text-sm font-medium text-emerald-400 hover:underline"
-                    >
-                      {f.name}
-                    </Link>
-                    <button
-                      onClick={() => {
-                        setNoteTarget(f.id);
-                        setNoteContent("");
-                      }}
-                      className="rounded-lg border border-violet-500/30 bg-violet-500/10 px-2.5 py-1 text-xs text-violet-300 hover:bg-violet-500/20"
-                    >
-                      + Note
-                    </button>
-                  </li>
-                ))}
-              </ul>
-            )}
-
-            {/* New note form */}
-            {noteTarget && (
-              <div className="rounded-xl border border-violet-500/30 bg-violet-500/5 p-4 space-y-3">
-                <div className="text-xs text-violet-300/70">
-                  Writing note for{" "}
-                  <span className="font-semibold text-violet-200">
-                    {fighters.find((f) => f.id === noteTarget)?.name}
-                  </span>
-                </div>
-                <textarea
-                  rows={4}
-                  value={noteContent}
-                  onChange={(e) => setNoteContent(e.target.value)}
-                  placeholder="Observations, feedback, training notes..."
-                  className="w-full rounded-xl border border-white/5 bg-black/30 px-3 py-2 text-sm focus:border-violet-500/50 focus:outline-none"
-                />
-                <div className="flex gap-2">
-                  <button
-                    onClick={submitNote}
-                    disabled={noteSaving || !noteContent.trim()}
-                    className="rounded-xl bg-violet-500 px-4 py-2 text-sm font-medium text-white hover:bg-violet-400 disabled:opacity-50"
-                  >
-                    {noteSaving ? "Saving..." : "Save note"}
-                  </button>
-                  <button
-                    onClick={() => setNoteTarget(null)}
-                    className="rounded-xl bg-neutral-800 px-3 py-2 text-sm hover:bg-neutral-700"
-                  >
-                    Cancel
-                  </button>
-                </div>
-              </div>
-            )}
-          </section>
 
           {/* ── Recent notes by this coach ── */}
           {notes.length > 0 && (

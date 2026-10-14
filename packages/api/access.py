@@ -12,19 +12,23 @@ token) decides.
 
     data about fighter F            who
     ------------------------------  ---------------------------------------------
-    basic profile (read)            F, F's coaches, F's gym managers, coaches at
-                                    F's gym, researchers, admins
+    basic profile (read)            F, F's coaches, F's physicians, F's gym
+                                    managers, coaches at F's gym, admins
     basic profile (change)          F, F's coaches, F's gym managers, admins
-    training data (read)            F, F's coaches, F's gym managers
+    training data (read)            F, F's coaches, F's physicians, F's gym managers
       sessions, video, heart rate,
       wrist sensors, notes, weigh-ins
     training data (change)          F, F's coaches
-    medical records                 F, F's coaches — every access logged
-    research datasets               researchers only (ALION_RESEARCHERS)
+    medical records (health notes)  F, F's physicians, F's coaches F allowed —
+                                    every access logged
+    research datasets               researchers
+    everything above                researchers (ALION_RESEARCHERS, ADR-046) —
+                                    and every administrator power
 
-"F's coaches" are coaches with a current assignment to F; "F's gym managers"
-manage a gym F belongs to (and hasn't left). Admins manage accounts, gyms and
-profiles — never training or medical data.
+"F's coaches" are coaches with a current assignment to F; "F's physicians" are
+physicians F chose (ADR-046); "F's gym managers" manage a gym F belongs to (and
+hasn't left). Admins manage accounts, gyms and profiles — never training or
+medical data.
 """
 
 from __future__ import annotations
@@ -52,6 +56,7 @@ from store import (
     Fighter,
     GymManager,
     GymMembership,
+    PhysicianAssignmentRow,
     User,
     UserRole,
 )
@@ -80,7 +85,8 @@ class Viewer:
 
     @property
     def admin(self) -> bool:
-        return self.user.role == UserRole.ADMIN
+        """Accounts, gyms, profiles and settings: an admin, or a researcher (ADR-046)."""
+        return self.user.role == UserRole.ADMIN or self.researcher
 
     @cached_property
     def researcher(self) -> bool:
@@ -118,6 +124,37 @@ class Viewer:
         }
 
     @cached_property
+    def coached_health(self) -> set[UUID]:
+        """This coach's fighters who let them see their health notes (ADR-046)."""
+        if self.coach_id is None:
+            return set()
+        today = date.today()
+        rows = self.db.exec(
+            select(CoachAssignment).where(
+                CoachAssignment.coach_id == self.coach_id, col(CoachAssignment.health_access)
+            )
+        ).all()
+        return {
+            a.fighter_id
+            for a in rows
+            if (a.ended_on is None or a.ended_on >= today)
+            and (a.started_on is None or a.started_on <= today)
+        }
+
+    @cached_property
+    def physician_of(self) -> set[UUID]:
+        """Fighters who chose this physician (ADR-046)."""
+        if self.user.role != UserRole.PHYSICIAN:
+            return set()
+        rows = self.db.exec(
+            select(PhysicianAssignmentRow).where(
+                PhysicianAssignmentRow.physician_id == self.user.id,
+                col(PhysicianAssignmentRow.ended_at).is_(None),
+            )
+        ).all()
+        return {a.fighter_id for a in rows}
+
+    @cached_property
     def coach_gym_fighters(self) -> set[UUID]:
         """Fighters at this coach's gym — their basic profiles only."""
         if self.coach_id is None:
@@ -131,20 +168,29 @@ class Viewer:
         return gym_fighters(self.db, self.manager_gym) if self.manager_gym else set()
 
     def can(self, fighter_id: UUID, level: Level) -> bool:
+        if self.researcher:
+            return True  # everything, for the study (ADR-046); health-note reads are logged
         is_self = fighter_id == self.own_fighter
-        if level == Level.MEDICAL or level == Level.TRAINING_WRITE:
+        if level == Level.MEDICAL:
+            return is_self or fighter_id in self.coached_health or fighter_id in self.physician_of
+        if level == Level.TRAINING_WRITE:
             return is_self or fighter_id in self.coached
         if level == Level.TRAINING:
-            return is_self or fighter_id in self.coached or fighter_id in self.managed
+            return (
+                is_self
+                or fighter_id in self.coached
+                or fighter_id in self.managed
+                or fighter_id in self.physician_of
+            )
         if level == Level.PROFILE_WRITE:
             return self.admin or is_self or fighter_id in self.coached or fighter_id in self.managed
         return (  # Level.PROFILE
             self.admin
-            or self.researcher
             or is_self
             or fighter_id in self.coached
             or fighter_id in self.managed
             or fighter_id in self.coach_gym_fighters
+            or fighter_id in self.physician_of
         )
 
     def require(self, fighter_id: UUID, level: Level) -> None:
@@ -202,7 +248,7 @@ def require_viewer(viewer: Viewer | None = Depends(current_viewer)) -> Viewer:
 
 
 def require_researcher(viewer: Viewer = Depends(require_viewer)) -> Viewer:
-    """Research datasets: only the accounts in ALION_RESEARCHERS."""
+    """Research datasets, model training, studies: only the accounts in ALION_RESEARCHERS."""
     if not viewer.researcher:
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
@@ -312,7 +358,9 @@ def _coach_rule(
     viewer: Viewer, coach_id: UUID, fighter_id: UUID | None, path: str, write: bool
 ) -> None:
     """A coach's own pages: notes are theirs alone; the profile is seen by them,
-    their fighters, their gym's managers and admins."""
+    their fighters, their gym's managers and admins. Researchers see all (ADR-046)."""
+    if viewer.researcher:
+        return
     me = viewer.coach_id == coach_id
     if "/notes" in path:
         if not me:
@@ -344,7 +392,7 @@ def _fighters_of(db: DBSession, coach_id: UUID) -> set[UUID]:
 def _bout_rule(viewer: Viewer, db: DBSession, bout_id: UUID, write: bool) -> None:
     """A bout is open to whoever may see (or change) either corner's session; an
     empty bout to the coaches and gym managers who set fights up."""
-    if db.get(Bout, bout_id) is None:
+    if db.get(Bout, bout_id) is None or viewer.researcher:
         return
     fighters = list(db.exec(select(SessionRow.fighter_id).where(SessionRow.bout_id == bout_id)))
     level = Level.TRAINING_WRITE if write else Level.TRAINING
@@ -377,7 +425,7 @@ def _gym_rule(viewer: Viewer, db: DBSession, gym_id: UUID, path: str, write: boo
 
 def visible_fighters(viewer: Viewer, level: Level) -> set[UUID] | None:
     """The fighters this viewer may see at `level` — None means all of them."""
-    if level == Level.PROFILE and (viewer.admin or viewer.researcher):
+    if viewer.researcher or (level == Level.PROFILE and viewer.admin):
         return None
     out: set[UUID] = set()
     if viewer.own_fighter:
@@ -385,6 +433,8 @@ def visible_fighters(viewer: Viewer, level: Level) -> set[UUID] | None:
     out |= viewer.coached
     if level in (Level.PROFILE, Level.PROFILE_WRITE, Level.TRAINING):
         out |= viewer.managed
+    if level in (Level.PROFILE, Level.TRAINING):
+        out |= viewer.physician_of
     if level == Level.PROFILE:
         out |= viewer.coach_gym_fighters
     return out

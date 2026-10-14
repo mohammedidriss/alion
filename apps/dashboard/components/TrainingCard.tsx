@@ -126,7 +126,8 @@ export function TrainingCard({
             trained on.
             <div className="mt-1 text-xs text-neutral-400">
               Trained on {r.data.train_punches} punches ({r.data.train_stretches} stretches, {r.data.takes}{" "}
-              takes, {r.data.fighters} fighter{r.data.fighters === 1 ? "" : "s"}) · model v{r.version},{" "}
+              takes, {r.data.fighters} fighter{r.data.fighters === 1 ? "" : "s"}
+              {r.data.sessions ? `; ${r.data.session_punches} of them from ${r.data.sessions} recorded session${r.data.sessions === 1 ? "" : "s"}` : ""}) · model v{r.version},{" "}
               {new Date(r.created_at).toLocaleString()}
             </div>
           </div>
