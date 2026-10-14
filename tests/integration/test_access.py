@@ -192,20 +192,49 @@ def test_research_datasets_are_for_researchers_only(
     assert authed_client.get("/auth/me").json()["is_researcher"] is True
 
 
-def test_nobody_signs_up_as_admin_or_gym_manager(client: TestClient) -> None:
-    for role in ("admin", "gym_manager"):
-        r = client.post(
-            "/auth/register",
-            json={
-                "email": f"x-{role}@alion.test",
-                "password": "ValidPass123",
-                "name": "X",
-                "role": role,
-                "accept_terms": True,
-                "terms_version": TERMS_VERSION,
-            },
-        )
-        assert r.status_code == 403
+def _sign_up(client: TestClient, role: str, **extra: object) -> object:
+    return client.post(
+        "/auth/register",
+        json={
+            "email": f"x-{role}-{len(extra)}@alion.test",
+            "password": "ValidPass123",
+            "name": "X",
+            "role": role,
+            "accept_terms": True,
+            "terms_version": TERMS_VERSION,
+            **extra,
+        },
+    )
+
+
+def test_nobody_signs_up_as_admin(client: TestClient) -> None:
+    assert _sign_up(client, "admin").status_code == 403  # type: ignore[attr-defined]
+
+
+def test_a_gym_manager_signs_up_with_a_new_gym_of_their_own(
+    client: TestClient, admin_client: TestClient, people: dict[str, Account]
+) -> None:
+    # No gym named: refused, and no account is made.
+    r = _sign_up(client, "gym_manager")
+    assert r.status_code == 422  # type: ignore[attr-defined]
+    other = admin_client.post("/gyms", json={"name": "Someone else's gym"}).json()["id"]
+    r = _sign_up(client, "gym_manager", gym_name="  Eastside Boxing  ")
+    assert r.status_code == 201, r.text  # type: ignore[attr-defined]
+    me = r.json()  # type: ignore[attr-defined]
+    headers = {"Authorization": f"Bearer {me['access_token']}"}
+    mine = client.get("/gym-managers/me", headers=headers).json()
+    gym = client.get(f"/gyms/{mine['gym_id']}", headers=headers).json()
+    assert gym["name"] == "Eastside Boxing" and gym["id"] != other
+    # They manage their own new gym — never an existing one.
+    assert client.get(f"/gyms/{mine['gym_id']}/members", headers=headers).status_code == 200
+    assert client.get(f"/gyms/{other}/members", headers=headers).status_code == 403
+    amir = people["amir"]
+    r = client.post(
+        f"/gyms/{other}/members",
+        json={"member_id": amir.profile_id, "member_type": "fighter"},
+        headers=headers,
+    )
+    assert r.status_code == 403
 
 
 def test_referees_need_a_sign_in_and_only_admins_add_them(

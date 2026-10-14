@@ -12,7 +12,7 @@ import bcrypt
 from fastapi import APIRouter, Depends, HTTPException, status
 from fastapi.security import OAuth2PasswordBearer, OAuth2PasswordRequestForm
 from jose import JWTError, jwt
-from pydantic import BaseModel, field_validator
+from pydantic import BaseModel, Field, field_validator
 from sqlmodel import Session as DBSession
 from sqlmodel import select
 
@@ -30,7 +30,7 @@ from store import (
     UserRepo,
     UserRole,
 )
-from store.models import CoachCreate, FighterCreate, GymManagerCreate, RefereeCreate
+from store.models import CoachCreate, FighterCreate, GymCreate, GymManagerCreate, RefereeCreate
 
 router = APIRouter(prefix="/auth", tags=["auth"])
 
@@ -185,9 +185,10 @@ def user_out(user: User) -> UserRead:
     return out
 
 
-# Roles anyone may sign up as. Admins are made by an admin; gym managers by an
-# admin or through their gym (a gym manager needs a gym). (ADR-017)
-SELF_SIGNUP_ROLES = (UserRole.FIGHTER, UserRole.COACH, UserRole.REFEREE)
+# Roles anyone may sign up as. Admins are made by an admin (ADR-017). A gym manager
+# signs up with a new gym of their own (ADR-030); managing an existing gym is set
+# up by an admin — so nobody can sign up into someone else's gym and its members.
+SELF_SIGNUP_ROLES = (UserRole.FIGHTER, UserRole.COACH, UserRole.REFEREE, UserRole.GYM_MANAGER)
 
 
 # --- Request / Response schemas ---
@@ -201,6 +202,8 @@ class RegisterRequest(BaseModel):
     # Signing up means agreeing to the terms shown (ADR-016): both are required.
     accept_terms: bool = False
     terms_version: str | None = None
+    # A gym manager names the new gym they'll manage (ADR-030).
+    gym_name: str | None = Field(default=None, max_length=160)
 
     @field_validator("email")
     @classmethod
@@ -244,7 +247,12 @@ def register(
     if data.role not in SELF_SIGNUP_ROLES:
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
-            detail="Sign up as a fighter, coach or referee — other accounts are made by an admin",
+            detail="Sign up as a fighter, coach, referee or gym manager — admins are made by an admin",
+        )
+    gym_name = (data.gym_name or "").strip()
+    if data.role == UserRole.GYM_MANAGER and not gym_name:
+        raise HTTPException(
+            status_code=422, detail="Name your gym — signing up as a gym manager creates it"
         )
     if not data.accept_terms or data.terms_version != terms.TERMS_VERSION:
         raise HTTPException(
@@ -272,8 +280,13 @@ def register(
     user = repo.create(user_create, hashed)
     user = repo.accept_terms(user, terms.TERMS_VERSION)
 
-    # Auto-create a linked profile based on role
-    profile_id = _create_profile_for_role(user, session)
+    # Auto-create a linked profile based on role — a gym manager with their new gym.
+    new_gym = (
+        GymRepo(session).create(GymCreate(name=gym_name))
+        if data.role == UserRole.GYM_MANAGER
+        else None
+    )
+    profile_id = _create_profile_for_role(user, session, gym_id=new_gym.id if new_gym else None)
     if profile_id:
         repo.set_profile_id(user.id, profile_id)
         user.profile_id = profile_id

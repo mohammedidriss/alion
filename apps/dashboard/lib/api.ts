@@ -2224,7 +2224,15 @@ export const api = {
     ),
 
   // Auth
-  register: (email: string, password: string, name: string, role: UserRole, termsVersion: string) =>
+  /** `gymName`: a gym manager's new gym, which signing up creates (ADR-030). */
+  register: (
+    email: string,
+    password: string,
+    name: string,
+    role: UserRole,
+    termsVersion: string,
+    gymName?: string,
+  ) =>
     req<AuthResponse>("/auth/register", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
@@ -2235,6 +2243,7 @@ export const api = {
         role,
         accept_terms: true,
         terms_version: termsVersion,
+        gym_name: gymName ?? null,
       }),
     }),
   terms: () =>

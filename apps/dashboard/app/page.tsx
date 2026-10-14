@@ -27,6 +27,7 @@ export default function Home() {
   const [password, setPassword] = useState("");
   const [name, setName] = useState("");
   const [role, setRole] = useState<UserRole>("fighter");
+  const [gymName, setGymName] = useState(""); // a gym manager's new gym (ADR-030)
   const [stayLoggedIn, setStayLoggedIn] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [submitting, setSubmitting] = useState(false);
@@ -56,7 +57,15 @@ export default function Home() {
         loggedInUser = await login(email, password, stayLoggedIn);
       } else {
         if (!terms || !agreed) throw new Error("Please accept the terms and conditions");
-        loggedInUser = await register(email, password, name, role, stayLoggedIn, terms.version);
+        loggedInUser = await register(
+          email,
+          password,
+          name,
+          role,
+          stayLoggedIn,
+          terms.version,
+          role === "gym_manager" ? gymName.trim() : undefined,
+        );
       }
       // Redirect immediately to profile
       const dest = profileUrlFor(loggedInUser);
@@ -151,6 +160,25 @@ export default function Home() {
                     <option value="gym_manager">Gym Manager</option>
                   </select>
                 </div>
+                {role === "gym_manager" && (
+                  <div>
+                    <label className="mb-1 block text-xs font-medium text-neutral-400">
+                      Gym name
+                    </label>
+                    <input
+                      value={gymName}
+                      onChange={(e) => setGymName(e.target.value)}
+                      required
+                      maxLength={160}
+                      placeholder="Your gym's name"
+                      className="w-full rounded-xl border border-white/10 bg-white/[0.03] px-4 py-2.5 text-sm text-neutral-200 placeholder:text-neutral-600 focus:border-emerald-500/40 focus:outline-none"
+                    />
+                    <p className="mt-1 text-[11px] text-neutral-400">
+                      Signing up creates this gym, and you manage it. To manage a gym that&apos;s
+                      already on Alion, ask an administrator.
+                    </p>
+                  </div>
+                )}
               </>
             )}
 

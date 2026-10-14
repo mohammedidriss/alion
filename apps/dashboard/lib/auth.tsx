@@ -15,6 +15,7 @@ interface AuthState {
     role: UserRole,
     persist: boolean,
     termsVersion: string,
+    gymName?: string,
   ) => Promise<AuthUser>;
   logout: () => void;
   refreshUser: () => Promise<void>;
@@ -94,8 +95,9 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       role: UserRole,
       persist: boolean,
       termsVersion: string,
+      gymName?: string,
     ): Promise<AuthUser> => {
-      const res = await api.register(email, password, name, role, termsVersion);
+      const res = await api.register(email, password, name, role, termsVersion, gymName);
       saveToken(res.access_token, persist);
       setToken(res.access_token);
       setUser(res.user);
