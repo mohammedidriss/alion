@@ -159,8 +159,13 @@ def test_gym_managers_see_their_gyms_training_but_never_medical(
         headers=gina,
     )
     assert r.status_code in (200, 201), r.text
+    assert r.json()["status"] == "invited"  # ADR-035: Amir says yes first
 
     amir_sid, bea_sid = _session(client, amir), _session(client, bea)
+    assert client.get(f"/sessions/{amir_sid}", headers=gina).status_code == 403
+    invite = client.get("/v2/gym-invitations", headers=amir.headers).json()[0]
+    accepted = client.post(f"/v2/gym-invitations/{invite['id']}/accept", headers=amir.headers)
+    assert accepted.status_code == 200
     assert client.get(f"/sessions/{amir_sid}", headers=gina).status_code == 200
     assert client.get(f"/sessions/{bea_sid}", headers=gina).status_code == 403  # not her gym
     assert client.get(f"/fighters/{amir.profile_id}/medical", headers=gina).status_code == 403

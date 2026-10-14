@@ -466,14 +466,22 @@ class GymRepo:
         self._session.commit()
         return True
 
-    def add_member(self, gym_id: UUID, member_id: UUID, member_type: str) -> GymMembership:
+    def add_member(
+        self,
+        gym_id: UUID,
+        member_id: UUID,
+        member_type: str,
+        status: str = "active",
+        note: str | None = None,
+    ) -> GymMembership:
         from store.models import MembershipStatus
 
         row = GymMembership(
             gym_id=gym_id,
             member_id=member_id,
             member_type=member_type,
-            status=MembershipStatus.ACTIVE,
+            status=MembershipStatus(status),
+            status_note=note,
         )
         self._session.add(row)
         self._session.commit()

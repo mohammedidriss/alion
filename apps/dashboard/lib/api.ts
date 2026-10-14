@@ -183,7 +183,19 @@ export interface Gym {
 
 export type GymPatch = Partial<Omit<Gym, "id" | "created_at">>;
 
-export type MembershipStatus = "active" | "frozen" | "suspended" | "trial" | "left";
+/** invited / declined: a fighter the gym added, until they accept (ADR-035). */
+export type MembershipStatus = "active" | "frozen" | "suspended" | "trial" | "left" | "invited" | "declined";
+
+/** A gym asking the signed-in fighter to join it (ADR-035). */
+export interface GymInvitation {
+  id: number;
+  gym_id: string;
+  gym_name: string;
+  gym_city: string | null;
+  managers: string[]; // who'll see your training data once you accept
+  invited_by: string | null;
+  invited_at: string;
+}
 
 export interface GymMembership {
   id: number;
@@ -1865,6 +1877,9 @@ export const api = {
   // ---- RQ1 study ----
   // ---- Privacy and consent (ADR-033) ----
   privacyMe: () => req<PrivacyMe>("/v2/privacy/me"),
+  gymInvitations: () => req<GymInvitation[]>("/v2/gym-invitations"),
+  answerGymInvitation: (id: number, answer: "accept" | "decline") =>
+    req<{ status: string }>(`/v2/gym-invitations/${id}/${answer}`, { method: "POST" }),
   privacyRequest: (kind: DataRequestKind, note?: string) =>
     req<DataRequest>("/v2/privacy/requests", {
       method: "POST",

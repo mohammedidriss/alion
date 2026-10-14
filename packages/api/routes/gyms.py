@@ -1,4 +1,9 @@
-"""Gym CRUD + membership management."""
+"""Gym CRUD + membership management.
+
+A fighter a gym adds — by System ID or by profile — is invited, not joined
+(ADR-035): the gym's managers see nothing of their training until the fighter
+accepts (`/v2/gym-invitations`). Accounts a gym makes itself join at once.
+"""
 
 from __future__ import annotations
 
@@ -7,6 +12,7 @@ from uuid import UUID
 from fastapi import APIRouter, Depends, HTTPException, status
 from pydantic import BaseModel
 from sqlmodel import Session as DBSession
+from sqlmodel import select
 
 from api import access
 from api.deps import db_session, gym_repo, resolve_gym_id
@@ -27,9 +33,14 @@ from store.models import (
     CoachCreate,
     FighterCreate,
     GymCreate,
+    GymMembership,
     GymMembershipRead,
     GymRead,
+    MembershipStatus,
 )
+
+# A fighter's membership the gym can't move on its own: only the fighter accepts.
+_FIGHTERS_CALL = {MembershipStatus.INVITED, MembershipStatus.DECLINED, MembershipStatus.LEFT}
 
 router = APIRouter(
     prefix="/gyms",
@@ -74,6 +85,59 @@ class CheckInBody(BaseModel):
     member_id: UUID
     member_type: str  # "fighter" or "coach"
     notes: str | None = None
+
+
+def _read(m: GymMembership, name: str) -> GymMembershipRead:
+    return GymMembershipRead(
+        id=m.id,
+        gym_id=m.gym_id,
+        member_id=m.member_id,
+        member_type=m.member_type,
+        member_name=name,
+        status=m.status,
+        joined_on=m.joined_on,
+        left_on=m.left_on,
+        status_note=m.status_note,
+        created_at=m.created_at,
+    )
+
+
+def _invite_fighter(session: DBSession, gym_id: UUID, fighter: Fighter, by: User) -> GymMembership:
+    """Invite a fighter to the gym (ADR-035) — or again, after they declined or
+    left. Refused when they're already in it or already invited."""
+    rows = list(
+        session.exec(
+            select(GymMembership).where(
+                GymMembership.gym_id == gym_id,
+                GymMembership.member_id == fighter.id,
+                GymMembership.member_type == "fighter",
+            )
+        ).all()
+    )
+    if any(r.status == MembershipStatus.INVITED for r in rows):
+        raise HTTPException(
+            status_code=409,
+            detail=f"{fighter.name} is already invited — waiting for them to accept",
+        )
+    gone = [r for r in rows if r.status in _FIGHTERS_CALL]
+    in_gym = len(gone) < len(rows) or (fighter.gym_id == gym_id and not gone)
+    if in_gym:
+        raise HTTPException(
+            status_code=409, detail=f"{fighter.name} is already a member of this gym"
+        )
+    note = f"Invited by {by.name}"[:300]
+    if gone:  # ask again on the same row
+        row = max(gone, key=lambda r: r.created_at)
+        row.status = MembershipStatus.INVITED
+        row.status_note = note
+        row.left_on = None
+        session.add(row)
+        session.commit()
+        session.refresh(row)
+        return row
+    return GymRepo(session).add_member(
+        gym_id, fighter.id, "fighter", MembershipStatus.INVITED, note
+    )
 
 
 @router.post("", response_model=GymRead, status_code=status.HTTP_201_CREATED)
@@ -166,25 +230,21 @@ def add_member(
     gym_id: UUID,
     data: AddMemberBody,
     repo: GymRepo = Depends(gym_repo),
+    session: DBSession = Depends(db_session),
+    current_user: User = Depends(require_current_user),
 ) -> GymMembershipRead:
+    """Add a coach, or invite a fighter (ADR-035)."""
     if repo.get(gym_id) is None:
         raise HTTPException(status_code=404, detail="gym not found")
     if data.member_type not in ("fighter", "coach"):
         raise HTTPException(status_code=422, detail="member_type must be 'fighter' or 'coach'")
+    if data.member_type == "fighter":
+        fighter = FighterRepo(session).get(data.member_id)
+        if fighter is None:
+            raise HTTPException(status_code=404, detail="fighter not found")
+        return _read(_invite_fighter(session, gym_id, fighter, current_user), fighter.name)
     m = repo.add_member(gym_id, data.member_id, data.member_type)
-    name = ""
-    return GymMembershipRead(
-        id=m.id,
-        gym_id=m.gym_id,
-        member_id=m.member_id,
-        member_type=m.member_type,
-        member_name=name,
-        status=m.status,
-        joined_on=m.joined_on,
-        left_on=m.left_on,
-        status_note=m.status_note,
-        created_at=m.created_at,
-    )
+    return _read(m, "")
 
 
 @router.delete(
@@ -217,7 +277,8 @@ def import_member(
     session: DBSession = Depends(db_session),
     current_user: User = Depends(require_current_user),
 ) -> GymMembershipRead:
-    """Import an existing fighter or coach into a gym by their System ID."""
+    """Import an existing coach into a gym by their System ID, or invite a
+    fighter — they accept before the gym sees their training (ADR-035)."""
     if repo.get(gym_id) is None:
         raise HTTPException(status_code=404, detail="gym not found")
 
@@ -254,6 +315,8 @@ def import_member(
             status_code=404,
             detail="No fighter or coach found with that System ID",
         )
+    if member_type == "fighter" and fighter:
+        return _read(_invite_fighter(session, gym_id, fighter, current_user), member_name)
 
     # Check for duplicate membership
     existing = repo.list_members(gym_id)
@@ -264,16 +327,10 @@ def import_member(
                 detail=f"{member_name} is already a member of this gym",
             )
 
-    # Set gym_id on the fighter/coach record so they show in gym-filtered lists
+    # Set gym_id on the coach record so they show in gym-filtered lists
     gym = repo.get(gym_id)
     gym_name = gym.name if gym else None
-    if member_type == "fighter" and fighter:
-        fighter.gym_id = gym_id
-        fighter.gym = gym_name
-        session.add(fighter)
-        session.commit()
-        session.refresh(fighter)
-    elif member_type == "coach" and coach:
+    if member_type == "coach" and coach:
         coach.gym_id = gym_id
         coach.gym = gym_name
         session.add(coach)
@@ -424,6 +481,17 @@ def update_membership_status(
         if allowed != gym_id and str(allowed).replace("-", "") != str(gym_id).replace("-", ""):
             raise HTTPException(status_code=403, detail="You can only manage your own gym")
 
+    row = session.get(GymMembership, membership_id)
+    if (
+        row is not None
+        and row.member_type == "fighter"
+        and row.status in _FIGHTERS_CALL
+        and data.status != "left"
+    ):
+        raise HTTPException(
+            status_code=409,
+            detail="Only the fighter can join the gym: invite them by System ID and they accept",
+        )
     m = repo.update_membership_status(gym_id, membership_id, data.status, data.note)
     if m is None:
         raise HTTPException(status_code=404, detail="membership not found")

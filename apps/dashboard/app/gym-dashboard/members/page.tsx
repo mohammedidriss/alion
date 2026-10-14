@@ -268,6 +268,9 @@ export default function MembersPage() {
   // Helpers for membership status
   const getMembership = (memberId: string) =>
     memberships.find((m) => m.member_id === memberId);
+  const pending = memberships.filter(
+    (m) => m.member_type === "fighter" && (m.status === "invited" || m.status === "declined"),
+  );
 
   const isCheckedInToday = (memberId: string) =>
     todaysCheckins.some((ci) => ci.member_id === memberId && !ci.checked_out_at);
@@ -279,6 +282,8 @@ export default function MembersPage() {
       suspended: "bg-red-500/15 text-red-300",
       trial: "bg-amber-500/15 text-amber-300",
       left: "bg-neutral-500/15 text-neutral-400",
+      invited: "bg-amber-500/15 text-amber-300",
+      declined: "bg-neutral-500/15 text-neutral-400",
     };
     return (
       <span className={`rounded-full px-2 py-0.5 text-[10px] font-medium ${styles[status] ?? styles.active}`}>
@@ -389,7 +394,8 @@ export default function MembersPage() {
           <div>
             <h3 className="text-lg font-semibold text-amber-200">Import Existing Member</h3>
             <p className="mt-1 text-xs text-neutral-400">
-              Ask the fighter or coach for their System ID, then enter it below to add them to your gym.
+              Ask the fighter or coach for their System ID, then enter it below. A coach joins at once; a
+              fighter gets an invitation and accepts it before you see their training.
             </p>
           </div>
           <div className="flex gap-3">
@@ -409,7 +415,11 @@ export default function MembersPage() {
                 setImportSuccess("");
                 try {
                   const result = await api.importGymMember(gymId, importId.trim());
-                  setImportSuccess(`Successfully added ${result.member_name || "member"} (${result.member_type}) to your gym!`);
+                  setImportSuccess(
+                    result.status === "invited"
+                      ? `Invitation sent to ${result.member_name || "the fighter"}. They accept it on their Alion home page — you'll see their training once they do.`
+                      : `Successfully added ${result.member_name || "member"} (${result.member_type}) to your gym!`,
+                  );
                   setImportId("");
                   load();
                 } catch (err: unknown) {
@@ -738,6 +748,37 @@ export default function MembersPage() {
         </select>
         <span className="text-xs text-neutral-500">{filtered.length} of {fighters.length}</span>
       </div>
+
+      {/* ─── Invitations waiting for the fighter (ADR-035) ───────── */}
+      {pending.length > 0 && (
+        <div className="card space-y-2">
+          <h3 className="text-sm font-semibold text-neutral-300 uppercase tracking-wider">Waiting for the fighter</h3>
+          <p className="text-xs text-neutral-500">
+            Invited fighters accept on their own Alion page. Until then you don&apos;t see their training.
+          </p>
+          <ul className="divide-y divide-white/5 text-sm">
+            {pending.map((m) => (
+              <li key={m.id} className="flex flex-wrap items-center justify-between gap-2 py-2">
+                <span className="flex items-center gap-2">
+                  <span className="font-medium">{m.member_name}</span>
+                  {statusBadge(m.status)}
+                  {m.status === "declined" && <span className="text-[11px] text-neutral-500">— you can invite them again</span>}
+                </span>
+                <button
+                  onClick={async () => {
+                    if (!gymId) return;
+                    await api.removeGymMember(gymId, m.id).catch(() => undefined);
+                    load();
+                  }}
+                  className="rounded-lg border border-white/10 px-2 py-1 text-[11px] text-neutral-400 hover:bg-white/5"
+                >
+                  {m.status === "invited" ? "Cancel invitation" : "Dismiss"}
+                </button>
+              </li>
+            ))}
+          </ul>
+        </div>
+      )}
 
       {/* ─── Fighters table ──────────────────────────────────────── */}
       <div className="card overflow-x-auto">

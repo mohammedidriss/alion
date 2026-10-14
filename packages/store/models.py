@@ -285,6 +285,10 @@ class MembershipStatus(StrEnum):
     SUSPENDED = "suspended"  # disciplinary
     TRIAL = "trial"  # trial period / drop-in
     LEFT = "left"  # departed the gym
+    # A fighter a gym added by System ID, until they accept (ADR-035): the gym
+    # sees nothing of their training until then.
+    INVITED = "invited"
+    DECLINED = "declined"
 
 
 class GymMembership(SQLModel, table=True):

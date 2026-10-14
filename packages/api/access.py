@@ -153,16 +153,26 @@ class Viewer:
 
 
 def gym_fighters(db: DBSession, gym_id: UUID) -> set[UUID]:
-    """Fighters at a gym: by their profile's gym, or a membership they haven't left."""
+    """Fighters at a gym: by their profile's gym, or a membership they accepted
+    (ADR-035) and haven't left."""
     by_profile = set(db.exec(select(Fighter.id).where(Fighter.gym_id == gym_id)).all())
     rows = db.exec(
         select(GymMembership).where(
             GymMembership.gym_id == gym_id, GymMembership.member_type == "fighter"
         )
     ).all()
-    left = {m.member_id for m in rows if m.status == "left" or m.left_on is not None}
-    active = {m.member_id for m in rows} - left
-    return (by_profile | active) - left
+    joined = {
+        m.member_id
+        for m in rows
+        if m.status not in ("left", "invited", "declined") and m.left_on is None
+    }
+    # Left, or invited back and not yet accepted: out, whatever their profile says.
+    out = {
+        m.member_id
+        for m in rows
+        if m.status in ("left", "invited", "declined") or m.left_on is not None
+    } - joined
+    return (by_profile - out) | joined
 
 
 _WHAT: dict[str, str] = {

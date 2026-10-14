@@ -8,6 +8,7 @@
 
 import Link from "next/link";
 import { useCallback, useEffect, useState } from "react";
+import { GymInvitationsCard } from "@/components/GymInvitationsCard";
 import { api, type DataRequestKind, type PrivacyMe } from "@/lib/api";
 
 const REQUESTS: { kind: DataRequestKind; title: string; text: string }[] = [
@@ -121,6 +122,8 @@ export default function PrivacyPage() {
         </section>
       )}
 
+      {me?.viewers && <GymInvitationsCard onAnswered={load} />}
+
       <section className="card space-y-3 text-sm">
         <h2 className="text-base font-semibold">Who can see it</h2>
         <div className="overflow-x-auto">
@@ -135,7 +138,7 @@ export default function PrivacyPage() {
             <tbody className="text-neutral-200">
               <tr className="border-t border-white/5"><td className="py-1.5 pr-3">You</td><td>Yes</td><td>Yes</td></tr>
               <tr className="border-t border-white/5"><td className="py-1.5 pr-3">Your current coaches</td><td>Yes</td><td>Yes</td></tr>
-              <tr className="border-t border-white/5"><td className="py-1.5 pr-3">Your gym&apos;s managers</td><td>Yes</td><td>No</td></tr>
+              <tr className="border-t border-white/5"><td className="py-1.5 pr-3">Managers of gyms you joined</td><td>Yes, once you accept</td><td>No</td></tr>
               <tr className="border-t border-white/5"><td className="py-1.5 pr-3">Researchers</td><td>Research datasets only, by code</td><td>No</td></tr>
               <tr className="border-t border-white/5"><td className="py-1.5 pr-3">Administrators</td><td>No — accounts only</td><td>No</td></tr>
             </tbody>

@@ -26,6 +26,7 @@ from api.routes import (
     dataset_export,
     datasets,
     fighters,
+    gym_invitations,
     gym_managers,
     gyms,
     health,
@@ -229,6 +230,7 @@ app.include_router(training.router)  # the dataset's camera punch counter
 app.include_router(rq1.router)
 app.include_router(reliance.router)  # the appropriate-reliance study (ADR-026)
 app.include_router(privacy.router)  # what's kept, who sees it, requests (ADR-033)
+app.include_router(gym_invitations.router)  # a fighter accepts a gym (ADR-035)
 app.include_router(round_plans.router)
 # Two-fighter bouts (ADR-011) — new endpoints, unversioned.
 app.include_router(bouts.router)
