@@ -15,7 +15,7 @@ from .safety import WITHHELD, find_blocked
 # route stores it on each cache entry; a mismatch on lookup forces a
 # fresh generation. Bump whenever the prompt or LLM changes in a way
 # that should reset the RQ1 rater dataset.
-PROMPT_VERSION = "v3"  # v3: safety rules in every prompt (ADR-018)
+PROMPT_VERSION = "v4"  # v4: body data only as training, no medicines or water cuts (ADR-039)
 
 __all__ = [
     "CORNER_ADVICE_SYSTEM_PROMPT",

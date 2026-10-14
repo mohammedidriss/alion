@@ -32,6 +32,94 @@ arrhythmia
 cardiac
 heart condition
 seizure
+# Conditions and symptoms (ADR-039)
+illness
+disease
+disorder
+syndrome
+symptom
+symptoms
+infection
+fever
+inflammation
+headache
+migraine
+dizziness
+dizzy
+nausea
+nauseous
+vomiting
+blurred vision
+double vision
+memory loss
+unconscious
+loss of consciousness
+neurological
+head trauma
+brain bleed
+whiplash
+sprain
+sprained
+ligament
+tendon
+tendinitis
+tendonitis
+dislocation
+dislocated
+torn
+hernia
+asthma
+diabetes
+hypertension
+high blood pressure
+low blood pressure
+hypotension
+tachycardia
+bradycardia
+atrial fibrillation
+afib
+heart attack
+heart failure
+myocarditis
+stroke
+anaemia
+anemia
+hypoglycaemia
+hypoglycemia
+rhabdomyolysis
+overtrained
+depression
+mental illness
+# Medicines and treatment (ADR-039)
+medication
+medications
+prescription
+prescribe
+prescribed
+dosage
+painkiller
+painkillers
+ibuprofen
+paracetamol
+acetaminophen
+aspirin
+steroid
+steroids
+# Weight cutting by dehydration or starving (ADR-039)
+diuretic
+diuretics
+laxative
+laxatives
+water cut
+water cutting
+water loading
+sauna suit
+rubber suit
+sweat suit
+starve
+starving
+starvation
+crash diet
 # Fitness verdicts, stoppage and clearance
 unsafe
 safe to continue
@@ -53,3 +141,22 @@ end the bout
 retire
 throw in the towel
 unhealthy
+# More verdicts (ADR-039)
+dangerous to continue
+dangerous to fight
+dangerous to spar
+dangerous to train
+dangerously high
+dangerously low
+life-threatening
+safe to train
+safe to spar
+fit to train
+fit to spar
+unfit
+not safe
+medically
+health risk
+health problem
+health issue
+health condition

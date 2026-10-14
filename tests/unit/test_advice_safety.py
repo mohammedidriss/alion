@@ -41,3 +41,50 @@ def test_the_blocked_terms_come_from_the_editable_file() -> None:
     terms = blocked_terms()
     assert "concussion" in terms and "stoppage" in terms
     assert all(t == t.lower() and not t.startswith("#") for t in terms)
+
+
+# ---- ADR-039: broader medical language, without blocking coaching ----
+
+COACHING = [
+    "Keep your guard up and double the jab.",
+    "Go to the body: the liver shot is open after the right hand.",
+    "Medicine ball slams for hip rotation, three sets.",
+    "Their right hand is dangerous; circle left.",
+    "Dropping your hands is a fatal mistake.",
+    "Head movement is the issue in round two; slip and pivot.",
+    "Recovery between rounds was slower than round one.",
+    "Avoid overtraining by keeping one easy day.",
+    "Heart rate settled 27 bpm in 40 s.",
+    "Signs of fatigue in the third: punch rate dropped 20%.",
+    "Cut off the ring and work the kidney side with hooks.",
+    "Fuel two hours before training; keep the weight trend at 0.5 kg a week.",
+]
+
+MEDICAL = {
+    "Irregular heart rhythm in round 3.": "organ + problem",
+    "Problems with the heart showed up on the strap.": "organ + problem",
+    "Kidney damage from the body shots.": "organ + problem",
+    "Showing symptoms after the clash of heads.": "symptoms",
+    "Take ibuprofen after sparring.": "ibuprofen",
+    "Use a sauna suit to drop the last kilo.": "sauna suit",
+    "Consider a diuretic before the weigh-in.": "diuretic",
+    "Looked dizzy in the corner.": "dizzy",
+    "Heart rate dangerously high.": "dangerously high",
+    "The fighter is overtrained.": "overtrained",
+    "Medically, the HRV says rest.": "medically",
+}
+
+
+def test_coaching_language_passes() -> None:
+    for text in COACHING:
+        assert find_blocked(text) == [], text
+
+
+def test_symptoms_medicines_water_cuts_and_organ_problems_are_caught() -> None:
+    for text, why in MEDICAL.items():
+        assert why in find_blocked(text), text
+
+
+def test_the_rules_keep_body_data_to_training() -> None:
+    assert "never as a sign of a health problem" in SAFETY_RULES
+    assert "diuretics" in SAFETY_RULES and "medicines" in SAFETY_RULES

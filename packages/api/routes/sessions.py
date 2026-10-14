@@ -855,9 +855,18 @@ async def get_session_advice(
                 detail="This advice is frozen for the study — it can't be regenerated",
             )
         out = _json.loads(frozen.output_json)
+        items = list(out.get("action_items", []))
+        if frozen.status != "shown" or not advice_gate.still_safe(out.get("summary", ""), *items):
+            return CoachAdviceResponse(
+                summary=WITHHELD,
+                action_items=[],
+                status="withheld",
+                advice_id=frozen.id,
+                locked=True,
+            )
         return CoachAdviceResponse(
             summary=out.get("summary", ""),
-            action_items=out.get("action_items", []),
+            action_items=items,
             status=frozen.status,
             advice_id=frozen.id,
             locked=True,
@@ -878,9 +887,17 @@ async def get_session_advice(
     )
     if cached is not None and not force_regenerate and not cached_is_failure:
         rec = advice_gate.latest_shown(db, session_id, payload_mode, PROMPT_VERSION)
+        items = _json.loads(cached.action_items_json)
+        if not advice_gate.still_safe(cached.summary, *items):
+            return CoachAdviceResponse(
+                summary=WITHHELD,
+                action_items=[],
+                status="withheld",
+                advice_id=rec.id if rec else None,
+            )
         return CoachAdviceResponse(
             summary=cached.summary,
-            action_items=_json.loads(cached.action_items_json),
+            action_items=items,
             advice_id=rec.id if rec else None,
         )
 

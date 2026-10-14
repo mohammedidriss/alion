@@ -25,6 +25,12 @@ from coach.llm_client import llm_config
 from store import AdviceRecord
 
 
+def still_safe(*texts: str) -> bool:
+    """Stored advice is checked again each time it's shown (ADR-039): a term added
+    to the blocked list also stops advice written before it."""
+    return not find_blocked(*texts)
+
+
 def platform_version() -> str:
     try:
         return version("alion")
@@ -60,16 +66,16 @@ def record(
     payload_mode: str | None = None,
     user_id: UUID | None = None,
 ) -> AdviceRecord:
-    """Check `output` and record it. Status: failed (the LLM didn't answer), withheld
-    (it contained a blocked term), or shown."""
-    blocked = [] if failed else find_blocked(*_texts(output))
+    """Check `output` and record it. Status: withheld (it contained a blocked term —
+    checked even when the call looks failed), failed (the LLM didn't answer), or shown."""
+    blocked = find_blocked(*_texts(output))
     body = json.dumps(output, sort_keys=True)
     rec = AdviceRecord(
         kind=kind,
         session_id=session_id,
         fighter_id=fighter_id,
         payload_mode=payload_mode,
-        status="failed" if failed else "withheld" if blocked else "shown",
+        status="withheld" if blocked else "failed" if failed else "shown",
         blocked_terms=json.dumps(blocked),
         output_json=body,
         model=llm_config()[2],

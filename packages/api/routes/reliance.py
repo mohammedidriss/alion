@@ -25,6 +25,7 @@ from sqlmodel import col, select
 from api.access import Viewer, require_researcher, require_viewer
 from api.deps import db_session
 from api.services import reliance
+from coach import WITHHELD, find_blocked
 from store import PayloadModeEnum, Session, User, UserRole
 from store.models import (
     AdviceCorrectnessEnum,
@@ -248,6 +249,14 @@ def create_snapshot(
     any reviewer sees it. Immutable: there is no edit or delete."""
     if db.get(Session, body.session_id) is None:
         raise HTTPException(status_code=404, detail="session not found")
+    # Study advice is training advice too (ADR-039): nothing medical reaches reviewers.
+    blocked = find_blocked(body.summary, *body.action_items, *(c.claim_text for c in body.claims))
+    if blocked:
+        raise HTTPException(
+            status_code=422,
+            detail=f"This advice reads as medical ({', '.join(blocked)}): the study shows "
+            "training advice only. Reword it without these.",
+        )
     input_json = _canonical(body.input_payload)
     advice_json = _canonical({"summary": body.summary, "action_items": body.action_items})
     snap = StudyAdviceSnapshotRow(
@@ -417,6 +426,10 @@ class MeOut(BaseModel):
 
 def _advisory(db: DBSession, s: StudyAdviceSnapshotRow) -> AdvisoryOut:
     advice = json.loads(s.advice_json)
+    claims = _claims(db, s.id)
+    if find_blocked(advice["summary"], *advice["action_items"], *(c.claim_text for c in claims)):
+        # Checked again when shown (ADR-039): a term added later still stops it.
+        return AdvisoryOut(id=s.id, summary=WITHHELD, action_items=[], claims=[])
     return AdvisoryOut(
         id=s.id,
         summary=advice["summary"],
@@ -431,7 +444,7 @@ def _advisory(db: DBSession, s: StudyAdviceSnapshotRow) -> AdvisoryOut:
                 source_end_ms=c.source_end_ms,
                 evidence_quality=c.evidence_quality,
             )
-            for c in _claims(db, s.id)
+            for c in claims
         ],
     )
 
