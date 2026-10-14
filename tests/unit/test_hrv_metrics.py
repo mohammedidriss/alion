@@ -154,3 +154,35 @@ def test_more_than_five_percent_artifacts_is_not_reliable() -> None:
 def test_a_real_change_in_heart_rate_is_kept() -> None:
     ramp = [1000.0 - 8.0 * i for i in range(60)]  # 60 → ~114 bpm, beat by beat
     assert clean_hrv(ramp).artifacts == 0
+
+
+# ---- Lipponen–Tarvainen classes (ADR-040) ----
+
+import numpy as np  # noqa: E402
+
+from analyze.rr_artifacts import classify  # noqa: E402
+
+
+def _natural(n: int, seed: int = 3) -> list[float]:
+    """Resting-like RR: 900 ms with breathing (~0.25 Hz) and beat-to-beat noise."""
+    rng = np.random.default_rng(seed)
+    t = np.cumsum(np.full(n, 0.9))
+    return list(900 + 40 * np.sin(2 * np.pi * 0.25 * t) + rng.normal(0, 12, n))
+
+
+def test_natural_variability_is_left_alone() -> None:
+    rrs = _natural(600)
+    assert sum(label is not None for label in classify(rrs)) <= 3  # ≤ 0.5 %
+    assert clean_hrv(rrs).reliable
+
+
+def test_each_artifact_is_classed() -> None:
+    rrs = _natural(300)
+    rrs[50] = rrs[50] * 2  # a missed beat
+    rrs[120:121] = [rrs[120] * 0.45, rrs[120] * 0.55]  # an extra beat splits one interval
+    rrs[200], rrs[201] = rrs[200] * 0.7, rrs[201] * 1.3  # an ectopic beat and its pause
+    labels = classify(rrs)
+    assert labels[50] == "missed"
+    assert labels[120] == "extra" and labels[121] == "extra"
+    assert labels[200] is not None and labels[201] is not None
+    assert sum(label is not None for label in labels) <= 7

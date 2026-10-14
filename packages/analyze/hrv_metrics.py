@@ -11,10 +11,13 @@ Implemented without numpy because the per-window math is small and we'd
 rather keep the math visible than push it through a black-box dependency.
 
 The three functions take the beats as given. `clean_hrv` removes artifacts first
-(ADR-037) — what every stored, live and uploaded figure goes through:
+(ADR-037, ADR-040) — what every stored, live and uploaded figure goes through:
 - outside 30–200 bpm (300–2000 ms): a dropout or noise, not a heartbeat;
-- more than 20 % from the median of up to 5 beats on each side: a missed beat
-  (one interval twice as long) or an extra one (two short ones);
+- then the Lipponen–Tarvainen classes on what's left (`analyze.rr_artifacts`):
+  ectopic, missed, extra, and long or short beats, against thresholds that
+  adapt to the fighter's own variability — backed up, for recordings too short
+  to learn that variability, by "more than 20 % from the median of up to 5
+  beats on each side";
 - RMSSD only from differences between two kept, consecutive beats — never
   across a removed one; SDNN and mean HR from the kept beats;
 - more than 5 % of beats removed: the HRV isn't reliable (`reliable` False).
@@ -29,6 +32,7 @@ from collections.abc import Iterable, Sequence
 from dataclasses import dataclass
 from uuid import UUID
 
+from analyze.rr_artifacts import classify
 from contracts import HRMetricsWindow, HRSample
 
 
@@ -61,27 +65,27 @@ def sdnn_ms(samples: Iterable[HRSample]) -> float:
 
 
 RR_MIN_MS, RR_MAX_MS = 300.0, 2000.0  # 200 and 30 bpm
-MAX_DEVIATION = 0.20  # from the local median
+MAX_DEVIATION = 0.20  # from the local median: the backstop on short recordings
 NEIGHBOURS = 5  # beats on each side for that median
 MAX_ARTIFACT_SHARE = 0.05  # above this, HRV from these beats isn't reliable
 
 
 def artifact_mask(rrs: Sequence[float]) -> list[bool]:
-    """True for each interval that is an artifact, not a heartbeat."""
+    """True for each interval that is an artifact, not a heartbeat: out of range,
+    classed ectopic, missed, extra, long or short among the in-range ones, or more
+    than 20 % from the median of up to 5 in-range beats each side. The adaptive
+    classes need a few dozen beats to learn the fighter's variability; the 20 %
+    rule backs them up on short recordings."""
     n = len(rrs)
-    in_range = [RR_MIN_MS <= r <= RR_MAX_MS for r in rrs]
-    bad = [not ok for ok in in_range]
-    for i in range(n):
-        if bad[i]:
-            continue
-        ref = [
-            rrs[j]
-            for j in range(max(0, i - NEIGHBOURS), min(n, i + NEIGHBOURS + 1))
-            if j != i and in_range[j]
-        ]
-        if len(ref) >= 2:
-            med = statistics.median(ref)
-            bad[i] = abs(rrs[i] - med) > MAX_DEVIATION * med
+    in_range = [i for i, r in enumerate(rrs) if RR_MIN_MS <= r <= RR_MAX_MS]
+    bad = [True] * n
+    labels = classify([rrs[i] for i in in_range])
+    for k, (i, label) in enumerate(zip(in_range, labels, strict=True)):
+        ref = [rrs[j] for j in in_range[max(0, k - NEIGHBOURS) : k + NEIGHBOURS + 1] if j != i]
+        far = len(ref) >= 2 and abs(
+            rrs[i] - statistics.median(ref)
+        ) > MAX_DEVIATION * statistics.median(ref)
+        bad[i] = label is not None or far
     return bad
 
 
