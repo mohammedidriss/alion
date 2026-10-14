@@ -12,7 +12,7 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { MEDIAPIPE_WASM, poseModelUrl, type PoseModel } from "@/lib/mediapipe";
 import { PunchOverlay } from "@/components/PunchDots";
 import { PunchDetector, classifyPunchType, type PunchEvent } from "@/lib/punchDetector";
-import { addPunch, emptyTally } from "@/lib/punchTally";
+import { addPunch, emptyTally, LIVE_TYPES } from "@/lib/punchTally";
 import { api } from "@/lib/api";
 
 interface Props {
@@ -282,7 +282,7 @@ export function BrowserCapture({ sessionId, stance, onDone }: Props) {
         {/* Punch box: the total and each punch type, on the video */}
         {(phase === "recording" || phase === "uploading") && (
           <div className="absolute right-1 top-1">
-            <PunchOverlay total={punchCount} tally={tally} stance={stance} />
+            <PunchOverlay types={LIVE_TYPES} total={punchCount} tally={tally} stance={stance} />
           </div>
         )}
 

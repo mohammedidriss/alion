@@ -13,7 +13,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { MEDIAPIPE_WASM, poseModelUrl } from "@/lib/mediapipe";
 import { PunchOverlay } from "@/components/PunchDots";
 import { PunchDetector, classifyPunchType } from "@/lib/punchDetector";
-import { addPunch, emptyTally } from "@/lib/punchTally";
+import { addPunch, emptyTally, LIVE_TYPES } from "@/lib/punchTally";
 import { api, type CaptureRef, type PunchTally } from "@/lib/api";
 
 type Phase = "connecting" | "ready" | "countdown" | "recording" | "stopped" | "error";
@@ -705,7 +705,7 @@ export function CameraNode({
         )}
         {showPunches && (
           <div className="absolute right-1 top-1">
-            <PunchOverlay total={punchCount} tally={tally} stance={stance} />
+            <PunchOverlay types={LIVE_TYPES} total={punchCount} tally={tally} stance={stance} />
           </div>
         )}
         <div className="absolute inset-x-0 bottom-0 flex items-center justify-between bg-black/60 px-2 py-1 text-[11px]">
@@ -791,7 +791,7 @@ export function CameraNode({
         {showPunches && (
           // Under the REC badge, so it never runs into it on a narrow phone.
           <div className={`absolute left-3 ${phase === "recording" ? "top-12" : "top-3"}`}>
-            <PunchOverlay total={punchCount} tally={tally} stance={stance} size="md" />
+            <PunchOverlay types={LIVE_TYPES} total={punchCount} tally={tally} stance={stance} size="md" />
           </div>
         )}
       </div>

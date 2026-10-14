@@ -14,6 +14,16 @@ import type { Hand } from "./punchDetector";
 
 export type PunchKind = "straight" | "hook" | "uppercut";
 
+/**
+ * Show the punch types live, on the cameras and under them? Off (ADR-032): the
+ * live rule (`classifyPunchType`) named 27.8 % of the dataset's typed punches
+ * right — worse than guessing, and almost never an uppercut. The live box keeps
+ * the total and each hand's count; the types come on the session page after the
+ * session, from the wrist sensors. The tally is still counted and sent, so this
+ * can come back on with a better live model.
+ */
+export const LIVE_TYPES = false;
+
 const emptyHand = (): HandTally => ({ total: 0, straight: 0, hook: 0, uppercut: 0 });
 
 export const emptyTally = (): PunchTally => ({ left: emptyHand(), right: emptyHand() });

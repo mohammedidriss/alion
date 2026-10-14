@@ -20,7 +20,7 @@ import { JoinQrCard } from "@/components/JoinQrCard";
 import { PunchDots, PunchOverlay } from "@/components/PunchDots";
 import { RoundTimer } from "@/components/SessionRounds";
 import { api, type Bout, type MulticamDevice, type PunchTally, type Session } from "@/lib/api";
-import { leadingTally } from "@/lib/punchTally";
+import { leadingTally, LIVE_TYPES } from "@/lib/punchTally";
 
 type Corner = "red" | "blue";
 
@@ -423,7 +423,7 @@ function CornerPanel({
           <b className="text-lg text-emerald-400">{count}</b> 👊
         </span>
       </div>
-      {count > 0 && <PunchDots tally={tally} stance={stance} />}
+      {count > 0 && <PunchDots tally={tally} stance={stance} types={LIVE_TYPES} />}
 
       {laptopHere && token && (
         <CameraNode
@@ -456,7 +456,7 @@ function CornerPanel({
               />
               {(["recording", "paused", "hidden"].includes(d.status) || d.punches > 0) && (
                 <div className="absolute right-1 top-1">
-                  <PunchOverlay total={d.punches} tally={d.tally} stance={stance} />
+                  <PunchOverlay types={LIVE_TYPES} total={d.punches} tally={d.tally} stance={stance} />
                 </div>
               )}
               <div className="absolute inset-x-0 bottom-0 flex items-center justify-between bg-black/60 px-2 py-1 text-[11px]">

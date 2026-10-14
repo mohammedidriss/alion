@@ -24,7 +24,7 @@ import { PunchDots, PunchOverlay } from "@/components/PunchDots";
 import { RoundTimer } from "@/components/SessionRounds";
 import { api, type CaptureRef, type MulticamDevice, type Session, type Take } from "@/lib/api";
 import { say, unlockCues } from "@/lib/cues";
-import { leadingTally } from "@/lib/punchTally";
+import { leadingTally, LIVE_TYPES } from "@/lib/punchTally";
 
 // A camera's statuses while its recording runs — its punch box shows from the start.
 const RECORDING = ["recording", "paused", "hidden"];
@@ -372,7 +372,7 @@ export function MulticamPanel({
           {maxPunches > 0 && <span className="text-emerald-400"> · ~{maxPunches} punches</span>}
         </span>
       </div>
-      {maxPunches > 0 && <PunchDots tally={tally} stance={stance} />}
+      {maxPunches > 0 && <PunchDots tally={tally} stance={stance} types={LIVE_TYPES} />}
 
       {/* Controls above the grid: Start → Pause/Resume + Stop (Stop ends & saves). */}
       <div className="flex flex-wrap items-center gap-2">
@@ -533,7 +533,7 @@ export function MulticamPanel({
                 />
                 {(RECORDING.includes(d.status) || d.punches > 0) && (
                   <div className="absolute right-1 top-1">
-                    <PunchOverlay total={d.punches} tally={d.tally} stance={stance} />
+                    <PunchOverlay types={LIVE_TYPES} total={d.punches} tally={d.tally} stance={stance} />
                   </div>
                 )}
                 <div className="absolute inset-x-0 bottom-0 flex items-center justify-between bg-black/60 px-2 py-1 text-[11px]">
