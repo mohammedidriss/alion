@@ -1168,6 +1168,26 @@ export interface LlmSetup {
   on_own_network: boolean;
   reachable: boolean;
   model_installed: boolean;
+  models: string[]; // installed there (empty when it doesn't answer) — ADR-049
+  configured_model: string; // the one .env names
+}
+
+/** One model phrasing one round's rest cards, timed and verified (POST /v2/llm/trial). */
+export interface LlmTrial {
+  choice: "local" | "remote";
+  label: string;
+  model: string;
+  after_round: number;
+  round_count: number;
+  facts: number;
+  seconds: number;
+  answered: boolean;
+  in_time: boolean; // within the rest minute's limit
+  written: number;
+  passed: number;
+  blocked_terms: string[];
+  verdicts: { slot: string | null; ok: boolean; gate: string | null }[];
+  cards: RestCard[];
 }
 
 export interface LlmStatus {
@@ -2308,17 +2328,23 @@ export const api = {
   photoPass: () => req<{ token: string; expires_at: string }>("/auth/photo-pass"),
   // The coach's AI: local or remote (researchers and admins, ADR-021).
   llmStatus: () => req<LlmStatus>("/v2/llm"),
-  chooseLlm: (choice: "local" | "remote") =>
+  chooseLlm: (choice: "local" | "remote", model?: string) =>
     req<LlmStatus>("/v2/llm", {
       method: "PUT",
       headers: { "content-type": "application/json" },
-      body: JSON.stringify({ choice }),
+      body: JSON.stringify({ choice, model }),
     }),
-  testLlm: (choice: "local" | "remote") =>
+  testLlm: (choice: "local" | "remote", model?: string) =>
     req<{ ok: boolean; seconds: number; reply?: string; error?: string }>("/v2/llm/test", {
       method: "POST",
       headers: { "content-type": "application/json" },
-      body: JSON.stringify({ choice }),
+      body: JSON.stringify({ choice, model }),
+    }),
+  llmTrial: (body: { choice: "local" | "remote"; model: string; session_id: string; after_round: number }) =>
+    req<LlmTrial>("/v2/llm/trial", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify(body),
     }),
   /** Signed links to a session's live preview and heart-rate stream — an <img> and
    *  an EventSource can't send the login (ADR-017). */

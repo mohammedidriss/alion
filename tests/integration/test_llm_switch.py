@@ -66,3 +66,32 @@ def test_only_researchers_and_admins_choose_the_ai(
     assert client.get("/v2/llm", headers=h).status_code == 403
     assert client.put("/v2/llm", json={"choice": "remote"}, headers=h).status_code == 403
     assert admin_client.put("/v2/llm", json={"choice": "remote"}).status_code == 200
+
+
+def test_a_researcher_picks_one_of_the_installed_models(
+    authed_client: TestClient, two_setups: Any, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """ADR-049: each setup offers the models installed there; the one picked is used
+    from the next request on, and stays picked when switching back and forth."""
+    from api.routes import llm
+
+    monkeypatch.setattr(
+        llm,
+        "installed_models",
+        lambda url, key: ["qwen3:8b", "gemma3:4b"] if "192.168" in url else ["gemma3:4b"],
+    )
+    remote = {s["name"]: s for s in authed_client.get("/v2/llm").json()["setups"]}["remote"]
+    assert (
+        remote["models"] == ["gemma3:4b", "qwen3:8b"] and remote["configured_model"] == "gemma3:4b"
+    )
+
+    assert (
+        authed_client.put("/v2/llm", json={"choice": "remote", "model": "llama3"}).status_code
+        == 409
+    )  # not installed there
+    st = authed_client.put("/v2/llm", json={"choice": "remote", "model": "qwen3:8b"}).json()
+    assert st["in_use"] == {"url": "http://192.168.68.117:11434/v1", "model": "qwen3:8b"}
+    authed_client.put("/v2/llm", json={"choice": "local"})
+    assert authed_client.get("/v2/llm").json()["in_use"]["model"] == "gemma3:4b"
+    st = authed_client.put("/v2/llm", json={"choice": "remote"}).json()
+    assert st["in_use"]["model"] == "qwen3:8b"

@@ -2,12 +2,15 @@
 
 /**
  * Which AI writes the coach's advice: the local one (this computer) or the remote
- * one (another computer on your network) — switched here, no restart, from the
- * next advice request on (ADR-021). Researchers and admins only.
+ * one (another computer on your network), and which of the models installed there
+ * — switched here, no restart, from the next advice request on (ADR-021, ADR-049).
+ * Below, models are compared on a recorded session's rest cards. Researchers and
+ * admins only.
  */
 
 import { useCallback, useEffect, useState } from "react";
 import { api, type LlmSetup, type LlmStatus } from "@/lib/api";
+import { ModelCompare } from "@/components/ModelCompare";
 
 type TestResult = { ok: boolean; seconds: number; reply?: string; error?: string };
 
@@ -29,6 +32,7 @@ export default function AiModelPage() {
   const [err, setErr] = useState<string | null>(null);
   const [busy, setBusy] = useState<string | null>(null);
   const [tests, setTests] = useState<Record<string, TestResult>>({});
+  const [picked, setPicked] = useState<Record<string, string>>({}); // setup → model, not yet in use
 
   const load = useCallback(
     () =>
@@ -45,11 +49,15 @@ export default function AiModelPage() {
     load();
   }, [load]);
 
-  const choose = async (s: LlmSetup) => {
+  const choose = async (s: LlmSetup, model?: string) => {
     setBusy(`use-${s.name}`);
     setErr(null);
     try {
-      setSt(await api.chooseLlm(s.name));
+      setSt(await api.chooseLlm(s.name, model ?? picked[s.name]));
+      setPicked((p) => {
+        const { [s.name]: _, ...rest } = p;
+        return rest;
+      });
     } catch (e) {
       setErr(errText(e));
     } finally {
@@ -60,7 +68,7 @@ export default function AiModelPage() {
   const test = async (s: LlmSetup) => {
     setBusy(`test-${s.name}`);
     try {
-      const r = await api.testLlm(s.name);
+      const r = await api.testLlm(s.name, picked[s.name] ?? s.model);
       setTests((t) => ({ ...t, [s.name]: r }));
     } catch (e) {
       setTests((t) => ({ ...t, [s.name]: { ok: false, seconds: 0, error: errText(e) } }));
@@ -96,6 +104,8 @@ export default function AiModelPage() {
         {st?.setups.map((s) => {
           const ok = s.reachable && s.model_installed;
           const t = tests[s.name];
+          const shownModel = picked[s.name] ?? s.model;
+          const options = s.models.includes(s.model) ? s.models : [s.model, ...s.models];
           return (
             <section
               key={s.name}
@@ -113,9 +123,35 @@ export default function AiModelPage() {
                 )}
               </div>
               <dl className="space-y-1 text-xs">
-                <div className="flex justify-between gap-2">
+                <div className="flex items-center justify-between gap-2">
                   <dt className="text-neutral-500">Model</dt>
-                  <dd className="font-mono text-neutral-200">{s.model}</dd>
+                  <dd className="min-w-0">
+                    {s.models.length > 0 ? (
+                      <select
+                        value={shownModel}
+                        disabled={busy !== null}
+                        onChange={(e) => {
+                          const m = e.target.value;
+                          // The one in use switches at once; another setup's waits for "Use this one".
+                          if (s.active) {
+                            if (m !== s.model) choose(s, m);
+                          } else {
+                            setPicked((p) => ({ ...p, [s.name]: m }));
+                          }
+                        }}
+                        className="max-w-[12rem] truncate rounded-lg border border-white/10 bg-neutral-900 px-2 py-1 font-mono text-xs text-neutral-200"
+                      >
+                        {options.map((m) => (
+                          <option key={m} value={m}>
+                            {m}
+                            {m === s.configured_model ? " (.env)" : ""}
+                          </option>
+                        ))}
+                      </select>
+                    ) : (
+                      <span className="font-mono text-neutral-200">{s.model}</span>
+                    )}
+                  </dd>
                 </div>
                 <div className="flex justify-between gap-2">
                   <dt className="text-neutral-500">Address</dt>
@@ -165,6 +201,8 @@ export default function AiModelPage() {
       <button onClick={load} className="text-xs text-neutral-500 underline hover:text-neutral-300">
         Check again
       </button>
+
+      {st && st.setups.some((s) => s.models.length > 0) && <ModelCompare setups={st.setups} />}
     </div>
   );
 }

@@ -207,17 +207,23 @@ async def generate_raw(system_prompt: str, user_content: str) -> str:
 
 
 async def generate_json(
-    system_prompt: str, user_content: str, schema: dict[str, Any], *, timeout_s: float = 12.0
+    system_prompt: str,
+    user_content: str,
+    schema: dict[str, Any],
+    *,
+    timeout_s: float = 12.0,
+    target: tuple[str, str, str] | None = None,
 ) -> dict[str, Any] | None:
     """A JSON object shaped by `schema`, or None on any failure or timeout.
 
     Asks for structured output (OpenAI-style `json_schema`, which Ollama and LM
     Studio constrain the decoding to); a server without it gets the schema in the
     prompt and the first balanced object is parsed. Callers must verify the
-    content: the schema fixes the shape, not the truth (ADR-041)."""
+    content: the schema fixes the shape, not the truth (ADR-041). `target` (url,
+    key, model) asks that model instead of the one in use — the model trials."""
     import asyncio
 
-    url, key, model = llm_config()
+    url, key, model = target or llm_config()
     c = _client(url, key)
     messages = [
         {"role": "system", "content": system_prompt},

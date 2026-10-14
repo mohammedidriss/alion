@@ -126,35 +126,33 @@ def get_rest_cards(
     )
 
 
-@router.post("/{session_id}/rest_cards", response_model=RestCardsOut)
-async def phrase_rest_cards(
-    session_id: UUID,
-    body: RestCardsIn,
-    sessions: SessionRepo = Depends(session_repo),
-    events: PunchEventRepo = Depends(punch_event_repo),
-    db: DBSession = Depends(db_session),
-    viewer: Viewer = Depends(require_viewer),
-) -> RestCardsOut:
-    """The template cards, each replaced by the model's phrasing where it passes
-    every gate of the verifier. Recorded either way."""
-    from coach import PROMPT_VERSION, REST_CARDS_SYSTEM_PROMPT, generate_json
-    from coach.llm_client import llm_config
+async def phrase(
+    ex: Any,
+    after_round: int,
+    facts: list[Fact],
+    *,
+    target: tuple[str, str, str] | None = None,
+    timeout_s: float = PHRASE_TIMEOUT_S,
+) -> tuple[str, Any, list[dict[str, Any]], list[Card], list[Card]]:
+    """Ask the model (the one in use, or `target`: url, key, model) to phrase the
+    cards and verify each: (payload, model output, verdicts, the cards to show —
+    a model card where it passed, the template otherwise — and the templates)."""
+    from coach import REST_CARDS_SYSTEM_PROMPT, generate_json
     from coach.verify import verify_cards
 
-    row = _gate(db, session_id)
-    ex, facts = _ledger(session_id, body.after_round, body.live, sessions, events, db)
     templates = rest_cards.template_cards(facts)
-    sha = rest_cards.facts_sha256(facts)
     payload = json.dumps(
         {
-            "round": body.after_round,
+            "round": after_round,
             "stance": ex.stance,
             "facts": [f.model_dump() for f in facts],
             "suggested": {c.slot: c.fact_ids for c in templates if c.fact_ids},
         }
     )
     output = (
-        await generate_json(REST_CARDS_SYSTEM_PROMPT, payload, _SCHEMA, timeout_s=PHRASE_TIMEOUT_S)
+        await generate_json(
+            REST_CARDS_SYSTEM_PROMPT, payload, _SCHEMA, timeout_s=timeout_s, target=target
+        )
         if facts
         else None
     )
@@ -182,6 +180,27 @@ async def phrase_rest_cards(
                 source="model",
             )
         )
+    return payload, output, verdicts, shown, templates
+
+
+@router.post("/{session_id}/rest_cards", response_model=RestCardsOut)
+async def phrase_rest_cards(
+    session_id: UUID,
+    body: RestCardsIn,
+    sessions: SessionRepo = Depends(session_repo),
+    events: PunchEventRepo = Depends(punch_event_repo),
+    db: DBSession = Depends(db_session),
+    viewer: Viewer = Depends(require_viewer),
+) -> RestCardsOut:
+    """The template cards, each replaced by the model's phrasing where it passes
+    every gate of the verifier. Recorded either way."""
+    from coach import PROMPT_VERSION, REST_CARDS_SYSTEM_PROMPT
+    from coach.llm_client import llm_config
+
+    row = _gate(db, session_id)
+    ex, facts = _ledger(session_id, body.after_round, body.live, sessions, events, db)
+    sha = rest_cards.facts_sha256(facts)
+    payload, output, verdicts, shown, templates = await phrase(ex, body.after_round, facts)
     rec = advice_gate.record(
         db,
         kind="rest_cards",

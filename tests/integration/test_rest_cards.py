@@ -123,7 +123,12 @@ def _fake(monkeypatch: pytest.MonkeyPatch, output: dict[str, Any] | None) -> lis
     calls: list[str] = []
 
     async def fake(
-        system: str, user: str, schema: dict[str, Any], *, timeout_s: float = 12.0
+        system: str,
+        user: str,
+        schema: dict[str, Any],
+        *,
+        timeout_s: float = 12.0,
+        target: tuple[str, str, str] | None = None,
     ) -> dict[str, Any] | None:
         calls.append(user)
         return output
@@ -263,3 +268,61 @@ def test_beats_in_a_pause_are_kept_for_recovery(session: Session, dirs: Path) ->
 def test_an_idle_session_has_no_streams_to_judge(authed_client: TestClient, sid: str) -> None:
     r = authed_client.get(f"/v2/sessions/{sid}/streams")
     assert r.status_code == 200 and r.json() == []
+
+
+def test_a_model_trial_times_the_cards_and_checks_them_but_records_nothing(
+    authed_client: TestClient,
+    admin_client: TestClient,
+    session: Session,
+    sid: str,
+    two_setups: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Comparing models (ADR-049): the chosen model phrases a round's cards the way
+    the rest minute does; nothing reaches a coach or the advice record."""
+    import coach
+    from api.routes import llm
+
+    monkeypatch.setattr(llm, "installed_models", lambda url, key: ["gemma3:4b", "qwen3:8b"])
+    facts = {
+        f["what"]: f
+        for f in authed_client.get(f"/sessions/{sid}/rest_cards", params={"after_round": 2}).json()[
+            "facts"
+        ]
+    }
+    asked: list[Any] = []
+
+    async def fake(
+        system: str,
+        user: str,
+        schema: dict[str, Any],
+        *,
+        timeout_s: float = 12.0,
+        target: tuple[str, str, str] | None = None,
+    ) -> dict[str, Any] | None:
+        asked.append((target, timeout_s))
+        card = {
+            "slot": "warning",
+            "headline": "Output fell 50% from round 1",
+            "detail": "punches per minute",
+            "cites": [facts["output_vs_previous"]["id"]],
+        }
+        return {"cards": [card, {**card, "slot": "opportunity", "headline": "Jabs landed"}]}
+
+    monkeypatch.setattr(coach, "generate_json", fake)
+    before = len(session.exec(select(AdviceRecord)).all())
+    body = {"choice": "remote", "model": "qwen3:8b", "session_id": sid, "after_round": 2}
+
+    r = authed_client.post("/v2/llm/trial", json=body)
+    assert r.status_code == 200, r.text
+    out = r.json()
+    assert asked[0][0] == ("http://192.168.68.117:11434/v1", "ollama", "qwen3:8b")
+    assert asked[0][1] > 12  # timed, not cut off at the rest minute's limit
+    assert out["answered"] and out["in_time"] and (out["written"], out["passed"]) == (2, 1)
+    assert [v["gate"] is None for v in out["verdicts"]] == [True, False]  # "landed" fails
+    assert {c["slot"]: c["source"] for c in out["cards"]}["warning"] == "model"
+    assert len(session.exec(select(AdviceRecord)).all()) == before  # not advice
+
+    # Only installed models; only sessions the caller may read.
+    assert authed_client.post("/v2/llm/trial", json={**body, "model": "llama3"}).status_code == 409
+    assert admin_client.post("/v2/llm/trial", json=body).status_code == 403
