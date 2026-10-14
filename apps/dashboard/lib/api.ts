@@ -676,13 +676,22 @@ export interface FighterObservationResponse {
 }
 
 export interface PerformanceTrendItem {
+  session_id: string | null;
   date: string;
   punch_count: number;
-  peak_velocity_ms: number;
+  /** Where the punches were settled: wrists + cameras, the camera table, the wrists alone. */
+  punch_source: "cross_check" | "camera" | "wrist" | "none";
+  peak_velocity_ms: number | null; // null when no punch speed was measured
   ppm: number;
-  score: number;
+  score: number | null;
   duration_min: number;
-  baseline_rmssd_ms: number | null;
+  baseline_rmssd_ms: number | null; // the resting baseline before warm-up
+  // During the session (ADR-027); null when the strap or the wrists didn't record.
+  mean_hr_bpm: number | null;
+  max_hr_bpm: number | null;
+  rmssd_ms: number | null;
+  peak_wrist_g: number | null;
+  avg_punch_g: number | null;
 }
 
 export interface PerformanceTrendResponse {

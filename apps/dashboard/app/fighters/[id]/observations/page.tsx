@@ -12,6 +12,7 @@ import {
 } from "@/lib/api";
 import { AccessRestricted } from "@/components/AccessRestricted";
 import { AdviceNotice } from "@/components/AdviceNotice";
+import { SafetyBoundary } from "@/components/SafetyBoundary";
 import { useAuth } from "@/lib/auth";
 
 const PERIOD_OPTIONS = [
@@ -148,6 +149,8 @@ function ObservationsTabContent({
         ) : (
           <TrendChart data={trendData} />
         )}
+        {trendData.length > 0 && <SessionsTable data={trendData} />}
+        <SafetyBoundary />
       </section>
 
       {/* Headline strip */}
@@ -519,13 +522,100 @@ function ObservationsTabContent({
   );
 }
 
+/* ─── Each session: performance with the strap and the wrists (ADR-027) ─── */
+
+function SessionsTable({ data }: { data: PerformanceTrendItem[] }) {
+  const [all, setAll] = useState(false);
+  const rows = [...data].reverse(); // newest first
+  const shown = all ? rows : rows.slice(0, 8);
+  const num = (v: number | null, unit = "", d = 1) => (v == null ? "—" : `${v.toFixed(d)}${unit}`);
+  return (
+    <div className="space-y-2">
+      <h3 className="text-sm font-semibold">Each session</h3>
+      <div className="overflow-x-auto">
+        <table className="w-full min-w-[720px] text-sm">
+          <thead className="text-left text-xs uppercase text-neutral-400">
+            <tr>
+              <th className="py-1.5 pr-3">Date</th>
+              <th className="py-1.5 pr-3">Punches</th>
+              <th className="py-1.5 pr-3">PPM</th>
+              <th className="py-1.5 pr-3">Speed</th>
+              <th className="py-1.5 pr-3">Score</th>
+              <th className="py-1.5 pr-3">HR avg / max</th>
+              <th className="py-1.5 pr-3">RMSSD</th>
+              <th className="py-1.5">Punch force</th>
+            </tr>
+          </thead>
+          <tbody>
+            {shown.map((d, i) => (
+              <tr key={d.session_id ?? `${d.date}-${i}`} className="border-t border-white/5">
+                <td className="py-2 pr-3">
+                  {d.session_id ? (
+                    <Link href={`/sessions/${d.session_id}`} className="text-emerald-400 hover:underline">
+                      {new Date(d.date).toLocaleDateString()}
+                    </Link>
+                  ) : (
+                    new Date(d.date).toLocaleDateString()
+                  )}
+                </td>
+                <td className="py-2 pr-3 tabular-nums">
+                  {d.punch_count}{" "}
+                  <span className="text-xs text-neutral-500">{PUNCH_SOURCE[d.punch_source]}</span>
+                </td>
+                <td className="py-2 pr-3 tabular-nums">{d.ppm.toFixed(0)}</td>
+                <td className="py-2 pr-3 tabular-nums">{num(d.peak_velocity_ms, " m/s", 2)}</td>
+                <td className="py-2 pr-3 tabular-nums">{num(d.score)}</td>
+                <td className="py-2 pr-3 tabular-nums">
+                  {d.mean_hr_bpm != null ? (
+                    `${d.mean_hr_bpm.toFixed(0)} / ${num(d.max_hr_bpm, "", 0)} bpm`
+                  ) : (
+                    <span className="text-neutral-500">not recorded</span>
+                  )}
+                </td>
+                <td className="py-2 pr-3 tabular-nums">{num(d.rmssd_ms, " ms")}</td>
+                <td className="py-2 tabular-nums">
+                  {d.avg_punch_g != null ? (
+                    `${d.avg_punch_g.toFixed(1)} g`
+                  ) : (
+                    <span className="text-neutral-500">{d.peak_wrist_g != null ? "—" : "no wrists"}</span>
+                  )}
+                </td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+      {rows.length > 8 && (
+        <button onClick={() => setAll((a) => !a)} className="text-xs text-emerald-400 hover:underline">
+          {all ? "Show the last 8" : `Show all ${rows.length}`}
+        </button>
+      )}
+      <p className="text-[11px] text-neutral-400">
+        HR and RMSSD are measured during the session (the resting baseline is on the HRV tab).
+        Punch force is the average peak at the wrist of the counted punches — the force delivered.
+      </p>
+    </div>
+  );
+}
+
 /* ─── SVG Line Chart ─── */
 
 const SERIES_CONFIG = [
   { key: "score" as const, label: "Score", color: "#a78bfa" },        // violet
   { key: "peak_velocity_ms" as const, label: "Velocity (m/s)", color: "#34d399" }, // emerald
   { key: "ppm" as const, label: "PPM", color: "#fbbf24" },            // amber
+  // During the session (ADR-027) — sessions without the strap or the wrists are skipped.
+  { key: "mean_hr_bpm" as const, label: "Avg HR (bpm)", color: "#fb7185" }, // rose
+  { key: "avg_punch_g" as const, label: "Punch force (g)", color: "#38bdf8" }, // sky
 ];
+
+/** Where a session's punches were settled, in words. */
+const PUNCH_SOURCE: Record<PerformanceTrendItem["punch_source"], string> = {
+  cross_check: "wrists + cameras",
+  camera: "camera",
+  wrist: "wrists",
+  none: "—",
+};
 
 function TrendChart({ data }: { data: PerformanceTrendItem[] }) {
   const [hover, setHover] = useState<number | null>(null);
@@ -555,9 +645,13 @@ function TrendChart({ data }: { data: PerformanceTrendItem[] }) {
   const chartH = H - PT - PB;
 
   // Compute per-series min/max for normalization (each series gets 0-1 range).
-  const seriesData = SERIES_CONFIG.filter((s) => visibleSeries.has(s.key)).map(
-    (s) => {
-      const vals = data.map((d) => d[s.key] as number);
+  // A session without a value (no strap, no wrists, no speed) is skipped, not zero.
+  const seriesData = SERIES_CONFIG.filter((s) => visibleSeries.has(s.key))
+    .map((s) => {
+      const present = data
+        .map((d, i) => ({ i, v: d[s.key] }))
+        .filter((p): p is { i: number; v: number } => typeof p.v === "number");
+      const vals = present.map((p) => p.v);
       const min = Math.min(...vals);
       const max = Math.max(...vals);
       const range = max - min || 1;
@@ -567,13 +661,14 @@ function TrendChart({ data }: { data: PerformanceTrendItem[] }) {
         min,
         max,
         range,
-        points: vals.map((v, i) => ({
+        points: present.map(({ i, v }) => ({
+          i,
           x: PL + (i / Math.max(data.length - 1, 1)) * chartW,
           y: PT + chartH - ((v - min) / range) * chartH,
         })),
       };
-    }
-  );
+    })
+    .filter((s) => s.vals.length > 0);
 
   // X-axis labels (dates).
   const labelStep = Math.max(1, Math.floor(data.length / 6));
@@ -636,14 +731,14 @@ function TrendChart({ data }: { data: PerformanceTrendItem[] }) {
 
         {/* Dots */}
         {seriesData.map((s) =>
-          s.points.map((p, i) => (
+          s.points.map((p) => (
             <circle
-              key={`${s.key}-${i}`}
+              key={`${s.key}-${p.i}`}
               cx={p.x}
               cy={p.y}
-              r={hover === i ? 5 : 2.5}
+              r={hover === p.i ? 5 : 2.5}
               fill={s.color}
-              opacity={hover === i ? 1 : 0.7}
+              opacity={hover === p.i ? 1 : 0.7}
             />
           ))
         )}
@@ -703,7 +798,7 @@ function TrendChart({ data }: { data: PerformanceTrendItem[] }) {
               opacity={0.7}
               dy={si * 11}
             >
-              {s.max.toFixed(s.key === "ppm" ? 0 : 1)}
+              {s.max.toFixed(s.key === "ppm" || s.key === "mean_hr_bpm" ? 0 : 1)}
             </text>
             <text
               x={PL - 6}
@@ -714,7 +809,7 @@ function TrendChart({ data }: { data: PerformanceTrendItem[] }) {
               opacity={0.7}
               dy={si * 11}
             >
-              {s.min.toFixed(s.key === "ppm" ? 0 : 1)}
+              {s.min.toFixed(s.key === "ppm" || s.key === "mean_hr_bpm" ? 0 : 1)}
             </text>
           </g>
         ))}
@@ -727,10 +822,13 @@ function TrendChart({ data }: { data: PerformanceTrendItem[] }) {
             {new Date(data[hover].date).toLocaleDateString()}
           </span>
           <span>
-            Score: <span className="font-semibold text-violet-300">{data[hover].score}</span>
+            Score: <span className="font-semibold text-violet-300">{data[hover].score ?? "—"}</span>
           </span>
           <span>
-            Velocity: <span className="font-semibold text-emerald-300">{data[hover].peak_velocity_ms} m/s</span>
+            Velocity:{" "}
+            <span className="font-semibold text-emerald-300">
+              {data[hover].peak_velocity_ms != null ? `${data[hover].peak_velocity_ms} m/s` : "—"}
+            </span>
           </span>
           <span>
             PPM: <span className="font-semibold text-amber-300">{data[hover].ppm}</span>
@@ -741,6 +839,19 @@ function TrendChart({ data }: { data: PerformanceTrendItem[] }) {
           <span>
             Duration: <span className="font-semibold">{data[hover].duration_min} min</span>
           </span>
+          <span>
+            Avg HR:{" "}
+            <span className="font-semibold text-rose-300">
+              {data[hover].mean_hr_bpm != null ? `${data[hover].mean_hr_bpm} bpm` : "not recorded"}
+            </span>
+          </span>
+          <span>
+            Punch force:{" "}
+            <span className="font-semibold text-sky-300">
+              {data[hover].avg_punch_g != null ? `${data[hover].avg_punch_g} g` : "—"}
+            </span>
+          </span>
+          <span className="text-neutral-400">Punches from {PUNCH_SOURCE[data[hover].punch_source]}</span>
         </div>
       )}
     </div>

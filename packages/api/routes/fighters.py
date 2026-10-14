@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json as _json
+from dataclasses import asdict
 from datetime import date, datetime, timedelta
 from typing import Any
 from uuid import UUID
@@ -26,7 +27,7 @@ from api.deps import (
     session_repo,
 )
 from api.routes.auth import get_current_user, require_current_user
-from api.services import advice_gate
+from api.services import advice_gate, session_metrics
 from api.services.photos import delete_photos_for, save_photo
 from store import (
     WEIGHT_CLASSES,
@@ -958,13 +959,23 @@ class FighterObservationResponse(BaseModel):
 
 
 class PerformanceTrendItem(BaseModel):
+    session_id: UUID | None = None
     date: str
     punch_count: int
-    peak_velocity_ms: float
+    # Where the punches were settled: "cross_check" (wrists + cameras), "camera",
+    # "wrist" (no camera pose) or "none".
+    punch_source: str = "camera"
+    peak_velocity_ms: float | None  # None when no punch speed was measured
     ppm: float
-    score: float
+    score: float | None
     duration_min: float
-    baseline_rmssd_ms: float | None = None
+    baseline_rmssd_ms: float | None = None  # the resting baseline (before warm-up)
+    # During the session — the strap and the wrist sensors (ADR-027); None when not recorded.
+    mean_hr_bpm: float | None = None
+    max_hr_bpm: float | None = None
+    rmssd_ms: float | None = None
+    peak_wrist_g: float | None = None
+    avg_punch_g: float | None = None
 
 
 class PerformanceTrendResponse(BaseModel):
@@ -982,9 +993,10 @@ def get_performance_trend(
     months: int = 3,
     repo: FighterRepo = Depends(fighter_repo),
     session_repo_dep: SessionRepo = Depends(session_repo),
-    event_repo: PunchEventRepo = Depends(punch_event_repo),
+    db: DBSession = Depends(db_session),
 ) -> PerformanceTrendResponse:
-    """Return per-session performance metrics for the last N months."""
+    """Per-session performance and body-sensor metrics for the last N months
+    (`services.session_metrics`)."""
     fighter = repo.get(fighter_id)
     if fighter is None:
         raise HTTPException(status_code=404, detail="fighter not found")
@@ -996,25 +1008,16 @@ def get_performance_trend(
     ]
     completed.sort(key=lambda s: s.started_at)
 
-    items: list[PerformanceTrendItem] = []
-    for s in completed:
-        events = event_repo.list_for_session(s.id)
-        velocities = [e.velocity_ms for e in events]
-        duration_min = (s.duration_ms / 1000.0) / 60.0 if s.duration_ms > 0 else 0.0
-        ppm = len(events) / max(duration_min, 1e-6) if events else 0.0
-        p90 = _percentile_90(sorted(velocities)) if velocities else 0.0
-        score = p90 * (ppm / 60.0) * duration_min
-        items.append(
-            PerformanceTrendItem(
-                date=s.started_at.strftime("%Y-%m-%d"),
-                punch_count=len(events),
-                peak_velocity_ms=round(p90, 2),
-                ppm=round(ppm, 1),
-                score=round(score, 2),
-                duration_min=round(duration_min, 2),
-                baseline_rmssd_ms=s.baseline_rmssd_ms,
-            )
+    metrics = session_metrics.for_sessions(db, completed)
+    items = [
+        PerformanceTrendItem(
+            session_id=s.id,
+            date=s.started_at.strftime("%Y-%m-%d"),
+            baseline_rmssd_ms=s.baseline_rmssd_ms,
+            **asdict(metrics[s.id]),
         )
+        for s in completed
+    ]
 
     return PerformanceTrendResponse(
         months=months,
@@ -1031,7 +1034,6 @@ async def generate_fighter_observations(
     fighter_id: UUID,
     repo: FighterRepo = Depends(fighter_repo),
     session_repo_dep: SessionRepo = Depends(session_repo),
-    event_repo: PunchEventRepo = Depends(punch_event_repo),
     db: DBSession = Depends(db_session),
     user: User | None = Depends(get_current_user),
 ) -> FighterObservationResponse:
@@ -1057,25 +1059,25 @@ async def generate_fighter_observations(
             summary="Insufficient data — need at least 2 completed sessions in the last 3 months.",
         )
 
-    # Build per-session summaries.
+    # Per-session summaries: performance with what the strap and the wrist sensors
+    # recorded (ADR-027). Training data only — the safety rules keep it that way.
+    metrics = session_metrics.for_sessions(db, completed)
     session_summaries = []
     for s in completed:
-        events = event_repo.list_for_session(s.id)
-        velocities = [e.velocity_ms for e in events]
-        duration_min = (s.duration_ms / 1000.0) / 60.0 if s.duration_ms > 0 else 0.0
-        ppm = len(events) / max(duration_min, 1e-6) if events else 0.0
-        p90 = _percentile_90(sorted(velocities)) if velocities else 0.0
-        score = p90 * (ppm / 60.0) * duration_min
-
+        m = metrics[s.id]
         session_summaries.append(
             {
                 "date": s.started_at.strftime("%Y-%m-%d"),
-                "punch_count": len(events),
-                "peak_velocity_ms": round(p90, 2),
-                "ppm": round(ppm, 1),
-                "score": round(score, 2),
-                "duration_min": round(duration_min, 2),
+                "punch_count": m.punch_count,
+                "peak_velocity_ms": m.peak_velocity_ms,
+                "ppm": m.ppm,
+                "score": m.score,
+                "duration_min": m.duration_min,
                 "baseline_rmssd_ms": s.baseline_rmssd_ms,
+                "session_mean_hr_bpm": m.mean_hr_bpm,
+                "session_max_hr_bpm": m.max_hr_bpm,
+                "session_rmssd_ms": m.rmssd_ms,
+                "avg_punch_force_g": m.avg_punch_g,
                 "coach_notes": s.notes or None,
             }
         )
@@ -1133,12 +1135,10 @@ async def generate_fighter_observations(
     # Send only the last 15 sessions to stay within LLM context limits,
     # but trends are computed from the full 3-month window above.
     recent_summaries = session_summaries[-15:]
-    # Strip None coach_notes to save tokens.
+    # Strip what wasn't recorded, to save tokens.
     for ss in recent_summaries:
-        if ss["coach_notes"] is None:
-            del ss["coach_notes"]
-        if ss["baseline_rmssd_ms"] is None:
-            del ss["baseline_rmssd_ms"]
+        for key in [k for k, v in ss.items() if v is None]:
+            del ss[key]
 
     payload = _json.dumps(
         {
@@ -1252,12 +1252,3 @@ def _parse_observation_json(text: str) -> dict[str, Any] | None:
                     pass
                 break
     return None
-
-
-def _percentile_90(sorted_vals: list[float]) -> float:
-    if not sorted_vals:
-        return 0.0
-    k = (len(sorted_vals) - 1) * 0.9
-    lo = int(k)
-    hi = min(lo + 1, len(sorted_vals) - 1)
-    return sorted_vals[lo] * (1 - (k - lo)) + sorted_vals[hi] * (k - lo)

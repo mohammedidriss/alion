@@ -134,6 +134,15 @@ def _read_cache(path: Path) -> dict[str, Any] | None:
         return None
 
 
+def saved_session_result(session_id: UUID) -> dict[str, Any] | None:
+    """A training session's last cross-check as saved — even one from older fusion
+    rules — without checking it's current or starting a run: for summaries over
+    many sessions (the Observations trend), where a run per old session would cost
+    minutes. Opening the session page brings a stale one up to date (`result`)."""
+    data = _read_cache(_cache_path("session", session_id, None))
+    return data if data is not None and isinstance(data.get("punches"), list) else None
+
+
 # --------------------------------------------------------------------------
 # Running it
 # --------------------------------------------------------------------------

@@ -31,6 +31,7 @@ from api.services import (
     cross_check,
     hrv_runner,
     imu_runner,
+    sensor_summary,
     signed,
 )
 from capture.hrv import parse_rr_csv
@@ -1151,7 +1152,7 @@ def rounds_export(
     imu_samples = list(
         db.exec(_select(IMUSampleRow).where(IMUSampleRow.session_id == session_id)).all()
     )
-    wrist_punches = _wrist_punches(imu_samples)
+    wrist_punches = sensor_summary.wrist_punches(imu_samples)
     labels = capture_coord._labels(session_id)
     xc_status, xc = cross_check.result("session", session_id, db=db, labels=labels)
     fused = [p for p in xc["punches"] if p["counted"]] if xc else []
@@ -1348,33 +1349,6 @@ def _round_cross_check(
         mean_peak_g=round(sum(gs) / len(gs), 2) if gs else None,
         impact_score=round(sum(gs), 1) if gs else None,
     )
-
-
-def _wrist_punches(samples: list[Any]) -> list[tuple[float, str, float]]:
-    """(t_ms, hand, peak g) for each punch the wrist sensors saw — the reliable
-    source on multi-camera sessions (the camera detector isn't calibrated for the
-    browser cameras' pose yet)."""
-    import numpy as np
-
-    from analyze.imu_punches import detect_punches as detect_wrist_punches
-
-    out: list[tuple[float, str, float]] = []
-    for hand in ("left", "right"):
-        rows = sorted(
-            (s for s in samples if str(getattr(s.hand, "value", s.hand)) == hand),
-            key=lambda s: s.t_ms,
-        )
-        if len(rows) < 20:
-            continue
-        t = np.array([r.t_ms for r in rows], dtype=float)
-        ev = detect_wrist_punches(
-            t,
-            np.array([r.ax_g for r in rows], dtype=float),
-            np.array([r.ay_g for r in rows], dtype=float),
-            np.array([r.az_g for r in rows], dtype=float),
-        )
-        out += [(float(e.t_ms), hand, float(e.peak_g)) for e in ev]
-    return sorted(out)
 
 
 # ---------------------------------------------------------------------------
