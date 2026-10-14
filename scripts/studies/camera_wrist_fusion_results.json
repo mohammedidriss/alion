@@ -1,0 +1,92 @@
+{
+  "camera_view": {
+    "accuracy": 0.951,
+    "n": 4414,
+    "recall": {
+      "straight": 0.982,
+      "hook": 0.932,
+      "uppercut": 0.895
+    }
+  },
+  "one_view_wrist_mean": {
+    "accuracy": 0.963,
+    "n": 4411,
+    "recall": {
+      "straight": 0.996,
+      "hook": 0.946,
+      "uppercut": 0.9
+    }
+  },
+  "one_view_wrist_product": {
+    "accuracy": 0.966,
+    "n": 4411,
+    "recall": {
+      "straight": 0.997,
+      "hook": 0.946,
+      "uppercut": 0.914
+    }
+  },
+  "camera": {
+    "accuracy": 0.975,
+    "n": 1472,
+    "recall": {
+      "straight": 0.999,
+      "hook": 0.945,
+      "uppercut": 0.957
+    }
+  },
+  "wrist": {
+    "accuracy": 0.851,
+    "n": 1471,
+    "recall": {
+      "straight": 0.898,
+      "hook": 0.832,
+      "uppercut": 0.755
+    }
+  },
+  "mean": {
+    "accuracy": 0.959,
+    "n": 1472,
+    "recall": {
+      "straight": 0.995,
+      "hook": 0.936,
+      "uppercut": 0.897
+    }
+  },
+  "product": {
+    "accuracy": 0.967,
+    "n": 1472,
+    "recall": {
+      "straight": 0.996,
+      "hook": 0.94,
+      "uppercut": 0.929
+    }
+  },
+  "both_seen_camera": {
+    "accuracy": 0.975,
+    "n": 1471,
+    "recall": {
+      "straight": 0.999,
+      "hook": 0.945,
+      "uppercut": 0.957
+    }
+  },
+  "both_seen_wrist": {
+    "accuracy": 0.851,
+    "n": 1471,
+    "recall": {
+      "straight": 0.898,
+      "hook": 0.832,
+      "uppercut": 0.755
+    }
+  },
+  "both_seen_mean": {
+    "accuracy": 0.959,
+    "n": 1471,
+    "recall": {
+      "straight": 0.995,
+      "hook": 0.936,
+      "uppercut": 0.897
+    }
+  }
+}
