@@ -1,21 +1,21 @@
 {
   "instrument": "Checklist for Trust between People and Automation (Jian, Bisantz & Drury, 2000)",
-  "note": "Paste each item's wording exactly as your approved protocol gives it. The study stays closed to reviewers while any item still starts with '['. Keep the ids: data are stored by id.",
+  "note": "Items as published in Jian, J.-Y., Bisantz, A. M. & Drury, C. G. (2000), Foundations for an empirically determined scale of trust in automated systems, International Journal of Cognitive Ergonomics 4(1), 53–71; wording as reproduced in Table 1 of 'Measuring trust in artificial intelligence: validation of an established scale and its short form', Frontiers in Artificial Intelligence (2025), doi:10.3389/frai.2025.1582880, CC BY. Items 1–5 are distrust, 6–12 trust; shown in that order. Trust and distrust are stored separately; the single-scale score reverses the distrust items. Keep the ids: data are stored by id.",
   "scale": { "min": 1, "max": 7, "low": "Not at all", "high": "Extremely" },
   "distrust": [
-    { "id": "d1", "text": "[Distrust item 1 — paste the wording from your approved protocol]" },
-    { "id": "d2", "text": "[Distrust item 2 — paste the wording from your approved protocol]" },
-    { "id": "d3", "text": "[Distrust item 3 — paste the wording from your approved protocol]" },
-    { "id": "d4", "text": "[Distrust item 4 — paste the wording from your approved protocol]" },
-    { "id": "d5", "text": "[Distrust item 5 — paste the wording from your approved protocol]" }
+    { "id": "d1", "text": "The system is deceptive." },
+    { "id": "d2", "text": "The system behaves in an underhanded manner." },
+    { "id": "d3", "text": "I am suspicious of the system's intent, action, or output." },
+    { "id": "d4", "text": "I am wary of the system." },
+    { "id": "d5", "text": "The system's action will have a harmful or injurious outcome." }
   ],
   "trust": [
-    { "id": "t1", "text": "[Trust item 1 — paste the wording from your approved protocol]" },
-    { "id": "t2", "text": "[Trust item 2 — paste the wording from your approved protocol]" },
-    { "id": "t3", "text": "[Trust item 3 — paste the wording from your approved protocol]" },
-    { "id": "t4", "text": "[Trust item 4 — paste the wording from your approved protocol]" },
-    { "id": "t5", "text": "[Trust item 5 — paste the wording from your approved protocol]" },
-    { "id": "t6", "text": "[Trust item 6 — paste the wording from your approved protocol]" },
-    { "id": "t7", "text": "[Trust item 7 — paste the wording from your approved protocol]" }
+    { "id": "t1", "text": "I am confident in the system." },
+    { "id": "t2", "text": "The system provides security." },
+    { "id": "t3", "text": "The system has integrity." },
+    { "id": "t4", "text": "The system is dependable." },
+    { "id": "t5", "text": "The system is reliable." },
+    { "id": "t6", "text": "I can trust the system." },
+    { "id": "t7", "text": "I am familiar with the system." }
   ]
 }

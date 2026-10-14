@@ -175,8 +175,9 @@ function CheckIn({
       <div>
         <h3 className="text-base font-semibold">{label}</h3>
         <p className="mt-1 text-sm text-neutral-300">
-          How much do you agree with each statement about the AI advisories? {instrument.scale.min} ={" "}
-          {instrument.scale.low}, {instrument.scale.max} = {instrument.scale.high}.
+          How much does each statement fit the AI advisories you review? Here, &ldquo;the
+          system&rdquo; means those advisories. {instrument.scale.min} = {instrument.scale.low},{" "}
+          {instrument.scale.max} = {instrument.scale.high}.
         </p>
       </div>
       <ol className="space-y-3">

@@ -60,3 +60,13 @@ there was no export.
   neutral check-ins elsewhere.
 - Advisories are authored as JSON for now; building them from frozen advice
   (ADR-019) in the page is a later step.
+
+## Update — 2026-10-14
+
+The questionnaire now carries the published checklist: Jian, Bisantz & Drury's
+12 items (5 distrust, 7 trust, 1 = "Not at all" … 7 = "Extremely"), worded as
+reproduced in Table 1 of *Measuring trust in artificial intelligence: validation
+of an established scale and its short form*, Frontiers in Artificial
+Intelligence (2025), doi:10.3389/frai.2025.1582880, CC BY. The check-in tells
+reviewers that "the system" means the AI advisories. The study is open to
+enrolled reviewers once advisories are added.

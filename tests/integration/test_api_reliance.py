@@ -206,14 +206,38 @@ def test_decisions_are_final_and_follow_the_order(
     )
 
 
-def test_the_study_stays_closed_until_the_wording_is_in(authed_client: TestClient) -> None:
+def test_the_study_stays_closed_until_the_wording_is_in(
+    authed_client: TestClient, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    placeholder = tmp_path / "items.json"
+    placeholder.write_text(
+        json.dumps(
+            {
+                "instrument": "Draft",
+                "scale": {"min": 1, "max": 7, "low": "Not at all", "high": "Extremely"},
+                "distrust": [{"id": "d1", "text": "[paste the wording]"}],
+                "trust": [{"id": "t1", "text": "Reliable"}],
+            }
+        )
+    )
+    monkeypatch.setenv("ALION_TRUST_ITEMS_FILE", str(placeholder))
     _snapshot(authed_client, "correct", 0)
     me = _reviewer(authed_client)
     body = authed_client.get(f"{BASE}/me", headers=me).json()
-    assert body["ready"] is False  # the shipped file still has '[paste …]' items
+    assert body["ready"] is False  # an item still holds its '[paste …]' placeholder
     assert authed_client.get(f"{BASE}/instrument").json()["ready"] is False
     r = authed_client.post(f"{BASE}/surveys", json=_answers(body["step"]), headers=me)
     assert r.status_code == 409
+
+
+def test_the_shipped_questionnaire_is_the_full_published_checklist() -> None:
+    from api.services import reliance
+
+    ins = reliance.instrument()
+    assert ins.ready  # no placeholder left
+    assert [i["id"] for i in ins.distrust] == ["d1", "d2", "d3", "d4", "d5"]
+    assert [i["id"] for i in ins.trust] == [f"t{n}" for n in range(1, 8)]
+    assert ins.scale == {"min": 1, "max": 7, "low": "Not at all", "high": "Extremely"}
 
 
 def test_the_export_classifies_each_decision(authed_client: TestClient, ready_items: Path) -> None:
