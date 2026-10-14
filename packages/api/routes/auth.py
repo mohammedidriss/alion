@@ -19,6 +19,7 @@ from sqlmodel import select
 from api.deps import db_session
 from api.services import researchers, signed, terms
 from store import (
+    CoachAssignment,
     CoachRepo,
     FighterRepo,
     GymManagerRepo,
@@ -30,7 +31,14 @@ from store import (
     UserRepo,
     UserRole,
 )
-from store.models import CoachCreate, FighterCreate, GymCreate, GymManagerCreate, RefereeCreate
+from store.models import (
+    CoachCreate,
+    FighterCreate,
+    GymCreate,
+    GymManagerCreate,
+    PhysicianAssignmentRow,
+    RefereeCreate,
+)
 
 router = APIRouter(prefix="/auth", tags=["auth"])
 
@@ -546,6 +554,7 @@ class UnifiedPerson(BaseModel):
     has_account: bool
     is_active: bool
     photo_path: str | None = None
+    removed: bool = False  # removed by an administrator (ADR-048); email is the one it had
 
 
 @router.get("/admin/everyone", response_model=list[UnifiedPerson])
@@ -580,11 +589,12 @@ def admin_list_everyone(
                     id=p.id,
                     user_id=user.id if user else None,
                     name=p.name,
-                    email=user.email if user else getattr(p, "email", None),
+                    email=(user.removed_email or user.email) if user else getattr(p, "email", None),
                     role=role,
                     has_account=user is not None,
                     is_active=user.is_active if user else True,
                     photo_path=getattr(p, "photo_path", None),
+                    removed=bool(user and user.removed_at),
                 )
             )
 
@@ -601,11 +611,12 @@ def admin_list_everyone(
                     id=u.id,
                     user_id=u.id,
                     name=u.name,
-                    email=u.email,
+                    email=u.removed_email or u.email,
                     role=u.role,
                     has_account=True,
                     is_active=u.is_active,
                     photo_path=u.photo_path,
+                    removed=u.removed_at is not None,
                 )
             )
 
@@ -673,6 +684,7 @@ def admin_reset_password(
     target = repo.get(user_id)
     if target is None:
         raise HTTPException(status_code=404, detail="User not found")
+    _not_removed(target)
     new_hash = _hash_password(data.new_password)
     repo.update(user_id, {"password_hash": new_hash})
     return {"status": "ok", "message": f"Password reset for {target.email}"}
@@ -697,6 +709,7 @@ def admin_update_user(
     target = repo.get(user_id)
     if target is None:
         raise HTTPException(status_code=404, detail="User not found")
+    _not_removed(target)
     fields = {k: v for k, v in data.model_dump().items() if v is not None}
     if not fields:
         raise HTTPException(status_code=400, detail="No fields to update")
@@ -704,20 +717,108 @@ def admin_update_user(
     return UserRead.model_validate(updated, from_attributes=True)
 
 
+def _not_removed(user: User) -> None:
+    """A removed account is restored before anything else is done with it (ADR-048)."""
+    if user.removed_at is not None:
+        raise HTTPException(status_code=409, detail="This account was removed — restore it first")
+
+
+def _removed_address(user_id: UUID) -> str:
+    """What a removed account's email becomes: unique, and never a real address."""
+    return f"removed-{user_id.hex}@removed.invalid"
+
+
+def _end_ties(db: DBSession, user: User, when: datetime) -> None:
+    """A removed account's current ties end; their history stays. A coach's or a
+    fighter's coach assignments, and a physician's or a fighter's physicians."""
+    coach_q = select(CoachAssignment).where(CoachAssignment.ended_on == None)  # noqa: E711
+    phys_q = select(PhysicianAssignmentRow).where(PhysicianAssignmentRow.ended_at == None)  # noqa: E711
+    pid = user.profile_id
+    if user.role == UserRole.COACH and pid is not None:
+        rows: list[Any] = list(db.exec(coach_q.where(CoachAssignment.coach_id == pid)))
+    elif user.role == UserRole.FIGHTER and pid is not None:
+        rows = list(db.exec(coach_q.where(CoachAssignment.fighter_id == pid)))
+        rows += db.exec(phys_q.where(PhysicianAssignmentRow.fighter_id == pid))
+    else:
+        rows = []
+    rows += db.exec(phys_q.where(PhysicianAssignmentRow.physician_id == user.id))
+    for row in rows:
+        if isinstance(row, CoachAssignment):
+            row.ended_on = when.date()
+        else:
+            row.ended_at = when
+        db.add(row)
+
+
 @router.delete("/admin/users/{user_id}")
-def admin_delete_user(
+def admin_remove_user(
+    user_id: UUID,
+    admin: User = Depends(_require_admin),
+    repo: UserRepo = Depends(_user_repo),
+    session: DBSession = Depends(db_session),
+) -> dict[str, str]:
+    """Remove an account (ADR-048): it can't sign in any more, its email is free for
+    a new account, and its current coach and physician ties end. The person's
+    profile, sessions and records stay — their history, and training data — and
+    the account can be restored while nobody else has taken the email."""
+    if user_id == admin.id:
+        raise HTTPException(status_code=400, detail="Cannot remove your own account")
+    target = repo.get(user_id)
+    if target is None:
+        raise HTTPException(status_code=404, detail="User not found")
+    if target.removed_at is not None:
+        raise HTTPException(status_code=409, detail="This account was already removed")
+    if researchers.is_researcher(target) and not researchers.is_researcher(admin):
+        raise HTTPException(status_code=403, detail="Only a researcher removes a researcher")
+    email, now = target.email, datetime.now(UTC)
+    _end_ties(session, target, now)
+    repo.update(
+        user_id,
+        {
+            "removed_email": email,
+            "email": _removed_address(user_id),
+            "is_active": False,
+            "removed_at": now,
+            "removed_by": admin.id,
+        },
+    )
+    return {
+        "status": "ok",
+        "message": f"Removed {email} — their sessions and records are kept; the email is free",
+    }
+
+
+@router.post("/admin/users/{user_id}/restore")
+def admin_restore_user(
     user_id: UUID,
     _admin: User = Depends(_require_admin),
     repo: UserRepo = Depends(_user_repo),
 ) -> dict[str, str]:
-    """Delete a user account (admin only). Cannot delete yourself."""
-    if user_id == _admin.id:
-        raise HTTPException(status_code=400, detail="Cannot delete your own admin account")
+    """Bring a removed account back with its email — unless a new account has
+    taken that email since. The coaches and physicians it had are added again by
+    hand (their ties ended when it was removed)."""
     target = repo.get(user_id)
     if target is None:
         raise HTTPException(status_code=404, detail="User not found")
-    repo.delete(user_id)
-    return {"status": "ok", "message": f"Deleted user {target.email}"}
+    if target.removed_at is None or not target.removed_email:
+        raise HTTPException(status_code=409, detail="This account wasn't removed")
+    if repo.get_by_email(target.removed_email) is not None:
+        raise HTTPException(
+            status_code=409,
+            detail=f"A new account uses {target.removed_email} now — this one can't take it back",
+        )
+    email = target.removed_email
+    repo.update(
+        user_id,
+        {
+            "email": email,
+            "removed_email": None,
+            "removed_at": None,
+            "removed_by": None,
+            "is_active": True,
+        },
+    )
+    return {"status": "ok", "message": f"Restored {email}"}
 
 
 @router.post("/admin/users/{user_id}/deactivate")
@@ -732,6 +833,7 @@ def admin_deactivate_user(
     target = repo.get(user_id)
     if target is None:
         raise HTTPException(status_code=404, detail="User not found")
+    _not_removed(target)
     repo.update(user_id, {"is_active": False})
     return {"status": "ok", "message": f"Deactivated {target.email}"}
 
@@ -746,6 +848,7 @@ def admin_activate_user(
     target = repo.get(user_id)
     if target is None:
         raise HTTPException(status_code=404, detail="User not found")
+    _not_removed(target)
     repo.update(user_id, {"is_active": True})
     return {"status": "ok", "message": f"Activated {target.email}"}
 

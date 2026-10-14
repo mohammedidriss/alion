@@ -41,9 +41,17 @@ export default function AdminCoachesPage() {
 
   return (
     <div className="space-y-6 px-4 py-6 sm:px-8 sm:py-8">
-      <header>
-        <h1 className="text-2xl font-bold">All Coaches</h1>
-        <p className="text-sm text-neutral-500">{coaches.length} coaches across all gyms</p>
+      <header className="flex items-center justify-between gap-3">
+        <div>
+          <h1 className="text-2xl font-bold">All Coaches</h1>
+          <p className="text-sm text-neutral-500">{coaches.length} coaches across all gyms</p>
+        </div>
+        <Link
+          href="/admin/users?create=coach"
+          className="shrink-0 rounded-xl bg-emerald-500 px-4 py-2 text-sm font-medium text-black hover:bg-emerald-400"
+        >
+          + New coach
+        </Link>
       </header>
 
       {error && (

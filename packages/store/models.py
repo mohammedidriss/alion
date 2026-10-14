@@ -207,6 +207,11 @@ class User(SQLModel, table=True):
     # they accept; requests are refused while it isn't the current version.
     terms_version: str | None = Field(default=None, max_length=40)
     terms_accepted_at: datetime | None = None
+    # Removed by an administrator (ADR-048): it can't sign in, `email` is replaced so
+    # the address is free for a new account, and the profile and its records stay.
+    removed_at: datetime | None = None
+    removed_email: str | None = Field(default=None, max_length=200)
+    removed_by: UUID | None = None
 
 
 class UserCreate(SQLModel):
@@ -230,6 +235,7 @@ class UserRead(SQLModel):
     is_researcher: bool = False  # all data, every tab, administration (ADR-017, ADR-046)
     is_reviewer: bool = False  # enrolled in the appropriate-reliance study (ADR-026)
     is_rq1_rater: bool = False  # chosen to rate RQ1 advice (ADR-045)
+    removed_at: UtcDatetime | None = None  # removed by an administrator (ADR-048)
 
 
 # ----------------------------------------------------------------------

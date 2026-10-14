@@ -1192,6 +1192,7 @@ export interface UnifiedPerson {
   has_account: boolean;
   is_active: boolean;
   photo_path: string | null;
+  removed?: boolean; // removed by an administrator (ADR-048); email is the one it had
 }
 
 export interface AuthResponse {
@@ -2580,6 +2581,8 @@ export const api = {
     req<{ status: string; message: string }>(`/auth/admin/users/${userId}`, { method: "DELETE" }),
   adminDeactivateUser: (userId: string) =>
     req<{ status: string; message: string }>(`/auth/admin/users/${userId}/deactivate`, { method: "POST" }),
+  adminRestoreUser: (userId: string) =>
+    req<{ status: string; message: string }>(`/auth/admin/users/${userId}/restore`, { method: "POST" }),
   adminActivateUser: (userId: string) =>
     req<{ status: string; message: string }>(`/auth/admin/users/${userId}/activate`, { method: "POST" }),
   adminStats: () => req<AdminSystemStats>("/auth/admin/stats"),

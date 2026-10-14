@@ -6,7 +6,7 @@ import { api, type AuthUser, type Gym, type UnifiedPerson, type UserRole } from 
 import { useAuth } from "@/lib/auth";
 import { isAdmin } from "@/lib/nav";
 
-const ROLES: UserRole[] = ["fighter", "coach", "referee", "gym_manager", "admin"];
+const ROLES: UserRole[] = ["fighter", "coach", "physician", "referee", "gym_manager", "admin"];
 
 export default function AdminUsersPage() {
   const { user: me } = useAuth();
@@ -15,6 +15,7 @@ export default function AdminUsersPage() {
   const [error, setError] = useState<string | null>(null);
   const [search, setSearch] = useState("");
   const [roleFilter, setRoleFilter] = useState<UserRole | "all">("all");
+  const [showRemoved, setShowRemoved] = useState(false);
 
   // Modal state
   const [editUser, setEditUser] = useState<UnifiedPerson | null>(null);
@@ -52,15 +53,37 @@ export default function AdminUsersPage() {
 
   useEffect(() => { load(); }, [load]);
   useEffect(() => { api.listGyms().then(setGyms).catch(() => {}); }, []);
+  // "+ New coach" and the like on the other admin pages open the form here, role chosen.
+  useEffect(() => {
+    const role = new URLSearchParams(window.location.search).get("create") as UserRole | null;
+    if (role && ROLES.includes(role)) {
+      setShowCreateUser(true);
+      setNewUserRole(role);
+    }
+  }, []);
 
   const q = search.toLowerCase().trim();
   const filtered = useMemo(() => {
     return users.filter((u) => {
+      if (u.removed && !showRemoved) return false;
       if (roleFilter !== "all" && u.role !== roleFilter) return false;
       if (!q) return true;
       return u.name.toLowerCase().includes(q) || (u.email ?? "").toLowerCase().includes(q);
     });
-  }, [users, q, roleFilter]);
+  }, [users, q, roleFilter, showRemoved]);
+  const removedCount = users.filter((u) => u.removed).length;
+
+  const handleRestore = async (u: UnifiedPerson) => {
+    if (!u.user_id) return;
+    setActionErr(null);
+    try {
+      const res = await api.adminRestoreUser(u.user_id);
+      setActionMsg(`${res.message}. Add their coaches and physicians again from their Team page.`);
+      load();
+    } catch (e) {
+      setActionErr(e instanceof Error ? e.message : "Restore failed");
+    }
+  };
 
   const handleResetPassword = async () => {
     if (!resetUser || !newPassword) return;
@@ -156,8 +179,11 @@ export default function AdminUsersPage() {
     setActionErr(null);
     try {
       if (u.user_id) {
-        // Has a login account — delete the account (cascades to profile link)
-        await api.adminDeleteUser(u.user_id);
+        // Has a login account — remove it: no sign-in, email freed, records kept (ADR-048)
+        const res = await api.adminDeleteUser(u.user_id);
+        setActionMsg(res.message);
+        load();
+        return;
       } else {
         // Profile only — delete the profile record directly
         if (u.role === "fighter") await api.deleteFighter(u.id);
@@ -273,6 +299,12 @@ export default function AdminUsersPage() {
             <option key={r} value={r}>{r.replace("_", " ")}</option>
           ))}
         </select>
+        {removedCount > 0 && (
+          <label className="flex items-center gap-2 text-sm text-neutral-400">
+            <input type="checkbox" checked={showRemoved} onChange={(e) => setShowRemoved(e.target.checked)} />
+            Show removed ({removedCount})
+          </label>
+        )}
       </div>
 
       {/* Reset Password Modal */}
@@ -404,12 +436,24 @@ export default function AdminUsersPage() {
                   </td>
                   <td className="px-4 py-3">
                     <span className={`rounded-full px-2 py-0.5 text-[10px] font-medium ${
+                      u.removed ? "bg-neutral-500/15 text-neutral-400" :
                       u.is_active ? "bg-emerald-500/15 text-emerald-300" : "bg-red-500/15 text-red-300"
                     }`}>
-                      {u.is_active ? "active" : "disabled"}
+                      {u.removed ? "removed" : u.is_active ? "active" : "disabled"}
                     </span>
                   </td>
                   <td className="px-2 py-3 sm:px-4">
+                    {u.removed ? (
+                    <div className="flex justify-end gap-1">
+                      <button
+                        onClick={() => handleRestore(u)}
+                        className="rounded-lg p-2 text-xs text-emerald-400/70 hover:bg-emerald-500/10 hover:text-emerald-300"
+                        title="Restore the account with its email, unless a new account has taken it"
+                      >
+                        Restore
+                      </button>
+                    </div>
+                    ) : (
                     <div className="flex justify-end gap-1">
                       <button
                         onClick={() => { setEditUser(u); setEditName(u.name); setEditEmail(u.email ?? ""); setEditRole(u.role); }}
@@ -441,15 +485,21 @@ export default function AdminUsersPage() {
                         <span className="sm:hidden">{u.is_active ? "⏸" : "▶"}</span>
                       </button>
                       <button
-                        onClick={() => { if (confirm(`Delete user ${u.email ?? u.name}? This cannot be undone.`)) handleDelete(u); }}
+                        onClick={() => {
+                          const text = u.user_id
+                            ? `Remove ${u.email ?? u.name}'s account? They can't sign in any more and the email is free for a new account. Their profile, sessions and records are kept, and you can restore the account later.`
+                            : `Delete the profile ${u.name}? It has no login. This cannot be undone.`;
+                          if (confirm(text)) handleDelete(u);
+                        }}
                         disabled={u.user_id === me?.id}
                         className="rounded-lg p-2 text-xs text-red-400/70 hover:bg-red-500/10 hover:text-red-300 disabled:opacity-30"
-                        title="Delete user"
+                        title={u.user_id ? "Remove the account (records kept)" : "Delete the profile"}
                       >
-                        <span className="hidden sm:inline">Delete</span>
+                        <span className="hidden sm:inline">{u.user_id ? "Remove" : "Delete"}</span>
                         <span className="sm:hidden">🗑</span>
                       </button>
                     </div>
+                    )}
                   </td>
                 </tr>
               ))}
