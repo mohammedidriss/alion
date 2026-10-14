@@ -27,6 +27,21 @@ interface Props {
  * every 2 s so completed rounds appear progressively as the fighter
  * finishes each one. Stops polling once the session is completed.
  */
+const SOURCE_LABEL: Record<string, string> = {
+  cameras: "two or more cameras",
+  "camera+wrist": "one camera with the wrist",
+  camera: "one camera",
+  wrist: "the wrist alone",
+};
+
+/** Who named this session's punch types (ADR-034). */
+function namedBy(sources: Record<string, number> | null | undefined): string {
+  const keys = Object.keys(sources ?? {});
+  if (keys.length === 0 || (keys.length === 1 && keys[0] === "wrist")) return "from the wrist sensors";
+  if (keys.every((k) => k !== "wrist")) return "from the cameras";
+  return "from the cameras and wrist sensors";
+}
+
 export function RoundBreakdownCard({ sessionId, status }: Props) {
   const [data, setData] = useState<RoundsExportResponse | null>(null);
   const [err, setErr] = useState<string | null>(null);
@@ -147,18 +162,37 @@ export function RoundBreakdownCard({ sessionId, status }: Props) {
       {fused && xc?.types && (
         <div className="mt-3 space-y-2 rounded-xl border border-white/10 p-3">
           <div className="flex flex-wrap items-baseline justify-between gap-2">
-            <h3 className="text-sm font-semibold">Punch types — from the wrist sensors</h3>
+            <h3 className="text-sm font-semibold">Punch types — {namedBy(xc.types_sources)}</h3>
             <span className="text-[11px] text-neutral-400">
-              model v{xc.types_model}
-              {xc.types_accuracy != null &&
-                ` · ${Math.round(xc.types_accuracy * 100)}% right on held-out recordings of the ${
-                  xc.types_participants === 1 ? "one person" : `${xc.types_participants ?? "few"} people`
-                } it learned from`}
-              {xc.types_other_accuracy != null &&
-                ` · about ${Math.round(xc.types_other_accuracy * 100)}% on other boxers so far`}
+              {xc.camera_types_model != null && (
+                <>
+                  camera model v{xc.camera_types_model}
+                  {xc.camera_types_accuracy != null &&
+                    ` · ${Math.round(xc.camera_types_accuracy * 100)}% right on held-out takes`}
+                  {xc.types_model != null && " · "}
+                </>
+              )}
+              {xc.types_model != null && (
+                <>
+                  wrist model v{xc.types_model}
+                  {xc.types_accuracy != null &&
+                    ` · ${Math.round(xc.types_accuracy * 100)}% right on held-out recordings of the ${
+                      xc.types_participants === 1 ? "one person" : `${xc.types_participants ?? "few"} people`
+                    } it learned from`}
+                  {xc.types_other_accuracy != null &&
+                    ` · about ${Math.round(xc.types_other_accuracy * 100)}% on other boxers so far`}
+                </>
+              )}
             </span>
           </div>
           <PunchDots tally={xc.types} stance={data.stance} />
+          {xc.types_sources && Object.keys(xc.types_sources).length > 1 && (
+            <p className="text-[11px] text-neutral-500">
+              {Object.entries(xc.types_sources)
+                .map(([k, n]) => `${n} by ${SOURCE_LABEL[k] ?? k}`)
+                .join(" · ")}
+            </p>
+          )}
         </div>
       )}
       <div className="mt-3 overflow-x-auto">

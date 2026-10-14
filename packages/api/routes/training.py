@@ -5,6 +5,8 @@ POST /v2/datasets/{id}/train      start training on the latest export (202)
 GET  /v2/datasets/{id}/training   running? which step, the latest report, every run
 POST /v2/wrist-types/train        train and score the wrist punch-type model (ADR-029)
 GET  /v2/wrist-types              its latest report
+POST /v2/camera-types/train       train and score the cameras' punch-type model (ADR-034)
+GET  /v2/camera-types             its latest report
 """
 
 from __future__ import annotations
@@ -17,7 +19,7 @@ from fastapi import APIRouter, Depends, HTTPException
 from api.access import Viewer, require_researcher
 from api.routes.auth import require_current_user
 from api.routes.datasets import dataset_repo
-from api.services import training, wrist_type_model
+from api.services import camera_type_model, training, wrist_type_model
 from store import DatasetRepo
 
 router = APIRouter(prefix="/v2", tags=["training"], dependencies=[Depends(require_current_user)])
@@ -55,6 +57,24 @@ def train_wrist_types(_: Viewer = Depends(require_researcher)) -> dict[str, Any]
     try:
         return {"report": wrist_type_model.train()}
     except wrist_type_model.BusyError as e:
+        raise HTTPException(status_code=409, detail="Already training") from e
+    except ValueError as e:
+        raise HTTPException(status_code=409, detail=str(e)) from e
+
+
+@router.get("/camera-types", response_model=dict)
+def camera_types_report(_: Viewer = Depends(require_researcher)) -> dict[str, Any]:
+    """The newest camera punch-type model's report (None: never trained)."""
+    return {"report": camera_type_model.latest_report()}
+
+
+@router.post("/camera-types/train", response_model=dict)
+def train_camera_types(_: Viewer = Depends(require_researcher)) -> dict[str, Any]:
+    """Train on every completed take's typed punches as its cameras saw them, score
+    on takes held out, and save a new version — every session is named again by it."""
+    try:
+        return {"report": camera_type_model.train()}
+    except camera_type_model.BusyError as e:
         raise HTTPException(status_code=409, detail="Already training") from e
     except ValueError as e:
         raise HTTPException(status_code=409, detail=str(e)) from e

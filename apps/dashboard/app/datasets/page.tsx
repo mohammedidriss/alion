@@ -9,6 +9,7 @@
 
 import Link from "next/link";
 import { useEffect, useState } from "react";
+import { CameraTypesCard } from "@/components/CameraTypesCard";
 import { WristTypesCard } from "@/components/WristTypesCard";
 import { api, type DatasetSummary } from "@/lib/api";
 
@@ -74,6 +75,7 @@ export default function DatasetsPage() {
         </button>
       </header>
 
+      <CameraTypesCard />
       <WristTypesCard />
 
       {showNew && (

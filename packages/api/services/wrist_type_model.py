@@ -274,22 +274,41 @@ def current_version() -> int | None:
     return max(files) if files else None
 
 
-def name(
-    t_ms: np.ndarray, imu: np.ndarray, at_ms: list[float], hand: str, stance: str | None
-) -> list[tuple[str | None, str | None]]:
-    """(motion, punch type) for each punch of one wrist — (None, None) where there's
+def probabilities(
+    t_ms: np.ndarray, imu: np.ndarray, at_ms: list[float], hand: str
+) -> list[np.ndarray | None]:
+    """Each punch's class probabilities in `wt.MOTIONS` order — None where there's
     no model or the window is unusable. `imu` is (n, 6): ax, ay, az, gx, gy, gz."""
     payload = _latest_model()
+    out: list[np.ndarray | None] = [None for _ in at_ms]
     if payload is None or len(t_ms) == 0:
-        return [(None, None) for _ in at_ms]
+        return out
     rows, idx = [], []
     for i, at in enumerate(at_ms):
         win = wt.window(t_ms, imu, at)
         if win is not None:
             rows.append(wt.features(win, hand))
             idx.append(i)
-    out: list[tuple[str | None, str | None]] = [(None, None) for _ in at_ms]
     if rows:
-        for i, motion in zip(idx, wt.classify(payload["model"], np.array(rows)), strict=True):
-            out[i] = (motion, wt.motion_to_type(motion, hand, stance))
+        model = payload["model"]
+        p = model.predict_proba(np.array(rows))
+        classes = list(model.classes_)
+        cols = [p[:, classes.index(m)] if m in classes else np.zeros(len(rows)) for m in wt.MOTIONS]
+        for k, i in enumerate(idx):
+            out[i] = np.array([c[k] for c in cols])
+    return out
+
+
+def name(
+    t_ms: np.ndarray, imu: np.ndarray, at_ms: list[float], hand: str, stance: str | None
+) -> list[tuple[str | None, str | None]]:
+    """(motion, punch type) for each punch of one wrist — (None, None) where there's
+    no model or the window is unusable. `imu` is (n, 6): ax, ay, az, gx, gy, gz."""
+    out: list[tuple[str | None, str | None]] = []
+    for pr in probabilities(t_ms, imu, at_ms, hand):
+        if pr is None:
+            out.append((None, None))
+        else:
+            motion = wt.MOTIONS[int(np.argmax(pr))]
+            out.append((motion, wt.motion_to_type(motion, hand, stance)))
     return out

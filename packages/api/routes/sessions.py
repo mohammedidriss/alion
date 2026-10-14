@@ -9,6 +9,7 @@ import io
 import json as _json_mod
 import math
 import tempfile
+from collections import Counter
 from collections.abc import AsyncIterator, Iterator
 from contextlib import contextmanager
 from pathlib import Path
@@ -27,6 +28,7 @@ from api.routes import capture_coord
 from api.routes.auth import get_current_user, require_current_user
 from api.services import (
     advice_gate,
+    camera_type_model,
     capture_runner,
     cross_check,
     hrv_runner,
@@ -1097,6 +1099,11 @@ class CrossCheckSummary(BaseModel):
     types_accuracy: float | None = None  # on held-out takes of the people it learned from
     types_participants: int | None = None  # how many people that is
     types_other_accuracy: float | None = None  # on a public set of boxers it never saw
+    # Who named the punches (ADR-034): "cameras", "camera+wrist", "camera", "wrist".
+    types_sources: dict[str, int] | None = None
+    camera_types_model: int | None = None
+    camera_types_accuracy: float | None = None  # all its cameras averaged, held-out takes
+    camera_types_view_accuracy: float | None = None  # one camera at a time
 
 
 class RoundExportItem(BaseModel):
@@ -1321,6 +1328,12 @@ def rounds_export(
             types=_type_tally(fused),
             types_model=xc.get("types_model"),
             **_types_accuracy(xc.get("types_model")),
+            types_sources=dict(
+                Counter(str(p["motion_source"]) for p in fused if p.get("motion_source"))
+            )
+            or None,
+            camera_types_model=xc.get("camera_types_model"),
+            **_camera_types_accuracy(xc.get("camera_types_model")),
         )
     elif xc_status == "running":
         summary = CrossCheckSummary(status="running")
@@ -1374,14 +1387,13 @@ def _round_cross_check(
 
 
 def _type_tally(counted: list[dict[str, Any]]) -> dict[str, dict[str, int]] | None:
-    """The counted punches the wrists felt, per hand, by the motion the wrist type
-    model named (ADR-029) — None when no punch was named (no model trained)."""
-    felt = [p for p in counted if p.get("peak_g") is not None]
-    if not any(p.get("motion") for p in felt):
+    """The counted punches, per hand, by the motion the cameras' or the wrists' type
+    model named (ADR-029, ADR-034) — None when no punch was named (no model)."""
+    if not any(p.get("motion") for p in counted):
         return None
     out: dict[str, dict[str, int]] = {}
     for hand in ("left", "right"):
-        mine = [p for p in felt if p["hand"] == hand]
+        mine = [p for p in counted if p["hand"] == hand]
         out[hand] = {
             "total": len(mine),
             **{
@@ -1390,6 +1402,17 @@ def _type_tally(counted: list[dict[str, Any]]) -> dict[str, dict[str, int]] | No
             },
         }
     return out
+
+
+def _camera_types_accuracy(version: int | None) -> dict[str, Any]:
+    """The cameras' type model's accuracy on held-out takes (ADR-034)."""
+    report = camera_type_model.latest_report() if version is not None else None
+    if not report or report.get("version") != version:
+        return {}
+    return {
+        "camera_types_accuracy": (report.get("held_out_punches") or {}).get("accuracy"),
+        "camera_types_view_accuracy": (report.get("held_out_views") or {}).get("accuracy"),
+    }
 
 
 def _types_accuracy(version: int | None) -> dict[str, Any]:

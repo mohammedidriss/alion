@@ -866,6 +866,11 @@ export interface CrossCheckSummary {
   types_accuracy?: number | null; // on held-out takes of the people it learned from
   types_participants?: number | null; // how many people that is
   types_other_accuracy?: number | null; // on a public set of boxers it never saw
+  /** Who named the punches (ADR-034): "cameras", "camera+wrist", "camera", "wrist". */
+  types_sources?: Record<string, number> | null;
+  camera_types_model?: number | null;
+  camera_types_accuracy?: number | null; // all its cameras averaged, held-out takes
+  camera_types_view_accuracy?: number | null; // one camera at a time
 }
 
 /** Right after a block is saved: is it good enough to move on? */
@@ -976,6 +981,20 @@ export interface WristTypesReport {
   held_out_takes: WristTypeScore;
   combos: WristTypeScore | null;
   other_boxers?: (WristTypeScore & { dataset: string }) | null; // a public set it never saw
+}
+
+/** The cameras' punch-type model's report (ADR-034). */
+export interface CameraTypeScore {
+  punches: number;
+  accuracy: number;
+  recall: Record<"straight" | "hook" | "uppercut", number | null>;
+}
+export interface CameraTypesReport {
+  version: number;
+  created_at: string;
+  data: { takes: number; participants: number; punches: number; views: number; per_motion: Record<string, number> };
+  held_out_views: CameraTypeScore; // one camera at a time
+  held_out_punches: CameraTypeScore; // all the punch's cameras averaged
 }
 
 export interface MatrixPoint {
@@ -1863,6 +1882,8 @@ export const api = {
   // ---- Wrist punch types (ADR-029) ----
   wristTypes: () => req<{ report: WristTypesReport | null }>("/v2/wrist-types"),
   trainWristTypes: () => req<{ report: WristTypesReport }>("/v2/wrist-types/train", { method: "POST" }),
+  cameraTypes: () => req<{ report: CameraTypesReport | null }>("/v2/camera-types"),
+  trainCameraTypes: () => req<{ report: CameraTypesReport }>("/v2/camera-types/train", { method: "POST" }),
 
   // ---- Appropriate-reliance study (ADR-026) ----
   studyMe: () => req<StudyMe>("/v2/studies/reliance/me"),

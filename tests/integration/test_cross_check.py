@@ -279,22 +279,66 @@ def test_each_counted_wrist_punch_carries_how_fast_the_forearm_turned(
 def test_with_a_wrist_type_model_each_wrist_punch_is_named(
     authed_client: TestClient, session: Session, dirs: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
+    import numpy as np
+
     from api.services import cross_check, wrist_type_model
 
-    def fake_name(t_ms, imu, at_ms, hand, stance):  # type: ignore[no-untyped-def]
-        motion = "straight" if hand == "left" else "hook"
-        return [(motion, "jab" if motion == "straight" else "hook") for _ in at_ms]
+    def fake_probabilities(t_ms, imu, at_ms, hand):  # type: ignore[no-untyped-def]
+        # straight / hook / uppercut
+        vec = np.array([0.9, 0.05, 0.05]) if hand == "left" else np.array([0.05, 0.9, 0.05])
+        return [vec for _ in at_ms]
 
-    monkeypatch.setattr(wrist_type_model, "name", fake_name)
+    monkeypatch.setattr(wrist_type_model, "probabilities", fake_probabilities)
     monkeypatch.setattr(wrist_type_model, "current_version", lambda: 7)
     sid = _session_with_sensors(authed_client, session, dirs)
     report = cross_check.run_now("session", UUID(sid), db=session)
     assert report is not None and report["types_model"] == 7
     left = [p for p in report["punches"] if p["counted"] and p["hand"] == "left" and p["peak_g"]]
     assert left and all(p["motion"] == "straight" and p["punch_type"] == "jab" for p in left)
+    # No camera type model trained here: the wrist named them.
+    assert all(p["motion_source"] == "wrist" for p in left)
 
     out = authed_client.get(f"/sessions/{sid}/rounds_export").json()
     assert out["stance"] == "orthodox"
     types = out["cross_check"]["types"]
     assert types["left"]["straight"] == types["left"]["total"] == 3  # 10, 20 and 30 s
     assert types["right"]["hook"] == 1
+
+
+def test_with_a_camera_type_model_the_cameras_name_what_they_saw(
+    authed_client: TestClient, session: Session, dirs: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    import numpy as np
+
+    from api.services import camera_type_model, cross_check
+
+    class FakeCameraModel:
+        classes_ = np.array(["hook", "straight", "uppercut"])
+
+        def predict_proba(self, x: np.ndarray) -> np.ndarray:
+            return np.tile([0.1, 0.1, 0.8], (len(x), 1))  # every view: an uppercut
+
+    monkeypatch.setattr(camera_type_model, "latest_model", lambda: FakeCameraModel())
+    monkeypatch.setattr(camera_type_model, "current_version", lambda: 3)
+    from capture.cv.writer import write_pose_parquet
+
+    sid = _session_with_sensors(authed_client, session, dirs)
+    # Both cameras' pose covering the whole minute, so every punch has a frame near it.
+    SEEN[1800] = SEEN[150]
+    for cam in ("lap1", "phone1"):
+        write_pose_parquet(dirs / "pose" / f"{sid}.{cam}.pose.parquet", _frames(UUID(sid), 1800))
+    report = cross_check.run_now("session", UUID(sid), db=session)
+    assert report is not None and report["camera_types_model"] == 3
+    seen_by_both_cameras = [p for p in report["punches"] if p["counted"] and p["cameras"] >= 2]
+    assert seen_by_both_cameras
+    for p in seen_by_both_cameras:
+        assert p["motion"] == "uppercut" and p["motion_source"] in (
+            "cameras",
+            "camera",
+            "camera+wrist",
+        )
+
+    # The session's breakdown says the cameras named them, and with which model.
+    xc = authed_client.get(f"/sessions/{sid}/rounds_export").json()["cross_check"]
+    assert xc["camera_types_model"] == 3 and (xc["types_sources"] or {}).get("cameras", 0) > 0
+    assert xc["types"]["left"]["uppercut"] + xc["types"]["right"]["uppercut"] > 0

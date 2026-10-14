@@ -33,11 +33,12 @@ import numpy as np
 from sqlmodel import Session as DBSession
 from sqlmodel import col, func, select
 
+from analyze import punch_model
 from analyze.imu_punches import detect_punches as detect_wrist_punches
 from analyze.imu_punches import peak_rotations
 from analyze.punch_fusion import WristPunch, camera_punches, cross_check, wrist_gaps
-from analyze.wrist_types import motion_to_type
-from api.services import dataset_store, session_analysis, wrist_type_model
+from analyze.wrist_types import MOTIONS, motion_to_type
+from api.services import camera_type_model, dataset_store, session_analysis, wrist_type_model
 from capture.cv.writer import read_pose_parquet
 from common import get_logger
 from contracts import Hand
@@ -117,9 +118,13 @@ def _inputs(kind: Kind, capture_id: UUID, db: DBSession) -> _Inputs | None:
         return None
     return _Inputs(
         pose=pose,
-        # A new wrist punch-type model names the punches again (ADR-029).
+        # A new punch-type model names the punches again (ADR-029, ADR-034).
         signature=_sig(
-            [_stat(p) for p in pose.values()], imu_sig, duration, wrist_type_model.current_version()
+            [_stat(p) for p in pose.values()],
+            imu_sig,
+            duration,
+            wrist_type_model.current_version(),
+            camera_type_model.current_version(),
         ),
         folder=folder,
     )
@@ -190,6 +195,50 @@ def _wrist_samples(
     }
 
 
+def _type_of(motion: str | None, hand: str, stance: str | None) -> str | None:
+    return motion_to_type(motion, hand, stance) if motion else None
+
+
+def _name_punches(
+    cc: Any, poses: dict[str, list[Any]], skipped: list[str], wrist_p: dict[float, np.ndarray]
+) -> list[tuple[str | None, str | None]]:
+    """(motion, who named it) for each punch of the cross-check (ADR-034): the
+    cameras' 3D type model with every camera that saw it averaged; one camera's
+    view joined by the wrist model's probabilities; else the wrist alone."""
+    model = camera_type_model.latest_model()
+    windows: dict[str, Any] = {}
+    tracks: dict[str, Any] = {}
+    if model is not None:
+        for dev, frames in poses.items():
+            if frames and dev not in skipped:
+                tracks[dev] = punch_model.track(frames)
+                windows[dev] = punch_model.arm_windows(tracks[dev])
+    offsets = {r.device: (r.offset_ms or 0.0) for r in cc.cameras}
+    out: list[tuple[str | None, str | None]] = []
+    for p in cc.punches:
+        views = []
+        for dev, tr in tracks.items():
+            # The cross-check moved this camera's clock by -offset to the wrists'.
+            i = punch_model._frame(tr, p.t_ms + offsets.get(dev, 0.0))
+            if i is not None:
+                views.append(windows[dev][p.hand][i])
+        pw = wrist_p.get(round(p.t_ms, 1)) if p.peak_g is not None else None
+        if len(views) >= 2:
+            pc = camera_type_model.proba(model, views).mean(axis=0)
+            out.append((MOTIONS[int(np.argmax(pc))], "cameras"))
+        elif len(views) == 1:
+            pc = camera_type_model.proba(model, views)[0]
+            if pw is not None:
+                out.append((MOTIONS[int(np.argmax(pc * pw + 1e-9))], "camera+wrist"))
+            else:
+                out.append((MOTIONS[int(np.argmax(pc))], "camera"))
+        elif p.motion is not None:
+            out.append((p.motion, "wrist"))
+        else:
+            out.append((None, None))
+    return out
+
+
 def run_now(
     kind: Kind,
     capture_id: UUID,
@@ -214,15 +263,25 @@ def run_now(
         samples = _wrist_samples(kind, capture_id, inp.folder, s)
 
     wrist: list[WristPunch] = []
+    wrist_p: dict[float, np.ndarray] = {}  # each wrist punch's type probabilities, by time
     for hand, a in samples.items():
         if len(a) >= 20:
             found = detect_wrist_punches(a[:, 0], a[:, 1], a[:, 2], a[:, 3])
             at = [e.t_ms for e in found]
             turns = peak_rotations(a[:, 0], a[:, 4], a[:, 5], a[:, 6], at)
-            named = wrist_type_model.name(a[:, 0], a[:, 1:7], at, hand, stance)
+            probs = wrist_type_model.probabilities(a[:, 0], a[:, 1:7], at, hand)
+            for e, pr in zip(found, probs, strict=True):
+                if pr is not None:
+                    wrist_p[round(e.t_ms, 1)] = pr
             wrist += [
-                WristPunch(e.t_ms, hand, e.peak_g, r, motion)
-                for e, r, (motion, _) in zip(found, turns, named, strict=True)
+                WristPunch(
+                    e.t_ms,
+                    hand,
+                    e.peak_g,
+                    r,
+                    MOTIONS[int(np.argmax(pr))] if pr is not None else None,
+                )
+                for e, r, pr in zip(found, turns, probs, strict=True)
             ]
     poses = {dev: read_pose_parquet(path) for dev, path in inp.pose.items()}
     spans = {dev: (f[-1].t_ms - f[0].t_ms) if len(f) > 1 else 0.0 for dev, f in poses.items()}
@@ -245,6 +304,7 @@ def run_now(
     )
     cc = cross_check(wrist, per_camera, gaps=gaps)
 
+    named = _name_punches(cc, poses, skipped, wrist_p)
     by = Counter((p.source, p.counted) for p in cc.punches)
     counted = cc.counted
     labels = labels or {}
@@ -257,6 +317,7 @@ def run_now(
         "hands_swapped": cc.hands_swapped,
         "cameras_skipped": skipped,  # too little pose to vote
         "types_model": wrist_type_model.current_version(),  # names the wrist punches
+        "camera_types_model": camera_type_model.current_version(),  # names what cameras saw
         "totals": {
             "counted": len(counted),
             "confirmed": by[("both", True)],
@@ -292,12 +353,15 @@ def run_now(
                 "counted": p.counted,
                 "peak_g": p.peak_g,
                 "peak_dps": p.peak_dps,
-                "motion": p.motion,  # from the wrist (ADR-029); None: no model, or no wrist
-                "punch_type": motion_to_type(p.motion, p.hand, stance) if p.motion else None,
+                # straight / hook / uppercut and who named it (ADR-034): "cameras",
+                # "camera+wrist", "camera" or "wrist"; None: no model saw it.
+                "motion": named[k][0],
+                "motion_source": named[k][1],
+                "punch_type": _type_of(named[k][0], p.hand, stance),
                 "speed_ms": p.speed_ms,
                 "cameras": len(p.cameras),
             }
-            for p in cc.punches
+            for k, p in enumerate(cc.punches)
         ],
     }
     path = _cache_path(kind, capture_id, inp.folder)
