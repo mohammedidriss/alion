@@ -109,14 +109,15 @@ def wrists_by_session(db: DBSession, ids: Sequence[UUID]) -> dict[UUID, dict[str
     return dict(out)
 
 
-def wrist_punches(samples: Sequence[Any]) -> list[tuple[float, str, float]]:
-    """(t_ms, hand, peak g) for each punch the wrist sensors saw (`IMUSampleRow`s,
-    any order) — how a session without camera pose counts its punches."""
+def wrist_punches(samples: Sequence[Any]) -> list[tuple[float, str, float, float | None]]:
+    """(t_ms, hand, peak g, peak °/s) for each punch the wrist sensors saw
+    (`IMUSampleRow`s, any order) — how a session without camera pose counts its
+    punches. The rotation is None when the sensor sent none."""
     import numpy as np
 
-    from analyze.imu_punches import detect_punches
+    from analyze.imu_punches import detect_punches, peak_rotations
 
-    out: list[tuple[float, str, float]] = []
+    out: list[tuple[float, str, float, float | None]] = []
     for hand in ("left", "right"):
         rows = sorted(
             (s for s in samples if str(getattr(s.hand, "value", s.hand)) == hand),
@@ -124,11 +125,19 @@ def wrist_punches(samples: Sequence[Any]) -> list[tuple[float, str, float]]:
         )
         if len(rows) < 20:
             continue
+        t = np.array([r.t_ms for r in rows], dtype=float)
         ev = detect_punches(
-            np.array([r.t_ms for r in rows], dtype=float),
+            t,
             np.array([r.ax_g for r in rows], dtype=float),
             np.array([r.ay_g for r in rows], dtype=float),
             np.array([r.az_g for r in rows], dtype=float),
         )
-        out += [(float(e.t_ms), hand, float(e.peak_g)) for e in ev]
+        turns = peak_rotations(
+            t,
+            [r.gx_dps for r in rows],
+            [r.gy_dps for r in rows],
+            [r.gz_dps for r in rows],
+            [e.t_ms for e in ev],
+        )
+        out += [(float(e.t_ms), hand, float(e.peak_g), r) for e, r in zip(ev, turns, strict=True)]
     return sorted(out)

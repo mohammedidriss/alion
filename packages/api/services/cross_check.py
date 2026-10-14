@@ -34,6 +34,7 @@ from sqlmodel import Session as DBSession
 from sqlmodel import col, func, select
 
 from analyze.imu_punches import detect_punches as detect_wrist_punches
+from analyze.imu_punches import peak_rotations
 from analyze.punch_fusion import WristPunch, camera_punches, cross_check, wrist_gaps
 from api.services import dataset_store, session_analysis
 from capture.cv.writer import read_pose_parquet
@@ -46,7 +47,7 @@ log = get_logger(__name__)
 Kind = Literal["session", "take"]
 Status = Literal["ready", "running", "none"]
 
-VERSION = 2  # bump when the fusion rules change, so old results re-run
+VERSION = 3  # bump when the fusion rules change, so old results re-run (3: rotation)
 DEBOUNCE_S = 8.0  # the cameras' pose uploads land within seconds of each other
 MIN_CAMERA_SPAN = 0.3  # of the longest camera's pose — less and the camera sits out
 BACKGROUND = True  # tests switch the background runs off and call run_now
@@ -151,8 +152,9 @@ def saved_session_result(session_id: UUID) -> dict[str, Any] | None:
 def _wrist_samples(
     kind: Kind, capture_id: UUID, folder: Path | None, db: DBSession
 ) -> dict[Hand, np.ndarray]:
-    """Each wrist's samples as an (n, 4) array of t_ms, ax, ay, az (g)."""
-    rows: dict[str, list[tuple[float, float, float, float]]] = {"left": [], "right": []}
+    """Each wrist's samples as an (n, 7) array of t_ms, ax, ay, az (g), gx, gy, gz
+    (°/s; zeros where a take's file has no rotation)."""
+    rows: dict[str, list[tuple[float, ...]]] = {"left": [], "right": []}
     if folder is not None:
         try:
             with (folder / "imu.csv").open(newline="") as f:
@@ -160,7 +162,15 @@ def _wrist_samples(
                     hand = r.get("hand", "")
                     if hand in rows:
                         rows[hand].append(
-                            (float(r["t_ms"]), float(r["ax_g"]), float(r["ay_g"]), float(r["az_g"]))
+                            (
+                                float(r["t_ms"]),
+                                float(r["ax_g"]),
+                                float(r["ay_g"]),
+                                float(r["az_g"]),
+                                float(r.get("gx_dps") or 0.0),
+                                float(r.get("gy_dps") or 0.0),
+                                float(r.get("gz_dps") or 0.0),
+                            )
                         )
         except (OSError, ValueError, KeyError):
             pass
@@ -169,10 +179,10 @@ def _wrist_samples(
         for s in db.exec(q.order_by(col(IMUSampleRow.t_ms))):
             h = str(getattr(s.hand, "value", s.hand)).lower()
             if h in rows:
-                rows[h].append((s.t_ms, s.ax_g, s.ay_g, s.az_g))
+                rows[h].append((s.t_ms, s.ax_g, s.ay_g, s.az_g, s.gx_dps, s.gy_dps, s.gz_dps))
     return {
-        "left": np.array(sorted(rows["left"]), dtype=float).reshape(-1, 4),
-        "right": np.array(sorted(rows["right"]), dtype=float).reshape(-1, 4),
+        "left": np.array(sorted(rows["left"]), dtype=float).reshape(-1, 7),
+        "right": np.array(sorted(rows["right"]), dtype=float).reshape(-1, 7),
     }
 
 
@@ -202,9 +212,10 @@ def run_now(
     wrist: list[WristPunch] = []
     for hand, a in samples.items():
         if len(a) >= 20:
+            found = detect_wrist_punches(a[:, 0], a[:, 1], a[:, 2], a[:, 3])
+            turns = peak_rotations(a[:, 0], a[:, 4], a[:, 5], a[:, 6], [e.t_ms for e in found])
             wrist += [
-                WristPunch(e.t_ms, hand, e.peak_g)
-                for e in detect_wrist_punches(a[:, 0], a[:, 1], a[:, 2], a[:, 3])
+                WristPunch(e.t_ms, hand, e.peak_g, r) for e, r in zip(found, turns, strict=True)
             ]
     poses = {dev: read_pose_parquet(path) for dev, path in inp.pose.items()}
     spans = {dev: (f[-1].t_ms - f[0].t_ms) if len(f) > 1 else 0.0 for dev, f in poses.items()}
@@ -272,6 +283,7 @@ def run_now(
                 "source": p.source,
                 "counted": p.counted,
                 "peak_g": p.peak_g,
+                "peak_dps": p.peak_dps,
                 "speed_ms": p.speed_ms,
                 "cameras": len(p.cameras),
             }

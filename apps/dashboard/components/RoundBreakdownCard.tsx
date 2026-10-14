@@ -154,6 +154,11 @@ export function RoundBreakdownCard({ sessionId, status }: Props) {
               <th className="py-1.5 pr-3">RMSSD</th>
               <th className="py-1.5 pr-3">SDNN</th>
               <th className="py-1.5 pr-3">Peak g</th>
+              {(fused || wrist) && (
+                <th className="py-1.5 pr-3" title="How fast the forearm turned, per punch (average)">
+                  Rotation
+                </th>
+              )}
               <th className="py-1.5">
                 {fused ? "Cross-check" : wrist ? "Avg wrist g" : "CV/IMU match"}
               </th>
@@ -270,6 +275,21 @@ function RoundRow({
           <span className="ml-0.5 text-[10px] text-neutral-500">g</span>
         )}
       </td>
+      {(fused || wrist) && (
+        <td className="py-2 pr-3 tabular-nums">
+          {(() => {
+            const dps = fused ? x?.mean_peak_dps : r.imu.mean_peak_dps;
+            return dps == null ? (
+              "—"
+            ) : (
+              <>
+                {dps.toLocaleString()}
+                <span className="ml-0.5 text-[10px] text-neutral-500">°/s</span>
+              </>
+            );
+          })()}
+        </td>
+      )}
       <td className="py-2 tabular-nums">
         {x ? (
           x.agreement == null ? (

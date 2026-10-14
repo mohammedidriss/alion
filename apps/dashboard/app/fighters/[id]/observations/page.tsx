@@ -533,7 +533,7 @@ function SessionsTable({ data }: { data: PerformanceTrendItem[] }) {
     <div className="space-y-2">
       <h3 className="text-sm font-semibold">Each session</h3>
       <div className="overflow-x-auto">
-        <table className="w-full min-w-[720px] text-sm">
+        <table className="w-full min-w-[800px] text-sm">
           <thead className="text-left text-xs uppercase text-neutral-400">
             <tr>
               <th className="py-1.5 pr-3">Date</th>
@@ -543,7 +543,8 @@ function SessionsTable({ data }: { data: PerformanceTrendItem[] }) {
               <th className="py-1.5 pr-3">Score</th>
               <th className="py-1.5 pr-3">HR avg / max</th>
               <th className="py-1.5 pr-3">RMSSD</th>
-              <th className="py-1.5">Punch force</th>
+              <th className="py-1.5 pr-3">Punch force</th>
+              <th className="py-1.5">Rotation</th>
             </tr>
           </thead>
           <tbody>
@@ -573,12 +574,15 @@ function SessionsTable({ data }: { data: PerformanceTrendItem[] }) {
                   )}
                 </td>
                 <td className="py-2 pr-3 tabular-nums">{num(d.rmssd_ms, " ms")}</td>
-                <td className="py-2 tabular-nums">
+                <td className="py-2 pr-3 tabular-nums">
                   {d.avg_punch_g != null ? (
                     `${d.avg_punch_g.toFixed(1)} g`
                   ) : (
                     <span className="text-neutral-500">{d.peak_wrist_g != null ? "—" : "no wrists"}</span>
                   )}
+                </td>
+                <td className="py-2 tabular-nums">
+                  {d.avg_punch_dps != null ? `${d.avg_punch_dps.toLocaleString()} °/s` : "—"}
                 </td>
               </tr>
             ))}
@@ -592,7 +596,8 @@ function SessionsTable({ data }: { data: PerformanceTrendItem[] }) {
       )}
       <p className="text-[11px] text-neutral-400">
         HR and RMSSD are measured during the session (the resting baseline is on the HRV tab).
-        Punch force is the average peak at the wrist of the counted punches — the force delivered.
+        Punch force is the average peak at the wrist of the counted punches — the force delivered;
+        rotation is how fast the forearm turned in each punch.
       </p>
     </div>
   );

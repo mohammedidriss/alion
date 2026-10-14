@@ -692,6 +692,7 @@ export interface PerformanceTrendItem {
   rmssd_ms: number | null;
   peak_wrist_g: number | null;
   avg_punch_g: number | null;
+  avg_punch_dps: number | null; // how fast the forearm turned per punch (°/s)
 }
 
 export interface PerformanceTrendResponse {
@@ -798,6 +799,7 @@ export interface RoundImuBlock {
   ppm: number | null;
   mean_peak_g: number | null;
   impact_score: number | null; // Σ punch peaks (g)
+  mean_peak_dps?: number | null; // how fast the forearm turned per punch (°/s)
 }
 
 export interface RoundExportItem {
@@ -830,6 +832,7 @@ export interface RoundCrossCheckBlock {
   peak_speed_ms: number | null;
   mean_peak_g: number | null;
   impact_score: number | null; // Σ peak g
+  mean_peak_dps?: number | null; // how fast the forearm turned per counted punch (°/s)
 }
 
 export type HandsVerdict = "consistent" | "swapped" | "unclear";

@@ -181,7 +181,9 @@ def test_a_session_with_wrists_but_no_camera_pose_counts_from_the_wrists(
     monkeypatch.setattr(
         sensor_summary,
         "wrist_punches",
-        lambda samples: [(100.0, "left", 6.0), (900.0, "right", 8.0)] if samples else [],
+        lambda samples: (
+            [(100.0, "left", 6.0, 900.0), (900.0, "right", 8.0, 1100.0)] if samples else []
+        ),
     )
     fid = authed_client.post("/fighters", json={"name": "Wrists"}).json()["id"]
     sid = _completed(authed_client, session, fid, days_ago=1, minutes=0.5)
@@ -189,5 +191,5 @@ def test_a_session_with_wrists_but_no_camera_pose_counts_from_the_wrists(
     session.commit()
     item = authed_client.get(f"/fighters/{fid}/performance-trend").json()["items"][0]
     assert item["punch_source"] == "wrist" and item["punch_count"] == 2 and item["ppm"] == 4.0
-    assert item["avg_punch_g"] == 7.0
+    assert item["avg_punch_g"] == 7.0 and item["avg_punch_dps"] == 1000
     assert item["peak_velocity_ms"] is None and item["score"] is None  # no speed was measured

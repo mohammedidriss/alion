@@ -976,6 +976,7 @@ class PerformanceTrendItem(BaseModel):
     rmssd_ms: float | None = None
     peak_wrist_g: float | None = None
     avg_punch_g: float | None = None
+    avg_punch_dps: float | None = None  # how fast the forearm turned per punch (°/s)
 
 
 class PerformanceTrendResponse(BaseModel):
@@ -1078,6 +1079,7 @@ async def generate_fighter_observations(
                 "session_max_hr_bpm": m.max_hr_bpm,
                 "session_rmssd_ms": m.rmssd_ms,
                 "avg_punch_force_g": m.avg_punch_g,
+                "avg_punch_rotation_dps": m.avg_punch_dps,
                 "coach_notes": s.notes or None,
             }
         )

@@ -46,6 +46,7 @@ class SessionMetrics:
     rmssd_ms: float | None
     peak_wrist_g: float | None  # the largest wrist acceleration stored
     avg_punch_g: float | None  # mean peak force of the counted punches the wrists felt
+    avg_punch_dps: float | None  # how fast the forearm turned per counted punch (°/s)
 
 
 def p90(values: list[float]) -> float:
@@ -56,12 +57,13 @@ def p90(values: list[float]) -> float:
     return v[lo] * (1 - (k - lo)) + v[hi] * (k - lo)
 
 
-def _from_cross_check(xc: dict[str, Any]) -> tuple[int, list[float], list[float]]:
-    """(count, speeds m/s, wrist peaks g) of the counted punches."""
+def _from_cross_check(xc: dict[str, Any]) -> tuple[int, list[float], list[float], list[float]]:
+    """(count, speeds m/s, wrist peaks g, wrist turns °/s) of the counted punches."""
     counted = [p for p in xc.get("punches", []) if p.get("counted")]
     speeds = [float(p["speed_ms"]) for p in counted if p.get("speed_ms") is not None]
     forces = [float(p["peak_g"]) for p in counted if p.get("peak_g") is not None]
-    return len(counted), speeds, forces
+    turns = [float(p["peak_dps"]) for p in counted if p.get("peak_dps") is not None]
+    return len(counted), speeds, forces, turns
 
 
 def for_sessions(db: DBSession, sessions: Sequence[SessionRow]) -> dict[UUID, SessionMetrics]:
@@ -74,18 +76,24 @@ def for_sessions(db: DBSession, sessions: Sequence[SessionRow]) -> dict[UUID, Se
     wrists = sensor_summary.wrists_by_session(db, ids)
 
     # Where each session's punches come from.
-    punches: dict[UUID, tuple[str, int, list[float], list[float]]] = {}
+    punches: dict[UUID, tuple[str, int, list[float], list[float], list[float]]] = {}
     wrist_only: list[UUID] = []
     for s in sessions:
         xc = cross_check.saved_session_result(s.id)
         if xc is not None:
             punches[s.id] = ("cross_check", *_from_cross_check(xc))
         elif events.get(s.id):
-            punches[s.id] = ("camera", len(events[s.id]), [e.velocity_ms for e in events[s.id]], [])
+            punches[s.id] = (
+                "camera",
+                len(events[s.id]),
+                [e.velocity_ms for e in events[s.id]],
+                [],
+                [],
+            )
         elif s.id in wrists:
             wrist_only.append(s.id)
         else:
-            punches[s.id] = ("none", 0, [], [])
+            punches[s.id] = ("none", 0, [], [], [])
     if wrist_only:  # only these need their samples read
         samples: dict[UUID, list[IMUSampleRow]] = defaultdict(list)
         for row in db.exec(
@@ -94,11 +102,17 @@ def for_sessions(db: DBSession, sessions: Sequence[SessionRow]) -> dict[UUID, Se
             samples[row.session_id].append(row)
         for sid in wrist_only:
             found = sensor_summary.wrist_punches(samples[sid])
-            punches[sid] = ("wrist", len(found), [], [g for _, _, g in found])
+            punches[sid] = (
+                "wrist",
+                len(found),
+                [],
+                [g for _, _, g, _ in found],
+                [r for *_, r in found if r is not None],
+            )
 
     out: dict[UUID, SessionMetrics] = {}
     for s in sessions:
-        source, count, speeds, forces = punches[s.id]
+        source, count, speeds, forces, turns = punches[s.id]
         duration_min = (
             (s.duration_ms / 1000.0) / 60.0 if s.duration_ms and s.duration_ms > 0 else 0.0
         )
@@ -118,5 +132,6 @@ def for_sessions(db: DBSession, sessions: Sequence[SessionRow]) -> dict[UUID, Se
             rmssd_ms=heart.rmssd_ms if heart else None,
             peak_wrist_g=max(w.peak_g for w in hands.values()) if hands else None,
             avg_punch_g=round(sum(forces) / len(forces), 2) if forces else None,
+            avg_punch_dps=round(sum(turns) / len(turns)) if turns else None,
         )
     return out

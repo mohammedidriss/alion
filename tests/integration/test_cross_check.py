@@ -69,7 +69,8 @@ def _imu_rows(
     rows: list[object] = []
     for hand, at in punches.items():
         for i in range(0, until[hand], 10):
-            g = 6.0 if any(abs(i - p) < 40 for p in at) else 1.0
+            burst = any(abs(i - p) < 40 for p in at)
+            g = 6.0 if burst else 1.0
             rows.append(
                 IMUSampleRow(
                     session_id=session_id,
@@ -79,7 +80,7 @@ def _imu_rows(
                     az_g=g,
                     gx_dps=0.0,
                     gy_dps=0.0,
-                    gz_dps=0.0,
+                    gz_dps=900.0 if burst else 5.0,  # the forearm turns with the punch
                     hand=HandEnum(hand),
                 )
             )
@@ -259,3 +260,17 @@ def test_a_take_shows_agreement_per_protocol_block_and_catches_swapped_sensors(
     (folder / "protocol.json").write_text(json.dumps({**protocol, "imu_hands_swapped": True}))
     xc = authed_client.get(f"/v2/takes/{tid}/cross-check").json()
     assert xc["hands"] == "swapped" and xc["labels_swapped"] is True
+
+
+def test_each_counted_wrist_punch_carries_how_fast_the_forearm_turned(
+    authed_client: TestClient, session: Session, dirs: Path
+) -> None:
+    from api.services import cross_check
+
+    sid = _session_with_sensors(authed_client, session, dirs)
+    report = cross_check.run_now("session", UUID(sid), db=session)
+    assert report is not None
+    felt = [p for p in report["punches"] if p["counted"] and p["peak_g"] is not None]
+    assert felt and all(p["peak_dps"] == 900.0 for p in felt)
+    camera_only = [p for p in report["punches"] if p["source"] == "camera"]
+    assert all(p["peak_dps"] is None for p in camera_only)  # no wrist, no rotation

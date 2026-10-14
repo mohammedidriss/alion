@@ -1043,6 +1043,7 @@ class RoundImuBlock(BaseModel):
     ppm: float | None = None
     mean_peak_g: float | None = None
     impact_score: float | None = None  # Σ punch peaks (g) — the wrist analogue of v × punches
+    mean_peak_dps: float | None = None  # how fast the forearm turned per punch (°/s)
 
 
 class RoundCrossCheckBlock(BaseModel):
@@ -1062,6 +1063,7 @@ class RoundCrossCheckBlock(BaseModel):
     peak_speed_ms: float | None
     mean_peak_g: float | None
     impact_score: float | None  # Σ peak g of the counted punches the wrists felt
+    mean_peak_dps: float | None = None  # how fast the forearm turned per counted punch (°/s)
 
 
 class CrossCheckCamera(BaseModel):
@@ -1240,6 +1242,7 @@ def rounds_export(
                 match_rate = round(matched / len(round_events), 2)
         wp = [w for w in wrist_punches if start <= w[0] < end]
         wp_g = [w[2] for w in wp]
+        wp_dps = [w[3] for w in wp if w[3] is not None]
         imu_block = RoundImuBlock(
             sample_count=len(imu_in_round),
             peak_g=peak_g_val,
@@ -1251,6 +1254,7 @@ def rounds_export(
             ppm=round(len(wp) / minutes, 1) if minutes > 0 and wp else None,
             mean_peak_g=round(sum(wp_g) / len(wp_g), 2) if wp_g else None,
             impact_score=round(sum(wp_g), 1) if wp_g else None,
+            mean_peak_dps=round(sum(wp_dps) / len(wp_dps)) if wp_dps else None,
         )
 
         xc_block = _round_cross_check(xc, start, end, minutes) if xc else None
@@ -1330,6 +1334,7 @@ def _round_cross_check(
     confirmed = [p for p in counted if p["source"] == "both"]
     speeds = sorted(p["speed_ms"] for p in confirmed if p["speed_ms"] is not None)
     gs = [p["peak_g"] for p in counted if p["peak_g"] is not None]
+    turns = [p["peak_dps"] for p in counted if p.get("peak_dps") is not None]
     return RoundCrossCheckBlock(
         punch_count=len(counted),
         confirmed=len(confirmed),
@@ -1348,6 +1353,7 @@ def _round_cross_check(
         peak_speed_ms=speeds[-1] if speeds else None,
         mean_peak_g=round(sum(gs) / len(gs), 2) if gs else None,
         impact_score=round(sum(gs), 1) if gs else None,
+        mean_peak_dps=round(sum(turns) / len(turns)) if turns else None,
     )
 
 

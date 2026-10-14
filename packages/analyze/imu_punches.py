@@ -119,3 +119,43 @@ def detect_punches(
         j = int(window[np.argmax(dyn[window])])
         events.append(ImuPunch(t_ms=float(t[j]), peak_g=round(float(dyn[j]), 2)))
     return sorted(events, key=lambda e: e.t_ms)
+
+
+# The forearm's turn that drives a punch (pronation on a straight, the swing of a
+# hook, the lift of an uppercut) peaks within this of the acceleration peak.
+ROTATION_WINDOW_MS = 150.0
+
+
+def peak_rotations(
+    t_ms: Sequence[float] | np.ndarray,
+    gx: Sequence[float] | np.ndarray,
+    gy: Sequence[float] | np.ndarray,
+    gz: Sequence[float] | np.ndarray,
+    at_ms: Sequence[float],
+    *,
+    window_ms: float = ROTATION_WINDOW_MS,
+) -> list[float | None]:
+    """For each punch time in `at_ms`, the fastest the wrist turned (°/s, the
+    gyro's magnitude) within `window_ms` of it. None where the sensor sent no
+    rotation (all zero) or has no samples that close."""
+    t = np.asarray(t_ms, dtype=float)
+    w = (
+        np.linalg.norm(
+            np.stack([np.asarray(gx, float), np.asarray(gy, float), np.asarray(gz, float)], axis=1),
+            axis=1,
+        )
+        if t.size
+        else np.zeros(0)
+    )
+    if t.size == 0 or not np.any(w):
+        return [None for _ in at_ms]
+    order = np.argsort(t, kind="stable")
+    t, w = t[order], w[order]
+    out: list[float | None] = []
+    for at in at_ms:
+        lo, hi = (
+            np.searchsorted(t, at - window_ms),
+            np.searchsorted(t, at + window_ms, side="right"),
+        )
+        out.append(round(float(w[lo:hi].max()), 1) if hi > lo else None)
+    return out

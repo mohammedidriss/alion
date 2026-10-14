@@ -98,3 +98,17 @@ def test_first_mode_still_counts_a_double_jab_outside_the_gap() -> None:
     t, ax, ay, az = _stream(3, [1000.0, 1800.0])  # two real jabs 0.8 s apart
     found = detect_punches(t, ax, ay, az, mode="first", min_gap_ms=700.0)
     assert [round(e.t_ms, -2) for e in found] == [1000.0, 1800.0]
+
+
+def test_peak_rotation_is_the_fastest_turn_near_each_punch() -> None:
+    from analyze.imu_punches import peak_rotations
+
+    t = [float(i * 10) for i in range(100)]  # 1 s at 100 Hz
+    gz = [1200.0 if 480 <= ms <= 520 else 20.0 for ms in t]
+    gx = [0.0] * 100
+    gy = [0.0] * 100
+    out = peak_rotations(t, gx, gy, gz, [500.0, 900.0, 5000.0])
+    assert out[0] == 1200.0  # the punch's turn
+    assert out[1] == 20.0  # nothing fast near 900 ms
+    assert out[2] is None  # no samples that close
+    assert peak_rotations(t, gx, gy, [0.0] * 100, [500.0]) == [None]  # no gyro sent

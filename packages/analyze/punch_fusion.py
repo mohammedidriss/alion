@@ -77,6 +77,7 @@ class WristPunch:
     t_ms: float
     hand: Hand
     peak_g: float
+    peak_dps: float | None = None  # the fastest the forearm turned (°/s); None: no gyro
 
 
 @dataclass(frozen=True)
@@ -96,6 +97,7 @@ class FusedPunch:
     peak_g: float | None = None
     speed_ms: float | None = None
     cameras: tuple[str, ...] = ()
+    peak_dps: float | None = None  # from the wrist: the fastest the forearm turned (°/s)
 
 
 @dataclass(frozen=True)
@@ -373,7 +375,7 @@ def cross_check(
     if swapped:
         # The sensor labelled "left" was on the right wrist: its punches and its
         # dropouts belong to the right hand.
-        wrist = [WristPunch(w.t_ms, _flip(w.hand), w.peak_g) for w in wrist]
+        wrist = [WristPunch(w.t_ms, _flip(w.hand), w.peak_g, w.peak_dps) for w in wrist]
         gaps = {"left": gaps.get("right", ()), "right": gaps.get("left", ())}
 
     pairs = _pair(
@@ -387,7 +389,11 @@ def cross_check(
     for i, v in enumerate(votes):
         if i in pairs:
             w = wrist[pairs[i]]
-            out.append(FusedPunch(w.t_ms, w.hand, "both", True, w.peak_g, v.speed_ms, v.cameras))
+            out.append(
+                FusedPunch(
+                    w.t_ms, w.hand, "both", True, w.peak_g, v.speed_ms, v.cameras, w.peak_dps
+                )
+            )
         else:
             # Unclear hands: a dropout on either wrist could have hidden it.
             check: list[Hand] = [v.hand] if hands != "unclear" else ["left", "right"]
@@ -395,7 +401,7 @@ def cross_check(
             out.append(FusedPunch(v.t_ms, v.hand, "camera", dropout, None, v.speed_ms, v.cameras))
     paired = set(pairs.values())
     out += [
-        FusedPunch(w.t_ms, w.hand, "wrist", True, w.peak_g)
+        FusedPunch(w.t_ms, w.hand, "wrist", True, w.peak_g, peak_dps=w.peak_dps)
         for j, w in enumerate(wrist)
         if j not in paired
     ]
