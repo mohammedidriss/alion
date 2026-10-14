@@ -19,23 +19,21 @@ from sqlalchemy import select as sa_select
 from sqlmodel import Session as DBSession
 from sqlmodel import col, select
 
-from analyze.hrv_metrics import mean_hr_bpm, rmssd_ms, sdnn_ms
-from contracts import HRSample
+from analyze.hrv_metrics import artifact_mask, clean_hrv
 from store import HRSampleRow, IMUSampleRow
-
-# Beat-to-beat intervals outside 30–200 bpm are dropouts or noise, not heartbeats;
-# one of them would swamp RMSSD (a gap of a few seconds reads as thousands of ms).
-RR_MIN_MS, RR_MAX_MS = 300.0, 2000.0
 
 
 @dataclass(frozen=True)
 class Heart:
     beats: int  # every stored beat
     duration_s: float
-    mean_hr_bpm: float | None  # from the plausible intervals; None when there are none
+    mean_hr_bpm: float | None  # from the beats left after artifacts (ADR-037)
     max_hr_bpm: float | None
-    rmssd_ms: float | None  # None below two plausible beats
+    rmssd_ms: float | None  # None below two consecutive clean beats
     sdnn_ms: float | None
+    artifacts: int  # intervals removed as dropouts, missed or extra beats
+    artifact_share: float
+    reliable: bool  # at most 5 % removed: the HRV can be read
 
 
 @dataclass(frozen=True)
@@ -48,19 +46,23 @@ class Wrist:
 
 def heart(rows: list[tuple[float, float, float]]) -> Heart:
     """One session's beats, in time order: (t_ms, rr_ms, hr_bpm)."""
-    beats = [
-        HRSample(session_id=UUID(int=0), t_ms=t, rr_ms=rr, hr_bpm=hr)
-        for t, rr, hr in rows
-        if RR_MIN_MS <= rr <= RR_MAX_MS
-    ]
-    two = len(beats) >= 2
+    rrs = [rr for _, rr, _ in rows]
+    c = clean_hrv(rrs)
+    kept_hr = [hr for (_, _, hr), bad in zip(rows, artifact_mask(rrs), strict=True) if not bad]
+
+    def r1(v: float | None) -> float | None:
+        return round(v, 1) if v is not None else None
+
     return Heart(
         beats=len(rows),
         duration_s=round((rows[-1][0] - rows[0][0]) / 1000.0, 1),
-        mean_hr_bpm=round(mean_hr_bpm(beats), 1) if beats else None,
-        max_hr_bpm=round(max(b.hr_bpm for b in beats), 1) if beats else None,
-        rmssd_ms=round(rmssd_ms(beats), 1) if two else None,
-        sdnn_ms=round(sdnn_ms(beats), 1) if two else None,
+        mean_hr_bpm=r1(c.mean_hr_bpm),
+        max_hr_bpm=round(max(kept_hr), 1) if kept_hr else None,
+        rmssd_ms=r1(c.rmssd_ms),
+        sdnn_ms=r1(c.sdnn_ms),
+        artifacts=c.artifacts,
+        artifact_share=round(c.artifact_share, 3),
+        reliable=c.reliable,
     )
 
 

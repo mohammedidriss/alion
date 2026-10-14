@@ -21,7 +21,7 @@ from fastapi.responses import Response, StreamingResponse
 from pydantic import BaseModel, Field
 from sqlmodel import Session as DBSession
 
-from analyze import compute_score, mean_hr_bpm, rmssd_ms, sdnn_ms
+from analyze import clean_hrv, compute_score
 from api import access
 from api.deps import db_session, fighter_repo, punch_event_repo, resolve_gym_id, session_repo
 from api.routes import capture_coord
@@ -38,7 +38,6 @@ from api.services import (
     wrist_type_model,
 )
 from capture.hrv import parse_rr_csv
-from contracts import HRSample
 from store import (
     AttachmentKind,
     FighterRepo,
@@ -711,14 +710,22 @@ async def upload_baseline(
         tmp_path.unlink(missing_ok=True)
     if len(samples) < 4:
         raise HTTPException(status_code=400, detail="need at least 4 RR intervals")
-    hr_samples = [
-        HRSample(session_id=session_id, t_ms=t, rr_ms=rr, hr_bpm=60_000.0 / rr) for t, rr in samples
-    ]
+    # Artifacts removed first (ADR-037); a resting baseline with more than 5 % of
+    # them is re-recorded, not stored — readiness compares every session to it.
+    c = clean_hrv([rr for _, rr in samples])
+    if not c.reliable or c.mean_hr_bpm is None or c.rmssd_ms is None or c.sdnn_ms is None:
+        raise HTTPException(
+            status_code=422,
+            detail=(
+                f"{c.artifacts} of {c.beats} beats ({c.artifact_share:.0%}) are artifacts — "
+                "more than 5 %. Wet the strap's electrodes, sit still and record the baseline again."
+            ),
+        )
     row = repo.attach_baseline(
         session_id,
-        rmssd_ms=round(rmssd_ms(hr_samples), 2),
-        sdnn_ms=round(sdnn_ms(hr_samples), 2),
-        mean_hr_bpm=round(mean_hr_bpm(hr_samples), 2),
+        rmssd_ms=round(c.rmssd_ms, 2),
+        sdnn_ms=round(c.sdnn_ms, 2),
+        mean_hr_bpm=round(c.mean_hr_bpm, 2),
     )
     assert row is not None
     return SessionRead.model_validate(row, from_attributes=True)

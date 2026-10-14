@@ -1285,6 +1285,9 @@ export interface HeartRecording {
   max_hr_bpm: number | null;
   rmssd_ms: number | null;
   sdnn_ms: number | null;
+  artifacts: number; // intervals removed as dropouts, missed or extra beats (ADR-037)
+  artifact_share: number;
+  reliable: boolean; // at most 5 % removed: the HRV can be read
 }
 export interface WristRecording {
   samples: number;

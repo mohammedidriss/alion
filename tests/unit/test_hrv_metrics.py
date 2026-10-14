@@ -110,3 +110,47 @@ def test_full_metrics_chain_realistic_window() -> None:
     assert snap.sample_count == 75
     assert 70.0 <= snap.mean_hr_bpm <= 80.0
     assert math.isclose(snap.rmssd_ms, 20.0, rel_tol=0.01)
+
+
+# ---- artifacts (ADR-037) ----
+
+from analyze import clean_hrv  # noqa: E402
+
+STEADY = [800.0, 820.0] * 30  # RMSSD 20 ms, 60 beats
+
+
+def test_clean_beats_give_the_plain_figures() -> None:
+    c = clean_hrv(STEADY)
+    assert c.artifacts == 0 and c.reliable
+    assert c.rmssd_ms == pytest.approx(20.0)
+    assert c.mean_hr_bpm == pytest.approx(mean_hr_bpm(_samples(STEADY)))
+
+
+def test_a_missed_beat_is_removed_and_not_bridged() -> None:
+    rrs = [*STEADY[:30], 1620.0, *STEADY[30:]]  # one interval twice as long
+    c = clean_hrv(rrs)
+    assert c.artifacts == 1
+    assert c.rmssd_ms == pytest.approx(20.0)
+    assert rmssd_ms(_samples(rrs)) > 100  # raw: ~149 ms from one missed beat
+
+
+def test_an_extra_beat_and_a_dropout_are_removed() -> None:
+    rrs = [*STEADY[:20], 400.0, 410.0, *STEADY[20:40], 4000.0, *STEADY[40:]]
+    c = clean_hrv(rrs)
+    assert c.artifacts == 3
+    assert c.rmssd_ms == pytest.approx(20.0)
+    assert c.sdnn_ms == pytest.approx(sdnn_ms(_samples(STEADY)), rel=0.02)
+
+
+def test_more_than_five_percent_artifacts_is_not_reliable() -> None:
+    rrs = list(STEADY)
+    for i in range(5, 60, 10):  # 6 of 60 = 10 %
+        rrs[i] = 1600.0
+    c = clean_hrv(rrs)
+    assert c.artifacts == 6 and c.artifact_share == pytest.approx(0.1) and not c.reliable
+    assert clean_hrv(STEADY[:1]).rmssd_ms is None and not clean_hrv([]).reliable
+
+
+def test_a_real_change_in_heart_rate_is_kept() -> None:
+    ramp = [1000.0 - 8.0 * i for i in range(60)]  # 60 → ~114 bpm, beat by beat
+    assert clean_hrv(ramp).artifacts == 0

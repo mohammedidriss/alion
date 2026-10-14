@@ -40,8 +40,11 @@ class HeartRecording(BaseModel):
     duration_s: float
     mean_hr_bpm: float | None  # None when no interval is a plausible heartbeat
     max_hr_bpm: float | None
-    rmssd_ms: float | None  # None below two plausible beats
+    rmssd_ms: float | None  # None below two consecutive clean beats
     sdnn_ms: float | None
+    artifacts: int = 0  # intervals removed before the figures (ADR-037)
+    artifact_share: float = 0.0
+    reliable: bool = True  # at most 5 % removed
 
 
 class WristRecording(BaseModel):

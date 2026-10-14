@@ -1,6 +1,13 @@
 """Analyze — per-stream analytics. Depends only on `contracts` and `common`."""
 
-from analyze.hrv_metrics import RollingHRMetrics, mean_hr_bpm, rmssd_ms, sdnn_ms
+from analyze.hrv_metrics import (
+    CleanHRV,
+    RollingHRMetrics,
+    clean_hrv,
+    mean_hr_bpm,
+    rmssd_ms,
+    sdnn_ms,
+)
 from analyze.load import TrimpResult, compute_trimp, estimate_hr_max
 from analyze.performance import PerformanceScore, compute_score, compute_swc
 from analyze.punch_detector_extension import (
@@ -25,6 +32,7 @@ from analyze.velocity_refiner import refine_peak_velocity
 
 __all__ = [
     "MIN_HISTORY",
+    "CleanHRV",
     "ConsensusEvent",
     "ConsensusKind",
     "ExtensionCyclePunchDetector",
@@ -38,6 +46,7 @@ __all__ = [
     "StricterHeuristicSecondPass",
     "TrimpResult",
     "classify_punch_type",
+    "clean_hrv",
     "compute_readiness",
     "compute_score",
     "compute_swc",

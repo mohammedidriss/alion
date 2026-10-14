@@ -15,7 +15,7 @@ type Sensor = "heart" | "wrists";
 const TEXT: Record<Sensor, { title: string; what: string; none: string }> = {
   heart: {
     title: "Heart rate in every session",
-    what: "From the Polar strap while the cameras recorded. The paired strap connects by itself when a training session opens.",
+    what: "From the Polar strap while the cameras recorded. The paired strap connects by itself when a training session opens. Missed, extra and dropped beats are removed before RMSSD and SDNN; with more than 5 % of them, those two aren't reliable (⚠).",
     none: "No heart rate recorded",
   },
   wrists: {
@@ -43,6 +43,17 @@ function Wrist({ w }: { w: WristRecording | undefined }) {
     <span className="tabular-nums">
       {w.samples.toLocaleString()} · {num(w.hz)} Hz · peak {w.peak_g.toFixed(1)} g
     </span>
+  );
+}
+
+function HrvCell({ v, reliable, share, last }: { v: number | null; reliable: boolean; share: number; last?: boolean }) {
+  return (
+    <td
+      className={`py-2 tabular-nums ${last ? "" : "pr-3"} ${reliable ? "" : "text-neutral-500"}`}
+      title={reliable ? undefined : `${Math.round(share * 100)}% of beats were artifacts — more than 5%, so this isn't reliable`}
+    >
+      {num(v, 1)} ms{!reliable && v != null && <span className="ml-1 text-amber-300">⚠</span>}
+    </td>
   );
 }
 
@@ -121,11 +132,18 @@ export function SessionRecordingsCard({ fighterId, sensor }: { fighterId: string
                     </td>
                   ) : sensor === "heart" && r.heart ? (
                     <>
-                      <td className="py-2 pr-3 tabular-nums">{r.heart.beats}</td>
+                      <td className="py-2 pr-3 tabular-nums">
+                        {r.heart.beats}
+                        {r.heart.artifacts > 0 && (
+                          <span className="ml-1 text-[11px] text-neutral-500">
+                            ({r.heart.artifacts} removed)
+                          </span>
+                        )}
+                      </td>
                       <td className="py-2 pr-3 tabular-nums">{num(r.heart.mean_hr_bpm)} bpm</td>
                       <td className="py-2 pr-3 tabular-nums">{num(r.heart.max_hr_bpm)} bpm</td>
-                      <td className="py-2 pr-3 tabular-nums">{num(r.heart.rmssd_ms, 1)} ms</td>
-                      <td className="py-2 tabular-nums">{num(r.heart.sdnn_ms, 1)} ms</td>
+                      <HrvCell v={r.heart.rmssd_ms} reliable={r.heart.reliable} share={r.heart.artifact_share} />
+                      <HrvCell v={r.heart.sdnn_ms} reliable={r.heart.reliable} share={r.heart.artifact_share} last />
                     </>
                   ) : (
                     <>
