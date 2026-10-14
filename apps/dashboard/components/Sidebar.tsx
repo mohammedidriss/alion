@@ -93,6 +93,14 @@ export function Sidebar({ onNavigate }: { onNavigate?: () => void } = {}) {
   if (user?.is_researcher || activeRole === "admin") {
     navItems.push({ label: "AI model", href: "/ai-model", icon: "✦", hint: "Which computer writes the AI training advice" });
   }
+  // Privacy and consent (ADR-033): everyone; the requests to act on, for the
+  // people who handle them.
+  if (user) {
+    navItems.push({ label: "Privacy & consent", href: "/privacy", icon: "◐", hint: "What Alion keeps about you, who can see it, and your requests" });
+  }
+  if (user?.is_researcher || activeRole === "admin") {
+    navItems.push({ label: "Data requests", href: "/privacy/requests", icon: "✉", hint: "People's requests for a copy, a deletion or to leave the research" });
+  }
 
   // Fighter context tabs (when viewing any fighter page)
   // Privacy: admin only sees general info (Dashboard + Team); gym_manager can't see Medical

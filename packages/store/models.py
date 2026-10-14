@@ -1006,6 +1006,40 @@ class TrustSurveyRow(SQLModel, table=True):
 
 
 # ----------------------------------------------------------------------
+# Privacy requests (ADR-033): a person asks for a copy of their data, its
+# deletion, or to leave the research datasets; an admin or a researcher acts on
+# it and closes it with a note.
+# ----------------------------------------------------------------------
+
+
+class DataRequestKind(StrEnum):
+    EXPORT = "export"  # a copy of my data
+    DELETE = "delete"  # delete my account and data
+    WITHDRAW = "withdraw"  # take me out of the research datasets
+
+
+class DataRequestStatus(StrEnum):
+    OPEN = "open"
+    DONE = "done"
+    DECLINED = "declined"
+
+
+class DataRequestRow(SQLModel, table=True):
+    __tablename__ = "data_request"
+    id: UUID = Field(default_factory=uuid4, primary_key=True)
+    user_id: UUID = Field(foreign_key="user.id", index=True)
+    kind: DataRequestKind = Field(sa_column=sa.Column(sa.String, nullable=False))
+    note: str | None = Field(default=None, max_length=2000)
+    status: DataRequestStatus = Field(
+        default=DataRequestStatus.OPEN, sa_column=sa.Column(sa.String, nullable=False)
+    )
+    created_at: datetime = Field(default_factory=lambda: datetime.now(UTC))
+    handled_by: UUID | None = Field(default=None, foreign_key="user.id")
+    handled_at: datetime | None = None
+    response: str | None = Field(default=None, max_length=2000)
+
+
+# ----------------------------------------------------------------------
 # Coach + Referee profiles
 # ----------------------------------------------------------------------
 

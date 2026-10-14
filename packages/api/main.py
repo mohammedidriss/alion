@@ -35,6 +35,7 @@ from api.routes import (
     live,
     llm,
     pose,
+    privacy,
     protocol,
     recordings,
     referees,
@@ -227,6 +228,7 @@ app.include_router(studio.public)
 app.include_router(training.router)  # the dataset's camera punch counter
 app.include_router(rq1.router)
 app.include_router(reliance.router)  # the appropriate-reliance study (ADR-026)
+app.include_router(privacy.router)  # what's kept, who sees it, requests (ADR-033)
 app.include_router(round_plans.router)
 # Two-fighter bouts (ADR-011) — new endpoints, unversioned.
 app.include_router(bouts.router)

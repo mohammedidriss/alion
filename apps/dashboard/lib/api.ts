@@ -1156,6 +1156,33 @@ async function req<T>(path: string, init?: RequestInit): Promise<T> {
   return r.json();
 }
 
+// Privacy and consent (ADR-033).
+export type DataRequestKind = "export" | "delete" | "withdraw";
+export interface DataRequest {
+  id: string;
+  kind: DataRequestKind;
+  note: string | null;
+  status: "open" | "done" | "declined";
+  created_at: string;
+  handled_at: string | null;
+  response: string | null;
+}
+export interface HandledDataRequest extends DataRequest {
+  user_name: string;
+  user_email: string;
+  user_role: string;
+}
+export interface PrivacyMe {
+  role: string;
+  terms_version: string | null;
+  terms_accepted_at: string | null;
+  terms_current: string;
+  holdings: { what: string; count: number }[];
+  viewers: { coaches: string[]; gyms: string[]; gym_managers: string[] } | null;
+  datasets: { dataset: string; code: string | null; consent: string; consent_date: string | null }[];
+  requests: DataRequest[];
+}
+
 // The appropriate-reliance study (ADR-026).
 export interface StudyItem {
   id: string;
@@ -1817,6 +1844,22 @@ export const api = {
     req<number>(`/v2/sessions/${id}/hrv/load`, { method: "POST" }),
 
   // ---- RQ1 study ----
+  // ---- Privacy and consent (ADR-033) ----
+  privacyMe: () => req<PrivacyMe>("/v2/privacy/me"),
+  privacyRequest: (kind: DataRequestKind, note?: string) =>
+    req<DataRequest>("/v2/privacy/requests", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ kind, note: note ?? null }),
+    }),
+  privacyRequests: () => req<HandledDataRequest[]>("/v2/privacy/requests"),
+  closePrivacyRequest: (id: string, status: "done" | "declined", response: string) =>
+    req<DataRequest>(`/v2/privacy/requests/${id}`, {
+      method: "PATCH",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ status, response }),
+    }),
+
   // ---- Wrist punch types (ADR-029) ----
   wristTypes: () => req<{ report: WristTypesReport | null }>("/v2/wrist-types"),
   trainWristTypes: () => req<{ report: WristTypesReport }>("/v2/wrist-types/train", { method: "POST" }),
