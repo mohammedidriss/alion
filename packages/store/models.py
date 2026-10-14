@@ -939,6 +939,17 @@ class RaterScoreRow(SQLModel, table=True):
     superseded_at: datetime | None = None
 
 
+class Rq1RaterRow(SQLModel, table=True):
+    """A coach a researcher chose to rate advice for RQ1 (ADR-045): only they and
+    researchers see the rater card or can score."""
+
+    __tablename__ = "rq1_rater"
+    id: UUID = Field(default_factory=uuid4, primary_key=True)
+    user_id: UUID = Field(foreign_key="user.id", unique=True, index=True)
+    enrolled_by: UUID = Field(foreign_key="user.id")
+    enrolled_at: datetime = Field(default_factory=lambda: datetime.now(UTC))
+
+
 class RaterScoreRead(SQLModel):
     session_id: UUID
     payload_mode: PayloadModeEnum

@@ -766,6 +766,16 @@ export interface RQ1Rating {
 }
 
 /** The signed-in rater's score; the server knows who they are (ADR-036). */
+/** A coach a researcher chose to rate RQ1 advice (ADR-045). */
+export interface Rq1Rater {
+  user_id: string;
+  name: string;
+  email: string;
+  rater_id: string;
+  ratings: number;
+  enrolled_at: string;
+}
+
 export interface RQ1RatingUpsert {
   payload_mode: PayloadMode;
   criterion: string;
@@ -2059,7 +2069,17 @@ export const api = {
       body: JSON.stringify(body),
     }),
   studyExport: () => req<unknown>("/v2/studies/reliance/export"),
-  rq1Me: () => req<{ rater_id: string }>("/studies/rq1/me"),
+  /** can_rate: a researcher, or a coach a researcher chose as a rater (ADR-045). */
+  rq1Me: () => req<{ rater_id: string; can_rate: boolean }>("/studies/rq1/me"),
+  rq1Raters: () => req<Rq1Rater[]>("/studies/rq1/raters"),
+  rq1AddRater: (email: string) =>
+    req<Rq1Rater>("/studies/rq1/raters", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ email }),
+    }),
+  rq1RemoveRater: (userId: string) =>
+    req<void>(`/studies/rq1/raters/${userId}`, { method: "DELETE" }),
   /** The signed-in rater's current scores for a session. */
   rq1ListRatings: (sessionId: string) => req<RQ1Rating[]>(`/studies/rq1/sessions/${sessionId}/ratings`),
   rq1UpsertRating: (sessionId: string, body: RQ1RatingUpsert) =>

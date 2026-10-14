@@ -23,6 +23,8 @@ type Criterion = (typeof CRITERIA)[number];
  */
 export function RQ1RaterCard({ sessionId }: Props) {
   const [raterId, setRaterId] = useState("");
+  // Only researchers and the coaches a researcher chose see this card (ADR-045).
+  const [canRate, setCanRate] = useState(false);
   const [variants, setVariants] = useState<Record<PayloadMode, CoachAdviceResponse | null>>({
     cv: null,
     hrv: null,
@@ -52,15 +54,21 @@ export function RQ1RaterCard({ sessionId }: Props) {
   useEffect(() => {
     api
       .rq1Me()
-      .then((r) => setRaterId(r.rater_id))
-      .catch(() => setRaterId(""));
+      .then((r) => {
+        setRaterId(r.rater_id);
+        setCanRate(r.can_rate);
+      })
+      .catch(() => {
+        setRaterId("");
+        setCanRate(false);
+      });
   }, []);
 
   // Pull this rater's existing scores for this session so a refresh
   // doesn't lose work.
   useEffect(() => {
     setRevealed(false);
-    if (!raterId) {
+    if (!raterId || !canRate) {
       setRatings({ cv: {}, hrv: {}, imu: {}, fused: {} });
       return;
     }
@@ -75,7 +83,7 @@ export function RQ1RaterCard({ sessionId }: Props) {
       })
       .catch(() => undefined);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [raterId, sessionId]);
+  }, [raterId, canRate, sessionId]);
 
   const generateAll = async () => {
     setGenerating(true);
@@ -158,6 +166,8 @@ export function RQ1RaterCard({ sessionId }: Props) {
   const allRated = MODES.every((m) =>
     CRITERIA.every((c) => typeof ratings[m]?.[c] === "number"),
   );
+
+  if (!canRate) return null;
 
   return (
     <section className="rounded-lg border border-amber-500/30 bg-amber-500/5 p-4">

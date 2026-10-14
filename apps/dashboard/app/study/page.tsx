@@ -17,6 +17,7 @@ import {
   type StudyAdvisory,
   type StudyInstrument,
   type StudyMe,
+  type Rq1Rater,
   type StudyReviewer,
   type StudySnapshotIndex,
 } from "@/lib/api";
@@ -522,6 +523,8 @@ function ResearcherPanel() {
         )}
       </div>
 
+      <Rq1Raters />
+
       <div className="card space-y-3">
         <h3 className="text-base font-semibold">Advisories ({snapshots.length})</h3>
         {snapshots.length > 0 && (
@@ -572,5 +575,103 @@ function ResearcherPanel() {
         </details>
       </div>
     </section>
+  );
+}
+
+/** RQ1's coach raters (ADR-045): only they and researchers see the blinded rater
+ *  card on session pages, and only they can score. */
+function Rq1Raters() {
+  const [raters, setRaters] = useState<Rq1Rater[]>([]);
+  const [email, setEmail] = useState("");
+  const [msg, setMsg] = useState<string | null>(null);
+  const [busy, setBusy] = useState(false);
+
+  const load = useCallback(() => {
+    api.rq1Raters().then(setRaters).catch((e) => setMsg(detail(e)));
+  }, []);
+  useEffect(() => load(), [load]);
+
+  const add = async () => {
+    setBusy(true);
+    try {
+      const r = await api.rq1AddRater(email.trim());
+      setMsg(`${r.name} can now rate, as ${r.rater_id}.`);
+      setEmail("");
+      load();
+    } catch (e) {
+      setMsg(detail(e));
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const remove = async (r: Rq1Rater) => {
+    try {
+      await api.rq1RemoveRater(r.user_id);
+      setMsg(`${r.name} no longer rates. Their ${r.ratings} score${r.ratings === 1 ? " is" : "s are"} kept.`);
+      load();
+    } catch (e) {
+      setMsg(detail(e));
+    }
+  };
+
+  return (
+    <div className="card space-y-3">
+      <h3 className="text-base font-semibold">RQ1 raters</h3>
+      <p className="text-xs text-neutral-400">
+        The coaches who rate the four blinded advice variants on session pages. Only they and researchers
+        see the rater card. A rater only sees sessions they can already open (their own fighters&apos;).
+      </p>
+      {msg && <p className="text-sm text-amber-200">{msg}</p>}
+      <div className="flex flex-wrap gap-2">
+        <input
+          id="rq1-rater-email"
+          value={email}
+          onChange={(e) => setEmail(e.target.value)}
+          placeholder="the coach's account email"
+          className="min-w-[220px] flex-1 rounded-xl border border-white/10 bg-black/30 px-3 py-2 text-sm outline-none focus:border-emerald-500/50"
+        />
+        <button
+          onClick={add}
+          disabled={busy || !email.includes("@")}
+          className="rounded-xl bg-emerald-500 px-4 py-2 text-sm font-semibold text-black hover:bg-emerald-400 disabled:opacity-40"
+        >
+          Add rater
+        </button>
+      </div>
+      {raters.length > 0 && (
+        <div className="overflow-x-auto">
+          <table className="w-full min-w-[480px] text-sm">
+            <thead className="text-left text-xs uppercase text-neutral-400">
+              <tr>
+                <th className="py-1.5 pr-3">Code</th>
+                <th className="py-1.5 pr-3">Name</th>
+                <th className="py-1.5 pr-3">Scores</th>
+                <th className="py-1.5" />
+              </tr>
+            </thead>
+            <tbody>
+              {raters.map((r) => (
+                <tr key={r.user_id} className="border-t border-white/5">
+                  <td className="py-2 pr-3 font-mono">{r.rater_id}</td>
+                  <td className="py-2 pr-3">
+                    {r.name} <span className="text-neutral-500">· {r.email}</span>
+                  </td>
+                  <td className="py-2 pr-3 tabular-nums">{r.ratings}</td>
+                  <td className="py-2 text-right">
+                    <button
+                      onClick={() => void remove(r)}
+                      className="rounded-lg border border-white/15 px-2.5 py-1 text-xs text-neutral-300 hover:bg-white/5"
+                    >
+                      Remove
+                    </button>
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      )}
+    </div>
   );
 }
