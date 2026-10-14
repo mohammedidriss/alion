@@ -63,6 +63,11 @@ models/**/*.onnx
 data/ml/datasets/
 data/ml/raw/
 data/ml/punch_lstm_v1.pkl
+# Athlete data and models trained on it stay on this computer (ADR-038): session
+# labels, pose-derived training rows, trained classifiers.
+data/labels/
+data/ml/*.pkl
+data/ml/*.csv
 # Root-level raw dataset folder only — unanchored, it also hid apps/dashboard/app/datasets/
 # (git on macOS matches case-insensitively).
 /Datasets/
