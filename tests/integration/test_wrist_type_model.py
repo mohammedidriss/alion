@@ -117,3 +117,48 @@ def test_too_few_takes_is_refused(tmp_path: Path, monkeypatch: pytest.MonkeyPatc
     monkeypatch.setattr(wrist_type_model, "MODEL_DIR", tmp_path / "models")
     with pytest.raises(ValueError, match="at least"):
         wrist_type_model.train()
+
+
+def _external(root: Path, rng: np.random.Generator) -> None:
+    """The public set's layout: one CSV per punch, gyr x/y/z then acc x/y/z, 200 Hz."""
+    root.mkdir(parents=True)
+    files = {
+        "Lead_jab.csv": "jab",
+        "Rear_jab.csv": "cross",
+        "Lead_hook.csv": "hook",
+        "Rear_hook.csv": "hook",
+        "Lead_uppercut.csv": "uppercut",
+        "Rear_uppercut.csv": "uppercut",
+    }
+    for name, kind in files.items():
+        acc_axis, rot_axis = SHAPE[kind]
+        rows = []
+        for i in range(2000):  # 10 s, a punch every second
+            t = i * 5.0
+            a = [0.0, 0.0, 1.0, 0.0, 0.0, 0.0]
+            phase = abs((t % 1000.0) - 500.0)
+            if phase <= 60:
+                a[acc_axis] += 5.0 * (1 - phase / 60)
+                a[rot_axis] += 900.0 * (1 - phase / 60)
+            a = [v + float(rng.normal(0, 0.05 if k < 3 else 5)) for k, v in enumerate(a)]
+            rows.append([*a[3:], *a[:3]])
+        with (root / name).open("w", newline="") as f:
+            w = csv.writer(f)
+            w.writerow(
+                ["gyrx(deg/s)", "gyry(deg/s)", "gyrz(deg/s)", "accx(g)", "accy(g)", "accz(g)"]
+            )
+            w.writerows(rows)
+
+
+def test_training_also_scores_other_boxers_when_that_set_is_downloaded(
+    takes: Path, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    from api.services import wrist_type_model
+
+    assert wrist_type_model.train()["other_boxers"] is None  # not downloaded here
+    ext = tmp_path / "external"
+    _external(ext, np.random.default_rng(3))
+    monkeypatch.setattr(wrist_type_model, "EXTERNAL", ext)
+    other = wrist_type_model.train()["other_boxers"]
+    assert other["punches"] >= 50 and other["accuracy"] > 0.9  # same motions, other "boxers"
+    assert other["dataset"].startswith("Zenodo")

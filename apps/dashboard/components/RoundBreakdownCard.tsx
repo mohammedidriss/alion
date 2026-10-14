@@ -151,7 +151,11 @@ export function RoundBreakdownCard({ sessionId, status }: Props) {
             <span className="text-[11px] text-neutral-400">
               model v{xc.types_model}
               {xc.types_accuracy != null &&
-                ` · named right ${Math.round(xc.types_accuracy * 100)}% of the time on recordings it never trained on`}
+                ` · ${Math.round(xc.types_accuracy * 100)}% right on held-out recordings of the ${
+                  xc.types_participants === 1 ? "one person" : `${xc.types_participants ?? "few"} people`
+                } it learned from`}
+              {xc.types_other_accuracy != null &&
+                ` · about ${Math.round(xc.types_other_accuracy * 100)}% on other boxers so far`}
             </span>
           </div>
           <PunchDots tally={xc.types} stance={data.stance} />

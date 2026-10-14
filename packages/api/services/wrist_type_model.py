@@ -32,6 +32,18 @@ from common import get_logger
 log = get_logger(__name__)
 
 MODEL_DIR = Path("data/ml/wrist_types")
+# Other boxers to test on, when downloaded (ADR-029 update): Manoharan, "Boxing punch
+# data", Zenodo doi:10.5281/zenodo.14965635, CC BY 4.0 — one CSV per punch type,
+# gyr x/y/z (°/s) then acc x/y/z (g) at 200 Hz, read as orthodox (lead = left).
+EXTERNAL = Path("data/external/zenodo_14965635_boxing_punch")
+EXTERNAL_FILES = {
+    "Lead_jab.csv": ("left", "straight"),
+    "Rear_jab.csv": ("right", "straight"),
+    "Lead_hook.csv": ("left", "hook"),
+    "Rear_hook.csv": ("right", "hook"),
+    "Lead_uppercut.csv": ("left", "uppercut"),
+    "Rear_uppercut.csv": ("right", "uppercut"),
+}
 MIN_TAKES = 3  # fewer can't be scored on takes held out
 FOLDS = 5
 
@@ -179,6 +191,7 @@ def _train(datasets: Path | None) -> dict[str, Any]:
         "data": {**meta, "punches": len(y), "per_motion": dict(Counter(y.tolist()))},
         "held_out_takes": held_out,  # 5-fold, a take never in both fit and score
         "combos": combos,  # trained on single-type blocks, scored on combinations
+        "other_boxers": other_boxers(model),  # a public set of boxers it never saw (or None)
     }
     (MODEL_DIR / f"v{version}.json").write_text(json.dumps(report, indent=2))
     log.info(
@@ -186,6 +199,45 @@ def _train(datasets: Path | None) -> dict[str, Any]:
         extra={"_ctx_version": version, "_ctx_accuracy": held_out["accuracy"]},
     )
     return report
+
+
+def external_stream(path: Path) -> tuple[np.ndarray, np.ndarray]:
+    """One external file as t_ms and (n, 6) ax, ay, az, gx, gy, gz at 100 Hz."""
+    with path.open(newline="") as f:
+        r = csv.reader(f)
+        next(r)
+        raw = np.array([[float(v) for v in row] for row in r if len(row) == 6])
+    imu = np.concatenate([raw[:, 3:6], raw[:, 0:3]], axis=1)  # acceleration first, as here
+    n = len(imu) // 2 * 2
+    imu = imu[:n].reshape(-1, 2, 6).mean(axis=1)  # 200 → 100 Hz
+    return np.arange(len(imu)) * 10.0, imu
+
+
+def other_boxers(model: Any, root: Path | None = None) -> dict[str, Any] | None:
+    """The model on boxers it never saw (the external set), with this project's own
+    punch detector finding the punches — None when that set isn't downloaded."""
+    from analyze.imu_punches import detect_punches
+
+    folder = root or EXTERNAL
+    if not all((folder / name).exists() for name in EXTERNAL_FILES):
+        return None
+    ys: list[str] = []
+    preds: list[str] = []
+    hands: list[str] = []
+    for name, (hand, motion) in EXTERNAL_FILES.items():
+        t, imu = external_stream(folder / name)
+        found = detect_punches(t, imu[:, 0], imu[:, 1], imu[:, 2])
+        rows = [wt.features(w, hand) for e in found if (w := wt.window(t, imu, e.t_ms)) is not None]
+        if rows:
+            preds += wt.classify(model, np.array(rows))
+            ys += [motion] * len(rows)
+            hands += [hand] * len(rows)
+    if not ys:
+        return None
+    return {
+        "dataset": "Zenodo 14965635 (Manoharan, CC BY 4.0)",
+        **score(np.array(ys), np.array(preds), np.array(hands)),
+    }
 
 
 def latest_report() -> dict[str, Any] | None:

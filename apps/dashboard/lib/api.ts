@@ -863,7 +863,9 @@ export interface CrossCheckSummary {
   /** The wrist punches by motion, per hand (ADR-029) — null until a model is trained. */
   types?: PunchTally | null;
   types_model?: number | null; // its version
-  types_accuracy?: number | null; // on takes it never trained on
+  types_accuracy?: number | null; // on held-out takes of the people it learned from
+  types_participants?: number | null; // how many people that is
+  types_other_accuracy?: number | null; // on a public set of boxers it never saw
 }
 
 /** Right after a block is saved: is it good enough to move on? */
@@ -973,6 +975,7 @@ export interface WristTypesReport {
   data: { takes: number; participants: number; stances: Record<string, number>; punches: number; per_motion: Record<string, number> };
   held_out_takes: WristTypeScore;
   combos: WristTypeScore | null;
+  other_boxers?: (WristTypeScore & { dataset: string }) | null; // a public set it never saw
 }
 
 export interface MatrixPoint {

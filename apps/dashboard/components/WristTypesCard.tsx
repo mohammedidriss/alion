@@ -91,6 +91,17 @@ export function WristTypesCard() {
                 <div className="text-xs text-neutral-400">{report.combos.punches} punches</div>
               </div>
             )}
+            {report.other_boxers && (
+              <div className="rounded-xl bg-white/5 p-3 sm:col-span-2">
+                <div className="text-xs text-neutral-400">Other boxers it never saw ({report.other_boxers.dataset})</div>
+                <div className="text-2xl font-bold text-amber-300">{pct(report.other_boxers.accuracy)}</div>
+                <div className="text-xs text-neutral-400">
+                  {report.other_boxers.punches} punches · straight {pct(report.other_boxers.recall.straight)} · hook{" "}
+                  {pct(report.other_boxers.recall.hook)} · uppercut {pct(report.other_boxers.recall.uppercut)} — what
+                  to expect for a new fighter until their takes are in.
+                </div>
+              </div>
+            )}
           </div>
           {report.data.participants < 3 && (
             <p className="text-xs text-amber-300">

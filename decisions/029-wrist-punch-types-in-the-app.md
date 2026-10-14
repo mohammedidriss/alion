@@ -44,3 +44,16 @@ in the app, with that score next to it.
 - The score in the app is only as wide as the dataset: one participant today.
   Retrain as other fighters' takes come in; the card says so while there are
   fewer than three participants.
+
+## Update — tested on other boxers (2026-10-14)
+
+On the public Zenodo "Boxing punch data" set (Manoharan, doi:10.5281/zenodo.14965635,
+CC BY 4.0 — elite boxers, IMU under the glove, 200 Hz, one file per punch type,
+no boxer, stance or punch marks; kept in `data/external/`, git-ignored), resampled
+to 100 Hz and read as orthodox (lead = left): version 1 named **49.6 %** of 893
+punches right — hooks 90–97 %, lead uppercuts 60 %, lead jabs 48 %, rear jabs 5 %
+and rear uppercuts 19 % (both mostly taken for hooks). Gravity at guard points
+differently in their sensors; rotating their axes into ours (gravity + the
+straight-punch direction) only reached **52.0 %**, and a direction-free model
+33 %. So the 85 % holds for the participant it was trained on, not for other
+boxers yet. `scripts/studies/zenodo_wrist_eval.py` re-runs the test.

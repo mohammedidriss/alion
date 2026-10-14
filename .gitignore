@@ -25,6 +25,8 @@ data/datasets/
 data/ml/punch_counter/
 # The wrist punch-type model (ADR-029) — trained on participants' takes, never pushed.
 data/ml/wrist_types/
+# Third-party datasets, downloaded with their licences (data/external/*/README.md).
+data/external/
 data/capture/
 *.db
 *.sqlite

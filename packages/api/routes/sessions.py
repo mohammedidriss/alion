@@ -1094,7 +1094,9 @@ class CrossCheckSummary(BaseModel):
     # punches the wrists felt and how many of each motion — the cameras' tally shape.
     types: dict[str, dict[str, int]] | None = None
     types_model: int | None = None  # its version
-    types_accuracy: float | None = None  # on takes it never trained on
+    types_accuracy: float | None = None  # on held-out takes of the people it learned from
+    types_participants: int | None = None  # how many people that is
+    types_other_accuracy: float | None = None  # on a public set of boxers it never saw
 
 
 class RoundExportItem(BaseModel):
@@ -1318,7 +1320,7 @@ def rounds_export(
             ],
             types=_type_tally(fused),
             types_model=xc.get("types_model"),
-            types_accuracy=_types_accuracy(xc.get("types_model")),
+            **_types_accuracy(xc.get("types_model")),
         )
     elif xc_status == "running":
         summary = CrossCheckSummary(status="running")
@@ -1390,13 +1392,19 @@ def _type_tally(counted: list[dict[str, Any]]) -> dict[str, dict[str, int]] | No
     return out
 
 
-def _types_accuracy(version: int | None) -> float | None:
-    """The named model's accuracy on takes it never trained on."""
+def _types_accuracy(version: int | None) -> dict[str, Any]:
+    """How well the named model did: on held-out takes of the people it learned
+    from (and how many people), and on a public set of boxers it never saw."""
     report = wrist_type_model.latest_report() if version is not None else None
     if not report or report.get("version") != version:
-        return None
-    acc = (report.get("held_out_takes") or {}).get("accuracy")
-    return float(acc) if acc is not None else None
+        return {}
+    held = (report.get("held_out_takes") or {}).get("accuracy")
+    other = (report.get("other_boxers") or {}).get("accuracy")
+    return {
+        "types_accuracy": float(held) if held is not None else None,
+        "types_participants": (report.get("data") or {}).get("participants"),
+        "types_other_accuracy": float(other) if other is not None else None,
+    }
 
 
 # ---------------------------------------------------------------------------
