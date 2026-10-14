@@ -13,7 +13,7 @@ from __future__ import annotations
 from pathlib import Path
 
 # Raise whenever terms.md changes; anything not "draft-…" is a real version.
-TERMS_VERSION = "draft-1"
+TERMS_VERSION = "draft-2"  # draft-2: the researcher, university and study named
 TERMS_FILE = Path(__file__).with_name("terms.md")
 
 

@@ -8,8 +8,11 @@
 
 ## 1. Who runs this platform
 
-Alion is operated by [researcher's name, university, department] for the research
-study "[study title]" (IRB reference [number]). Contact: [email address].
+Alion is operated by the researcher, Mohamad Idriss, Golden Gate University,
+Doctorate of Business Administration in Emerging Technologies, for the research
+study "Advisory by Design: Expert Trust and Reliance on a Verified Multimodal AI
+Platform for Combat Sport Decisions" (IRB reference [number]). Contact:
+Mohammed.idriss@hotmail.com.
 
 ## 2. Your account
 
@@ -41,7 +44,8 @@ advice it shows is non-binding: a person makes every decision.
 
 ## 6. Withdrawing
 
-You can withdraw from a research dataset at any time by contacting [contact]. Your
+You can withdraw from a research dataset at any time by contacting
+Mohammed.idriss@hotmail.com, or by asking on the Privacy & consent page. Your
 recordings in that dataset are then deleted. Models already trained on the data
 are not changed.
 
