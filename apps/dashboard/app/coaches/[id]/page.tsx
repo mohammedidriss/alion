@@ -3,12 +3,18 @@
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useCallback, useEffect, useRef, useState } from "react";
+import { CoachNextStep } from "@/components/NextStep";
 import { ProfileAvatar } from "@/components/ProfileAvatar";
 import { api, type Coach, type CoachNote, type CoachingLevel, type Fighter } from "@/lib/api";
+import { useAuth } from "@/lib/auth";
 
 
 export default function CoachPage({ params }: { params: { id: string } }) {
   const router = useRouter();
+  const { user } = useAuth();
+  // The coach's own page gets their next step (ADR-031).
+  const norm = (v: string | null | undefined) => (v ?? "").replace(/-/g, "").toLowerCase();
+  const isMe = user?.role === "coach" && norm(user.profile_id) === norm(params.id);
   const [coach, setCoach] = useState<Coach | null>(null);
   const [editing, setEditing] = useState(false);
   const [draft, setDraft] = useState<Partial<Coach>>({});
@@ -165,6 +171,8 @@ export default function CoachPage({ params }: { params: { id: string } }) {
           </button>
         </div>
       </header>
+
+      {isMe && <CoachNextStep />}
 
       {editing ? (
         <section className="card space-y-5">

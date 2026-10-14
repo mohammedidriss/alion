@@ -34,3 +34,18 @@ saying whether things were ready or what to do.
 ## Consequences
 
 - Dashboard only.
+
+## Update — one clear next step on each home page (2026-10-14)
+
+The review also asked for one clear primary action where people land.
+`<NextStep>` sits under the header:
+
+- **a fighter's page**, for their coach: "Start a training session with …", with
+  the last session to review beside it; for the fighter themself: "Review your
+  last session" (or "Start your first training session"); for a gym manager: the
+  last session to review. It replaces the small "Training session" button.
+- **a coach's own page**: "Continue the advisory review study — Advisory 3 of 8"
+  while they're enrolled and have a step waiting, else "Start a training
+  session" (pick a fighter).
+- **an empty gym's dashboard** (a new gym manager, ADR-030): "Add your first
+  member".

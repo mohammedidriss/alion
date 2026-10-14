@@ -5,6 +5,7 @@ import { useCallback, useEffect, useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
 import { ProfileAvatar } from "@/components/ProfileAvatar";
 import { SafetyBoundary } from "@/components/SafetyBoundary";
+import { NextStep } from "@/components/NextStep";
 import {
   api,
   type CheckIn,
@@ -173,6 +174,14 @@ export default function GymDashboardPage() {
           {[gym?.city, gym?.country].filter(Boolean).join(", ") || "No location set"}
         </p>
       </header>
+
+      {!loading && fighters.length === 0 && coaches.length === 0 && (
+        <NextStep
+          title="Add your first member"
+          text="Bring in fighters and coaches by their System ID, or create their accounts — they show up here once they're in."
+          primary={{ label: "Add members", href: "/gym-dashboard/members" }}
+        />
+      )}
 
       {/* KPI cards */}
       <div className="grid grid-cols-2 gap-4 lg:grid-cols-4">

@@ -9,6 +9,7 @@ import { PolarH10Card } from "@/components/PolarH10Card";
 import { ProfileAvatar } from "@/components/ProfileAvatar";
 import { Sparkline } from "@/components/Sparkline";
 import { SafetyBoundary } from "@/components/SafetyBoundary";
+import { NextStep } from "@/components/NextStep";
 import { useAuth } from "@/lib/auth";
 import {
   api,
@@ -213,6 +214,42 @@ export default function FighterPage({ params }: { params: { id: string } }) {
     }
   };
 
+  // One clear next step (ADR-031): record a session, or look back at the last one.
+  const last = sessions
+    .map((x) => x.session)
+    .filter((s) => s.status === "completed")
+    .sort((a, b) => b.started_at.localeCompare(a.started_at))[0];
+  const startSession = async () => {
+    const s = await api.createSession(fighter.id, "live_webcam", "mediapipe");
+    router.push(`/sessions/${s.id}`);
+  };
+  const lastDate = last ? new Date(last.started_at).toLocaleDateString() : "";
+  const nextStep = isAdmin ? null : user?.role === "fighter" && last ? (
+    <NextStep
+      title="Review your last session"
+      text={`${lastDate}: your punches, heart rate and wrist force, round by round.`}
+      primary={{ label: "Review your last session", href: `/sessions/${last.id}` }}
+      secondary={
+        canCreateSession
+          ? { label: "Start a training session", onClick: startSession }
+          : { label: "See your progress", href: `/fighters/${id}/observations` }
+      }
+    />
+  ) : canCreateSession ? (
+    <NextStep
+      title={user?.role === "fighter" ? "Start your first training session" : `Start a training session with ${fighter.name}`}
+      text="Connect the cameras and the sensors, then record when everyone's ready."
+      primary={{ label: "Start a training session", onClick: startSession }}
+      secondary={last ? { label: `Review the last session (${lastDate})`, href: `/sessions/${last.id}` } : null}
+    />
+  ) : last ? (
+    <NextStep
+      title="Review the last session"
+      text={`${lastDate}: punches, heart rate and wrist force, round by round.`}
+      primary={{ label: "Review the last session", href: `/sessions/${last.id}` }}
+    />
+  ) : null;
+
   return (
     <div className="space-y-8 px-4 py-5 sm:px-8 sm:py-6">
       <header className="flex flex-wrap items-start justify-between gap-4">
@@ -233,23 +270,6 @@ export default function FighterPage({ params }: { params: { id: string } }) {
           <p className="mt-1 text-xs text-neutral-600">
             System ID: <code className="rounded bg-white/[0.05] px-1.5 py-0.5 font-mono text-neutral-500 select-all">{fighter.id}</code>
           </p>
-          {canCreateSession && (
-            <div className="mt-3 flex flex-wrap gap-2">
-              <button
-                onClick={async (e) => {
-                  const btn = e.currentTarget;
-                  btn.disabled = true;
-                  try {
-                    const s = await api.createSession(fighter.id, "live_webcam", "mediapipe");
-                    router.push(`/sessions/${s.id}`);
-                  } catch { btn.disabled = false; }
-                }}
-                className="rounded-xl bg-emerald-500 px-3 py-1.5 text-sm font-medium text-black hover:bg-emerald-400 disabled:opacity-50"
-              >
-                Training session
-              </button>
-            </div>
-          )}
         </div>
         <div className="flex shrink-0 items-center gap-3">
           {!isAdmin && <PolarH10Card />}
@@ -271,6 +291,8 @@ export default function FighterPage({ params }: { params: { id: string } }) {
           )}
         </div>
       </header>
+
+      {nextStep}
 
       {err && (
         <p className="rounded-2xl border border-red-500/30 bg-red-950/30 p-3 text-sm text-red-200">
