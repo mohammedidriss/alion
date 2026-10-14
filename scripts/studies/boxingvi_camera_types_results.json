@@ -1,0 +1,56 @@
+{
+  "bvi_on_bvi": {
+    "accuracy": 0.698,
+    "recall": {
+      "straight": 0.785,
+      "hook": 0.591,
+      "uppercut": 0.583
+    },
+    "n": 9508
+  },
+  "rule": {
+    "accuracy": 0.278,
+    "recall": {
+      "straight": 0.328,
+      "hook": 0.363,
+      "uppercut": 0.013
+    },
+    "n": 4414
+  },
+  "adr020": {
+    "accuracy": 0.955,
+    "recall": {
+      "straight": 0.992,
+      "hook": 0.932,
+      "uppercut": 0.889
+    },
+    "n": 4414
+  },
+  "bvi2d": {
+    "accuracy": 0.51,
+    "recall": {
+      "straight": 0.904,
+      "hook": 0.094,
+      "uppercut": 0.096
+    },
+    "n": 4414
+  },
+  "both2d": {
+    "accuracy": 0.946,
+    "recall": {
+      "straight": 0.984,
+      "hook": 0.92,
+      "uppercut": 0.885
+    },
+    "n": 4414
+  },
+  "own2d": {
+    "accuracy": 0.949,
+    "recall": {
+      "straight": 0.98,
+      "hook": 0.922,
+      "uppercut": 0.91
+    },
+    "n": 4414
+  }
+}
