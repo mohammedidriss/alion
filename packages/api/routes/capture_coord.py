@@ -33,6 +33,7 @@ import threading
 import time
 from dataclasses import dataclass, field
 from pathlib import Path
+from typing import Any
 from uuid import UUID, uuid4
 
 from fastapi import APIRouter, Depends, File, Form, HTTPException, Response, UploadFile
@@ -216,6 +217,48 @@ def timeline_at_ms(capture_id: UUID, wall_ms: float) -> float | None:
             if end is not None and end <= wall_ms:
                 cut += end - max(begin, start)
         return wall_ms - start - cut
+
+
+def pause_at_ms(capture_id: UUID, wall_ms: float) -> tuple[float, float, float] | None:
+    """If a wall-clock instant falls in a pause of a running recording: (when that
+    pause began, where it sits on the clip's timeline, ms into it). The rest between
+    rounds is a pause; heartbeats in it are kept for recovery (ADR-041)."""
+    with _lock:
+        c = _ensure(capture_id)
+        start = c.last_start_ms
+        if start is None or wall_ms < start or c.command not in ("start", "stop"):
+            return None
+        cut = 0.0
+        for begin, end in c.pauses:
+            if begin is None:
+                continue
+            if wall_ms >= begin and (end is None or wall_ms < end):
+                return begin, max(0.0, begin - start - cut), wall_ms - begin
+            if end is not None and end <= wall_ms:
+                cut += end - max(begin, start)
+        return None
+
+
+def device_health(capture_id: UUID) -> list[dict[str, Any]]:
+    """Every camera seen in this capture, with how long since it was last heard
+    from and its last preview frame (ADR-042) — stale ones included."""
+    now = _now_ms()
+    with _lock:
+        c = _coords.get(capture_id)
+        if c is None:
+            return []
+        return [
+            {
+                "device_id": d.device_id,
+                "label": d.label,
+                "role": d.role,
+                "status": d.status,
+                "age_ms": now - d.last_seen_ms,
+                "frame_age_ms": now - d.frame_ms if d.frame_ms else None,
+            }
+            for d in c.devices.values()
+            if d.role == "camera"
+        ]
 
 
 def last_command(capture_id: UUID) -> str | None:

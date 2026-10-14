@@ -36,7 +36,7 @@ from sqlmodel import col, func, select
 from analyze import punch_model
 from analyze.imu_punches import detect_punches as detect_wrist_punches
 from analyze.imu_punches import peak_rotations
-from analyze.punch_fusion import WristPunch, camera_punches, cross_check, wrist_gaps
+from analyze.punch_fusion import WristPunch, camera_punches, cross_check, redrift, wrist_gaps
 from analyze.wrist_types import MOTIONS, motion_to_type
 from api.services import camera_type_model, dataset_store, session_analysis, wrist_type_model
 from capture.cv.writer import read_pose_parquet
@@ -49,7 +49,7 @@ log = get_logger(__name__)
 Kind = Literal["session", "take"]
 Status = Literal["ready", "running", "none"]
 
-VERSION = 3  # bump when the fusion rules change, so old results re-run (3: rotation)
+VERSION = 4  # bump when the fusion rules change, so old results re-run (4: clock drift)
 DEBOUNCE_S = 8.0  # the cameras' pose uploads land within seconds of each other
 MIN_CAMERA_SPAN = 0.3  # of the longest camera's pose — less and the camera sits out
 BACKGROUND = True  # tests switch the background runs off and call run_now
@@ -214,12 +214,18 @@ def _name_punches(
                 tracks[dev] = punch_model.track(frames)
                 windows[dev] = punch_model.arm_windows(tracks[dev])
     offsets = {r.device: (r.offset_ms or 0.0) for r in cc.cameras}
+    drifts = {
+        r.device: (r.drift_ppm, r.drift_ref_ms)
+        for r in cc.cameras
+        if r.drift_ppm is not None and r.drift_ref_ms is not None
+    }
     out: list[tuple[str | None, str | None]] = []
     for p in cc.punches:
         views = []
         for dev, tr in tracks.items():
             # The cross-check moved this camera's clock by -offset to the wrists'.
-            i = punch_model._frame(tr, p.t_ms + offsets.get(dev, 0.0))
+            # …and straightened its drift (ADR-042): undo both to find the frame.
+            i = punch_model._frame(tr, redrift(p.t_ms + offsets.get(dev, 0.0), drifts.get(dev)))
             if i is not None:
                 views.append(windows[dev][p.hand][i])
         pw = wrist_p.get(round(p.t_ms, 1)) if p.peak_g is not None else None
@@ -339,6 +345,7 @@ def run_now(
                 "label": labels.get(r.device),
                 "punches": r.punches,
                 "offset_ms": r.offset_ms,
+                "drift_ppm": r.drift_ppm,
                 "agreement": r.agreement,
                 "coverage": r.coverage,
                 "hands": r.hands,

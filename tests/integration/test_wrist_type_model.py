@@ -18,7 +18,7 @@ from tests.conftest import _signed_in
 SHAPE = {"jab": (0, 3), "cross": (0, 3), "hook": (1, 5), "uppercut": (2, 4)}
 
 
-def _take(root: Path, n: int, rng: np.random.Generator) -> None:
+def _take(root: Path, n: int, rng: np.random.Generator, person: str = "F-0001") -> None:
     folder = root / "ds" / "takes" / f"take{n}"
     folder.mkdir(parents=True)
     labels, rows = [], []
@@ -49,7 +49,7 @@ def _take(root: Path, n: int, rng: np.random.Generator) -> None:
             {
                 "take_id": f"take{n}",
                 "status": "completed",
-                "participant": "F-0001",
+                "participant": person,
                 "stance": "orthodox",
                 "block": None,
             }
@@ -162,3 +162,20 @@ def test_training_also_scores_other_boxers_when_that_set_is_downloaded(
     other = wrist_type_model.train()["other_boxers"]
     assert other["punches"] >= 50 and other["accuracy"] > 0.9  # same motions, other "boxers"
     assert other["dataset"].startswith("Zenodo")
+
+
+def test_with_two_people_each_is_scored_by_a_model_that_never_saw_them(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    from api.services import dataset_store, wrist_type_model
+
+    root = tmp_path / "datasets"
+    rng = np.random.default_rng(4)
+    for n in range(4):
+        _take(root, n, rng, person="F-0001" if n < 2 else "F-0002")
+    monkeypatch.setattr(dataset_store, "DATASETS_DIR", root)
+    monkeypatch.setattr(wrist_type_model, "MODEL_DIR", tmp_path / "models")
+    report = wrist_type_model.train()
+    people = report["held_out_participants"]
+    assert set(people["per_participant"]) == {"F-0001", "F-0002"} and people["accuracy"] > 0.8
+    assert wrist_type_model.train()["data"]["participants"] == 2

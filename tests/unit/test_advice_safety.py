@@ -6,6 +6,7 @@ from __future__ import annotations
 from coach import (
     CORNER_ADVICE_SYSTEM_PROMPT,
     FIGHTER_OBSERVATION_SYSTEM_PROMPT,
+    REST_CARDS_SYSTEM_PROMPT,
     WEIGHT_ANALYSIS_SYSTEM_PROMPT,
     find_blocked,
 )
@@ -31,6 +32,7 @@ def test_every_prompt_carries_the_safety_rules_and_none_asks_for_a_medical_judge
         CORNER_ADVICE_SYSTEM_PROMPT,
         FIGHTER_OBSERVATION_SYSTEM_PROMPT,
         WEIGHT_ANALYSIS_SYSTEM_PROMPT,
+        REST_CARDS_SYSTEM_PROMPT,
     ):
         assert prompt.endswith(SAFETY_RULES)
         assert find_blocked(prompt.replace(SAFETY_RULES, "")) == []

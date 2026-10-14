@@ -90,6 +90,7 @@ def typed_punches(
     hands: list[str] = []
     groups: list[str] = []
     kinds: list[str] = []
+    people: list[str] = []
     participants: set[object] = set()
     stances: Counter[str] = Counter()
     for tj in sorted(root.glob("*/takes/*/take.json")):
@@ -115,6 +116,7 @@ def typed_punches(
             hands.append(lab["hand"])
             groups.append(str(take.get("take_id", folder.name)))
             kinds.append(kind)
+            people.append(str(take.get("participant") or ""))
         if len(ys) > before:
             participants.add(take.get("participant"))
             stances[str(take.get("stance"))] += 1
@@ -123,7 +125,13 @@ def typed_punches(
         "participants": len(participants - {None}),
         "stances": dict(stances),
     }
-    return np.array(xs), np.array(ys), np.array(hands), np.array(groups), {**meta, "kinds": kinds}
+    return (
+        np.array(xs),
+        np.array(ys),
+        np.array(hands),
+        np.array(groups),
+        {**meta, "kinds": kinds, "people": people},
+    )
 
 
 def score(y: np.ndarray, pred: np.ndarray, hands: np.ndarray) -> dict[str, Any]:
@@ -162,6 +170,7 @@ def _train(datasets: Path | None) -> dict[str, Any]:
 
     x, y, hands, groups, meta = typed_punches(datasets)
     kinds = np.array(meta.pop("kinds"))
+    people = np.array(meta.pop("people"))
     if meta["takes"] < MIN_TAKES or len(set(y.tolist())) < 2:
         raise ValueError(
             f"needs typed punches from at least {MIN_TAKES} takes with wrist data "
@@ -178,6 +187,27 @@ def _train(datasets: Path | None) -> dict[str, Any]:
             y[combo], np.array(wt.classify(wt.fit(x[single], y[single]), x[combo])), hands[combo]
         )
 
+    # Each participant scored by a model that never saw them (ADR-044) — the honest
+    # number for a new fighter, once there is more than one person to leave out.
+    by_person = None
+    named = sorted({p for p in people.tolist() if p})
+    if len(named) >= 2:
+        pred_p = np.empty_like(y)
+        for person in named:
+            te = people == person
+            if len(set(y[~te].tolist())) >= 2:
+                pred_p[te] = wt.classify(wt.fit(x[~te], y[~te]), x[te])
+            else:
+                pred_p[te] = ""
+        known = pred_p != ""
+        by_person = {
+            **score(y[known], pred_p[known], hands[known]),
+            "per_participant": {
+                person: round(float(np.mean(y[people == person] == pred_p[people == person])), 3)
+                for person in named
+            },
+        }
+
     model = wt.fit(x, y)
     MODEL_DIR.mkdir(parents=True, exist_ok=True)
     version = 1 + max((int(p.stem[1:]) for p in MODEL_DIR.glob("v*.json")), default=0)
@@ -191,6 +221,7 @@ def _train(datasets: Path | None) -> dict[str, Any]:
         "data": {**meta, "punches": len(y), "per_motion": dict(Counter(y.tolist()))},
         "held_out_takes": held_out,  # 5-fold, a take never in both fit and score
         "combos": combos,  # trained on single-type blocks, scored on combinations
+        "held_out_participants": by_person,  # each person left out in turn (None: one person)
         "other_boxers": other_boxers(model),  # a public set of boxers it never saw (or None)
     }
     (MODEL_DIR / f"v{version}.json").write_text(json.dumps(report, indent=2))

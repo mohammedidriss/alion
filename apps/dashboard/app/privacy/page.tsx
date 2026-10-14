@@ -105,6 +105,15 @@ export default function PrivacyPage() {
             faces blurred.
           </li>
           <li>Every look at your health notes is logged, with who looked and when.</li>
+          {me?.disk_encrypted === "on" && (
+            <li>This computer&apos;s disk is encrypted (FileVault is on), so the data is unreadable if the computer is lost.</li>
+          )}
+          {me?.disk_encrypted === "off" && (
+            <li className="text-amber-200">
+              This computer&apos;s disk isn&apos;t encrypted. Whoever runs Alion should turn on FileVault in
+              System Settings → Privacy &amp; Security.
+            </li>
+          )}
         </ul>
       </section>
 

@@ -11,6 +11,7 @@ import math
 from collections import defaultdict
 from collections.abc import Sequence
 from dataclasses import dataclass
+from itertools import pairwise
 from typing import Any
 from uuid import UUID
 
@@ -115,11 +116,25 @@ def wrist_punches(samples: Sequence[Any]) -> list[tuple[float, str, float, float
     """(t_ms, hand, peak g, peak °/s) for each punch the wrist sensors saw
     (`IMUSampleRow`s, any order) — how a session without camera pose counts its
     punches. The rotation is None when the sensor sent none."""
+    return [(p.t_ms, p.hand, p.peak_g, p.peak_dps) for p in wrist_punch_events(samples)]
+
+
+@dataclass(frozen=True)
+class WristPunch:
+    t_ms: float
+    hand: str
+    peak_g: float
+    peak_dps: float | None
+    clipped: bool  # the sensor's ±16 g range was reached: peak_g is a minimum (ADR-042)
+
+
+def wrist_punch_events(samples: Sequence[Any]) -> list[WristPunch]:
+    """Each punch the wrist sensors saw, with whether its reading clipped."""
     import numpy as np
 
     from analyze.imu_punches import detect_punches, peak_rotations
 
-    out: list[tuple[float, str, float, float | None]] = []
+    out: list[WristPunch] = []
     for hand in ("left", "right"):
         rows = sorted(
             (s for s in samples if str(getattr(s.hand, "value", s.hand)) == hand),
@@ -141,5 +156,23 @@ def wrist_punches(samples: Sequence[Any]) -> list[tuple[float, str, float, float
             [r.gz_dps for r in rows],
             [e.t_ms for e in ev],
         )
-        out += [(float(e.t_ms), hand, float(e.peak_g), r) for e, r in zip(ev, turns, strict=True)]
-    return sorted(out)
+        out += [
+            WristPunch(float(e.t_ms), hand, float(e.peak_g), r, e.clipped)
+            for e, r in zip(ev, turns, strict=True)
+        ]
+    return sorted(out, key=lambda p: (p.t_ms, p.hand))
+
+
+def coverage(times: Sequence[float], start: float, end: float, max_gap_ms: float) -> float | None:
+    """The share of [start, end) a stream covered: time between consecutive samples
+    counts when the gap is at most `max_gap_ms`; a longer gap is missing, never
+    zero (ADR-042). None for an empty window."""
+    if end <= start:
+        return None
+    ts = sorted(t for t in times if start <= t < end)
+    if not ts:
+        return 0.0
+    covered = sum(b - a for a, b in pairwise(ts) if b - a <= max_gap_ms)
+    # The edges: up to one gap's worth either side of the first and last sample.
+    covered += min(ts[0] - start, max_gap_ms) + min(end - ts[-1], max_gap_ms)
+    return round(min(1.0, covered / (end - start)), 3)

@@ -117,6 +117,8 @@ export function RoundBreakdownCard({ sessionId, status }: Props) {
     0,
   );
   const peakG = data.rounds.reduce((m, r) => Math.max(m, r.imu.peak_g ?? 0), 0);
+  const hasRest = data.rounds.some((r) => r.rest && (r.rest.drop_30s != null || r.rest.drop_60s != null));
+  const clipped = data.rounds.reduce((n, r) => n + (r.imu.clipped ?? 0), 0);
 
   return (
     <section className="rounded-lg border border-neutral-800 p-4">
@@ -205,6 +207,11 @@ export function RoundBreakdownCard({ sessionId, status }: Props) {
               <th className="py-1.5 pr-3">ppm</th>
               <th className="py-1.5 pr-3">Score</th>
               <th className="py-1.5 pr-3">Mean HR</th>
+              {hasRest && (
+                <th className="py-1.5 pr-3" title="Heart rate fall in the rest after the round, from the bell (ADR-041)">
+                  Recovery
+                </th>
+              )}
               <th className="py-1.5 pr-3">RMSSD</th>
               <th className="py-1.5 pr-3">SDNN</th>
               <th className="py-1.5 pr-3">Peak g</th>
@@ -233,11 +240,18 @@ export function RoundBreakdownCard({ sessionId, status }: Props) {
                 fused={fused}
                 typesShown={!!xc?.types}
                 stance={data.stance ?? null}
+                hasRest={hasRest}
               />
             ))}
           </tbody>
         </table>
       </div>
+      {clipped > 0 && (
+        <p className="mt-2 text-[11px] text-amber-300/90">
+          {clipped} punch{clipped === 1 ? "" : "es"} reached the wrist sensors&apos; 16 g limit: their
+          force reads as a minimum, not a measurement (ADR-042).
+        </p>
+      )}
       <SafetyBoundary className="mt-3" />
     </section>
   );
@@ -253,6 +267,15 @@ function typeLine(t: PunchTally, stance: string | null): string {
   return parts.length ? parts.join(" · ") : "—";
 }
 
+/** Streams that covered under 80 % of a round: they say so (ADR-042). */
+function gaps(r: RoundExportItem): string | null {
+  const low = Object.entries(r.coverage ?? {}).filter(([, v]) => v != null && v < 0.8);
+  if (low.length === 0) return null;
+  return low
+    .map(([k, v]) => `${k.replace("_", " ")} data for ${Math.round((v ?? 0) * 100)}% of the round`)
+    .join("; ");
+}
+
 function RoundRow({
   round: r,
   isLive,
@@ -260,6 +283,7 @@ function RoundRow({
   fused,
   typesShown,
   stance,
+  hasRest = false,
 }: {
   round: RoundExportItem;
   isLive: boolean;
@@ -267,7 +291,12 @@ function RoundRow({
   fused: boolean;
   typesShown: boolean;
   stance: string | null;
+  hasRest?: boolean;
 }) {
+  const gap = gaps(r);
+  const rest = r.rest;
+  const drop = rest ? (rest.drop_60s ?? rest.drop_30s) : null;
+  const dropS = rest?.drop_60s != null ? 60 : 30;
   const durationMin = r.duration_ms / 60_000;
   const x = fused ? r.cross_check : null;
   // Wrist and fused rounds score impact (Σ peak g); camera rounds v × rate.
@@ -290,6 +319,11 @@ function RoundRow({
     <tr className={rowClass}>
       <td className="py-2 pr-3 font-medium tabular-nums">
         {r.round_number}
+        {gap && (
+          <span className="ml-1 text-amber-300" title={gap} aria-label={gap}>
+            ◐
+          </span>
+        )}
       </td>
       <td className="py-2 pr-3 tabular-nums">
         <span className="text-base font-semibold text-emerald-200">
@@ -332,6 +366,18 @@ function RoundRow({
           <span className="ml-0.5 text-[10px] text-neutral-500">bpm</span>
         )}
       </td>
+      {hasRest && (
+        <td className="py-2 pr-3 tabular-nums" title={rest?.hr_at_bell != null ? `${rest.hr_at_bell} bpm at the bell` : undefined}>
+          {drop != null ? (
+            <>
+              −{Math.round(drop)}
+              <span className="ml-0.5 text-[10px] text-neutral-500">bpm / {dropS} s</span>
+            </>
+          ) : (
+            "—"
+          )}
+        </td>
+      )}
       <td className="py-2 pr-3 tabular-nums">
         {fmt(r.hrv.rmssd_ms, 1)}
         {r.hrv.rmssd_ms != null && (
@@ -345,9 +391,15 @@ function RoundRow({
         )}
       </td>
       <td className="py-2 pr-3 tabular-nums">
-        {fmt(r.imu.peak_g)}
-        {r.imu.peak_g != null && (
-          <span className="ml-0.5 text-[10px] text-neutral-500">g</span>
+        {(r.imu.clipped ?? 0) > 0 ? (
+          <span title={`${r.imu.clipped} punch(es) reached the sensor's 16 g limit: a minimum`}>
+            ≥ 16<span className="ml-0.5 text-[10px] text-neutral-500">g</span>
+          </span>
+        ) : (
+          <>
+            {fmt(r.imu.peak_g)}
+            {r.imu.peak_g != null && <span className="ml-0.5 text-[10px] text-neutral-500">g</span>}
+          </>
         )}
       </td>
       {(fused || wrist) && (

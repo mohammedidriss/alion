@@ -73,6 +73,7 @@ class UnitState:
     last_g: float = 0.0
     peak_g: float = 0.0
     error: str | None = None
+    drops: int = 0  # connections lost this session (ADR-042)
     recent: deque[float] = field(default_factory=lambda: deque(maxlen=200))  # sensor times, ms
     trace: deque[float] = field(default_factory=lambda: deque(maxlen=TRACE_POINTS))
     _bucket: int = -1
@@ -330,6 +331,8 @@ def status(session_id: UUID) -> dict[str, Any] | None:
                     "peak_g": round(u.peak_g, 2),
                     "error": u.error,
                     "trace": [round(g, 2) for g in u.trace],
+                    "drops": u.drops,
+                    "last_ms_ago": round(time.time() * 1000.0 - u.recent[-1]) if u.recent else None,
                 }
                 for hand, u in job.units.items()
             },
@@ -398,6 +401,8 @@ def _read_stream(session_id: UUID, job: _Job, write_rows: RowWriter) -> None:
                     )
             elif kind == "st":
                 with _lock:
+                    if unit.connected and not msg.get("connected"):
+                        unit.drops += 1
                     unit.connected = bool(msg.get("connected"))
                     if msg.get("battery_v") is not None:
                         unit.battery_v = float(msg["battery_v"])

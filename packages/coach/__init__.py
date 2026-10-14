@@ -3,10 +3,11 @@
 Constraint: depends only on `contracts` and `common`. Never imports from sibling feature modules.
 """
 
-from .llm_client import CoachAdvice, generate_corner_advice, generate_raw
+from .llm_client import CoachAdvice, generate_corner_advice, generate_json, generate_raw
 from .prompts import (
     CORNER_ADVICE_SYSTEM_PROMPT,
     FIGHTER_OBSERVATION_SYSTEM_PROMPT,
+    REST_CARDS_SYSTEM_PROMPT,
     WEIGHT_ANALYSIS_SYSTEM_PROMPT,
 )
 from .safety import WITHHELD, find_blocked
@@ -21,10 +22,12 @@ __all__ = [
     "CORNER_ADVICE_SYSTEM_PROMPT",
     "FIGHTER_OBSERVATION_SYSTEM_PROMPT",
     "PROMPT_VERSION",
+    "REST_CARDS_SYSTEM_PROMPT",
     "WEIGHT_ANALYSIS_SYSTEM_PROMPT",
     "WITHHELD",
     "CoachAdvice",
     "find_blocked",
     "generate_corner_advice",
+    "generate_json",
     "generate_raw",
 ]

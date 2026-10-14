@@ -22,6 +22,7 @@ from pydantic import BaseModel, Field
 from sqlmodel import Session as DBSession
 
 from analyze import clean_hrv, compute_score
+from analyze.hrv_metrics import artifact_mask
 from api import access
 from api.deps import db_session, fighter_repo, punch_event_repo, resolve_gym_id, session_repo
 from api.routes import capture_coord
@@ -1071,6 +1072,21 @@ class RoundImuBlock(BaseModel):
     mean_peak_g: float | None = None
     impact_score: float | None = None  # Σ punch peaks (g) — the wrist analogue of v × punches
     mean_peak_dps: float | None = None  # how fast the forearm turned per punch (°/s)
+    # Punches whose reading hit the sensor's ±16 g range: their g is a minimum (ADR-042).
+    clipped: int = 0
+
+
+class RoundRestBlock(BaseModel):
+    """Heart-rate recovery in the rest after this round (ADR-041): from the beats
+    in the pause the coach (or Rest Mode) took at the bell."""
+
+    hr_at_bell: float | None  # mean of the last 10 s of the round
+    hr_30s: float | None  # mean 25–35 s into the rest
+    hr_60s: float | None  # mean of the rest's last 10 s, from 50 s on
+    drop_30s: float | None  # hr_at_bell − hr_30s
+    drop_60s: float | None
+    beats: int  # rest beats kept after artifacts
+    rest_s: float  # how long the rest's beats span
 
 
 class RoundCrossCheckBlock(BaseModel):
@@ -1099,6 +1115,7 @@ class CrossCheckCamera(BaseModel):
     label: str | None = None
     punches: int
     offset_ms: float | None  # clock correction applied against the wrists
+    drift_ppm: float | None = None  # its clock's drift, straightened out (ADR-042)
     agreement: float | None  # share of its punches the wrists confirm
     coverage: float | None  # share of the wrist punches it saw
     hands: Literal["consistent", "swapped", "unclear"]
@@ -1146,6 +1163,9 @@ class RoundExportItem(BaseModel):
     hrv: RoundHrvBlock
     imu: RoundImuBlock
     cross_check: RoundCrossCheckBlock | None = None
+    # The share of the round each stream covered; a gap is missing, never zero (ADR-042).
+    coverage: dict[str, float | None] = Field(default_factory=dict)
+    rest: RoundRestBlock | None = None  # recovery in the rest after it (ADR-041)
 
 
 class RoundsExportResponse(BaseModel):
@@ -1174,7 +1194,7 @@ def rounds_export(
 ) -> RoundsExportResponse:
     from sqlmodel import select as _select
 
-    from store import HRSampleRow, IMUSampleRow
+    from store import HRSampleRow, IMUSampleRow, RestHRSampleRow
 
     row = sessions.get(session_id)
     if row is None:
@@ -1195,7 +1215,17 @@ def rounds_export(
     imu_samples = list(
         db.exec(_select(IMUSampleRow).where(IMUSampleRow.session_id == session_id)).all()
     )
-    wrist_punches = sensor_summary.wrist_punches(imu_samples)
+    wrist_events = sensor_summary.wrist_punch_events(imu_samples)
+    wrist_punches = [(p.t_ms, p.hand, p.peak_g, p.peak_dps) for p in wrist_events]
+    rest_samples = list(
+        db.exec(_select(RestHRSampleRow).where(RestHRSampleRow.session_id == session_id)).all()
+    )
+    imu_times: dict[str, list[float]] = {"left": [], "right": []}
+    for s in imu_samples:
+        h = str(getattr(s.hand, "value", s.hand))
+        if h in imu_times:
+            imu_times[h].append(s.t_ms)
+    hr_times = [s.t_ms for s in hr_samples]
     labels = capture_coord._labels(session_id)
     xc_status, xc = cross_check.result("session", session_id, db=db, labels=labels)
     fused = [p for p in xc["punches"] if p["counted"]] if xc else []
@@ -1233,17 +1263,15 @@ def rounds_export(
         sdnn: float | None = None
         rmssd_delta: float | None = None
         if hr_in_round:
-            hrs = [s.hr_bpm for s in hr_in_round]
+            hr_in_round.sort(key=lambda s: s.t_ms)
             rrs = [s.rr_ms for s in hr_in_round]
-            mean_hr = sum(hrs) / len(hrs)
-            peak_hr = max(hrs)
-            # RMSSD over the round window.
-            diffs = [rrs[k] - rrs[k - 1] for k in range(1, len(rrs))]
-            rmssd = math.sqrt(sum(d * d for d in diffs) / len(diffs)) if diffs else None
-            # SDNN — standard deviation of RR intervals in the round.
-            if len(rrs) >= 2:
-                rr_mean = sum(rrs) / len(rrs)
-                sdnn = math.sqrt(sum((r - rr_mean) ** 2 for r in rrs) / (len(rrs) - 1))
+            # Artifacts removed first (ADR-037, ADR-040); HR from the kept beats.
+            bad = artifact_mask(rrs)
+            hrs = [s.hr_bpm for s, b in zip(hr_in_round, bad, strict=True) if not b]
+            clean = clean_hrv(rrs)
+            mean_hr = sum(hrs) / len(hrs) if hrs else None
+            peak_hr = max(hrs) if hrs else None
+            rmssd, sdnn = clean.rmssd_ms, clean.sdnn_ms
             rmssd_delta = (
                 rmssd - row.baseline_rmssd_ms
                 if rmssd is not None and row.baseline_rmssd_ms is not None
@@ -1296,7 +1324,16 @@ def rounds_export(
             mean_peak_g=round(sum(wp_g) / len(wp_g), 2) if wp_g else None,
             impact_score=round(sum(wp_g), 1) if wp_g else None,
             mean_peak_dps=round(sum(wp_dps) / len(wp_dps)) if wp_dps else None,
+            clipped=sum(1 for p in wrist_events if start <= p.t_ms < end and p.clipped),
         )
+        # Over the time actually recorded in the round (a round in progress, or cut short).
+        cov_end = start + active_ms
+        cov: dict[str, float | None] = {}
+        for h, times in imu_times.items():
+            if times:
+                cov[f"wrist_{h}"] = sensor_summary.coverage(times, start, cov_end, 500.0)
+        if hr_times:
+            cov["heart"] = sensor_summary.coverage(hr_times, start, cov_end, 3000.0)
 
         xc_block = _round_cross_check(xc, start, end, minutes) if xc else None
 
@@ -1328,6 +1365,8 @@ def rounds_export(
                 hrv=hrv_block,
                 imu=imu_block,
                 cross_check=xc_block,
+                coverage=cov,
+                rest=_round_rest(hr_samples, rest_samples, end) if i < rounds_n - 1 else None,
             )
         )
 
@@ -1375,6 +1414,44 @@ def rounds_export(
         punch_source=source,
         cross_check=summary,
         rounds=items,
+    )
+
+
+def _round_rest(
+    hr_samples: list[Any], rest_samples: list[Any], bell_ms: float
+) -> RoundRestBlock | None:
+    """Recovery in the rest that began at `bell_ms` on the clip's timeline: the pause
+    there (within 10 s — a pause mid-round isn't a rest), its beats artifact-cleaned."""
+    mine = sorted(
+        (s for s in rest_samples if abs(s.at_ms - bell_ms) <= 10_000), key=lambda s: s.rest_ms
+    )
+    if not mine:
+        return None
+    # One pause per bell: the latest that began there.
+    began = max(s.pause_started_ms for s in mine)
+    mine = [s for s in mine if s.pause_started_ms == began]
+    bad = artifact_mask([s.rr_ms for s in mine])
+    kept = [s for s, b in zip(mine, bad, strict=True) if not b]
+    before = sorted(
+        (s for s in hr_samples if bell_ms - 10_000 <= s.t_ms < bell_ms), key=lambda s: s.t_ms
+    )
+    bad_before = artifact_mask([s.rr_ms for s in before])
+    at_bell = [s.hr_bpm for s, b in zip(before, bad_before, strict=True) if not b]
+
+    def mean(xs: list[float]) -> float | None:
+        return round(sum(xs) / len(xs), 1) if xs else None
+
+    hr_bell = mean(at_bell)
+    hr30 = mean([s.hr_bpm for s in kept if 25_000 <= s.rest_ms <= 35_000])
+    hr60 = mean([s.hr_bpm for s in kept if s.rest_ms >= 50_000])
+    return RoundRestBlock(
+        hr_at_bell=hr_bell,
+        hr_30s=hr30,
+        hr_60s=hr60,
+        drop_30s=round(hr_bell - hr30, 1) if hr_bell is not None and hr30 is not None else None,
+        drop_60s=round(hr_bell - hr60, 1) if hr_bell is not None and hr60 is not None else None,
+        beats=len(kept),
+        rest_s=round(kept[-1].rest_ms / 1000.0, 1) if kept else 0.0,
     )
 
 

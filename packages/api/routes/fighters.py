@@ -5,11 +5,11 @@ from __future__ import annotations
 import json as _json
 from dataclasses import asdict
 from datetime import date, datetime, timedelta
-from typing import Any
+from typing import Any, Literal
 from uuid import UUID
 
 from fastapi import APIRouter, Depends, File, HTTPException, UploadFile, status
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 from sqlmodel import Session as DBSession
 from sqlmodel import select
 
@@ -1254,3 +1254,68 @@ def _parse_observation_json(text: str) -> dict[str, Any] | None:
                     pass
                 break
     return None
+
+
+# ------------------------------------------------------------------
+# Pupil readings (ADR-044): as the device gave them — no interpretation, no
+# thresholds added. Health data: the fighter and their coaches, every read logged.
+# ------------------------------------------------------------------
+
+
+class PupilReadingIn(BaseModel):
+    taken_at: datetime
+    eye: Literal["left", "right"]
+    npi: float | None = Field(default=None, ge=0.0, le=5.0)
+    size_mm: float | None = Field(default=None, gt=0.0, le=12.0)
+    device: str | None = Field(default=None, max_length=80)
+    light_lux: float | None = Field(default=None, ge=0.0)
+    context: str | None = Field(default=None, max_length=200)
+    session_id: UUID | None = None
+
+
+class PupilReadingOut(PupilReadingIn):
+    id: int
+    created_at: datetime
+
+
+@router.get("/{fighter_id}/pupil-readings", response_model=list[PupilReadingOut])
+def list_pupil_readings(
+    fighter_id: UUID, db: DBSession = Depends(db_session)
+) -> list[PupilReadingOut]:
+    from sqlmodel import col, select
+
+    from store import PupilReadingRow
+
+    rows = db.exec(
+        select(PupilReadingRow)
+        .where(PupilReadingRow.fighter_id == fighter_id)
+        .order_by(col(PupilReadingRow.taken_at).desc())
+    ).all()
+    return [PupilReadingOut.model_validate(r, from_attributes=True) for r in rows]
+
+
+@router.post(
+    "/{fighter_id}/pupil-readings",
+    response_model=PupilReadingOut,
+    status_code=status.HTTP_201_CREATED,
+)
+def add_pupil_reading(
+    fighter_id: UUID,
+    body: PupilReadingIn,
+    fighters: FighterRepo = Depends(fighter_repo),
+    db: DBSession = Depends(db_session),
+    user: User | None = Depends(get_current_user),
+) -> PupilReadingOut:
+    from store import PupilReadingRow
+
+    if fighters.get(fighter_id) is None:
+        raise HTTPException(status_code=404, detail="fighter not found")
+    if body.npi is None and body.size_mm is None:
+        raise HTTPException(status_code=422, detail="enter the NPi or the pupil size")
+    row = PupilReadingRow(
+        fighter_id=fighter_id, entered_by=user.id if user else None, **body.model_dump()
+    )
+    db.add(row)
+    db.commit()
+    db.refresh(row)
+    return PupilReadingOut.model_validate(row, from_attributes=True)

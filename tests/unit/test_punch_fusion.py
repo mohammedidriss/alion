@@ -135,6 +135,25 @@ def test_a_camera_out_of_sync_is_realigned_to_the_wrists() -> None:
     assert late_report.offset_ms == pytest.approx(400.0) and late_report.agreement == 1.0
 
 
+def test_a_drifting_camera_clock_is_straightened() -> None:
+    from analyze.punch_fusion import sync_drift
+
+    # 10 minutes, a punch every 4 s; this phone runs 400 ppm fast: +240 ms by the end.
+    times = [4000.0 * i for i in range(1, 151)]
+    wrist = [WristPunch(t, "left", 5.0) for t in times]
+    drifting = [ev(t + 50 + 400e-6 * t) for t in times]
+    ppm, _ = sync_drift([e.t_ms for e in drifting], [w.t_ms for w in wrist]) or (None, None)
+    assert ppm == pytest.approx(400.0, rel=0.05)
+    cc = cross_check(wrist, {"drifting": drifting}, gaps={"left": [], "right": []})
+    assert len([p for p in cc.punches if p.source == "both"]) == 150
+    report = cc.cameras[0]
+    assert report.drift_ppm == pytest.approx(400.0, rel=0.05) and report.agreement == 1.0
+    # A steady clock, or a short recording, isn't touched.
+    steady = [ev(t + 50) for t in times]
+    assert sync_drift([e.t_ms for e in steady], [w.t_ms for w in wrist]) is None
+    assert sync_drift([e.t_ms for e in drifting[:20]], [w.t_ms for w in wrist[:20]]) is None
+
+
 def _frame(t: float, wrist_x: float) -> PoseFrame:
     lms = tuple(Landmark(x=0.5, y=0.5, z=0.0, visibility=0.9) for _ in range(33))
     wls = [WorldLandmark(x=0.0, y=0.0, z=0.0, visibility=0.9) for _ in range(33)]

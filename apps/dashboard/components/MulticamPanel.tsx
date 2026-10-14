@@ -11,6 +11,10 @@
  * synchronized start) and stop with them; Pause/Resume reach them server-side via
  * the coordinator. A paired Polar H10 streams heart rate for the same span.
  *
+ * Rest Mode (ADR-043): with the round plan, each bell pauses every camera and
+ * sensor for the rest and opens the three-card corner screen; at the end of the
+ * rest the same clip resumes. The stream strip shows each sensor's health (ADR-042).
+ *
  * Dataset takes (ADR-013) use the same panel with `take` instead of `session`:
  * everything records into the take's folder, there's no Pause (labels need an
  * unbroken timeline) and an elapsed timer replaces the round timer.
@@ -21,7 +25,9 @@ import { CameraNode } from "@/components/CameraNode";
 import { imuErrorText } from "@/components/ImuSensors";
 import { getPairedDevice } from "@/components/PolarH10Card";
 import { PunchDots, PunchOverlay } from "@/components/PunchDots";
+import { RestMode } from "@/components/RestMode";
 import { RoundTimer } from "@/components/SessionRounds";
+import { StreamStrip, useStreams } from "@/components/StreamStrip";
 import { api, type CaptureRef, type MulticamDevice, type Session, type Take } from "@/lib/api";
 import { say, unlockCues } from "@/lib/cues";
 import { leadingTally, LIVE_TYPES } from "@/lib/punchTally";
@@ -76,6 +82,17 @@ export function MulticamPanel({
   const [msg, setMsg] = useState<string | null>(null);
   const [imuMsg, setImuMsg] = useState<string | null>(null);
   const [imuMine, setImuMine] = useState(false); // the IMU pair belongs to this fighter
+  // Rest Mode (ADR-043): which rest is on screen, and whether bells pause by themselves.
+  const [rest, setRest] = useState<{ afterRound: number; startedAt: number } | null>(null);
+  const restedRef = useRef(0); // the last round whose rest has begun
+  const [autoRest, setAutoRest] = useState(true);
+  useEffect(() => {
+    try {
+      setAutoRest(localStorage.getItem("alion:autoRest") !== "off");
+    } catch {
+      /* private window: keep the default */
+    }
+  }, []);
 
   useEffect(() => {
     api
@@ -164,6 +181,8 @@ export function MulticamPanel({
     setMsg(null);
     try {
       const r = await api.multicamStart(cap);
+      restedRef.current = 0;
+      setRest(null);
       pausedAccumRef.current = 0;
       pauseStartRef.current = null;
       setPaused(false);
@@ -363,6 +382,28 @@ export function MulticamPanel({
     : 0;
   activeMsRef.current = activeMs;
 
+  // The round plan, as the round timer reads it.
+  const rounds = session?.round_count ?? 3;
+  const roundMs = (session?.round_duration_s ?? 180) * 1000;
+  const restS = session?.rest_duration_s ?? 60;
+  const completedRounds = Math.min(rounds, Math.floor(activeMs / roundMs));
+  const streams = useStreams(sessionId, !!session && capturing);
+
+  // At each bell (not the last), pause for the rest and open Rest Mode.
+  useEffect(() => {
+    if (!session || take || !capturing || paused || stopping || !autoRest) return;
+    if (completedRounds >= 1 && completedRounds < rounds && completedRounds > restedRef.current) {
+      restedRef.current = completedRounds;
+      say(`Round ${completedRounds} over. Rest.`);
+      void pause().then(() => setRest({ afterRound: completedRounds, startedAt: Date.now() }));
+    }
+  }, [session, take, capturing, paused, stopping, autoRest, completedRounds, rounds, pause]);
+
+  const backToLive = useCallback(async () => {
+    setRest(null);
+    await resume();
+  }, [resume]);
+
   return (
     <div className="rounded-2xl border border-white/10 p-4 space-y-4">
       <div className="flex items-center justify-between">
@@ -462,6 +503,50 @@ export function MulticamPanel({
           {sensors.hr !== null && <SensorDot label="Heart rate" ok={sensors.hr} />}
           {sensors.l && sensors.r && <WristCheck cap={cap} />}
         </div>
+      )}
+
+      {/* Rest Mode at each bell, and the sensors' health while recording. */}
+      {session && !take && (
+        <div className="flex flex-wrap items-center gap-3 text-xs text-neutral-400">
+          <label className="flex items-center gap-1.5">
+            <input
+              type="checkbox"
+              checked={autoRest}
+              onChange={(e) => {
+                setAutoRest(e.target.checked);
+                try {
+                  localStorage.setItem("alion:autoRest", e.target.checked ? "on" : "off");
+                } catch {
+                  /* not remembered in a private window */
+                }
+              }}
+            />
+            Pause at each bell and show the rest cards ({rounds} × {Math.round(roundMs / 1000)} s,{" "}
+            {restS} s rest)
+          </label>
+          {capturing && paused && !rest && completedRounds >= 1 && (
+            <button
+              onClick={() =>
+                setRest({ afterRound: completedRounds, startedAt: pauseStartRef.current ?? Date.now() })
+              }
+              className="rounded-lg border border-white/15 px-2.5 py-1 text-neutral-200 hover:bg-white/5"
+            >
+              Rest cards for round {completedRounds}
+            </button>
+          )}
+          {capturing && <StreamStrip streams={streams} />}
+        </div>
+      )}
+      {rest && sessionId && (
+        <RestMode
+          sessionId={sessionId}
+          afterRound={rest.afterRound}
+          roundCount={rounds}
+          restS={restS}
+          startedAt={rest.startedAt}
+          streams={streams}
+          onBackToLive={() => void backToLive()}
+        />
       )}
 
       {/* Round timer — runs off the round-configuration panel (round_count ×

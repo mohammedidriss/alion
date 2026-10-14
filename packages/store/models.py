@@ -722,6 +722,57 @@ class HRSampleRead(SQLModel):
     hr_bpm: float
 
 
+class RestHRSampleRow(SQLModel, table=True):
+    """A heartbeat during a pause between rounds (ADR-041). The cameras don't film
+    the rest, so these beats have no place on the clip's timeline; they're kept
+    here, by the pause they fell in, for heart-rate recovery."""
+
+    __tablename__ = "rest_hr_sample"
+    id: int | None = Field(default=None, primary_key=True)
+    session_id: UUID = Field(foreign_key="session.id", index=True)
+    pause_started_ms: float  # wall clock: which pause
+    at_ms: float  # where the pause sits on the clip's timeline (the bell)
+    rest_ms: float  # how far into the rest
+    rr_ms: float
+    hr_bpm: float
+
+
+class CardFeedbackRow(SQLModel, table=True):
+    """What a coach did with a rest card, or wrote before seeing them (ADR-043)."""
+
+    __tablename__ = "card_feedback"
+    id: int | None = Field(default=None, primary_key=True)
+    session_id: UUID = Field(foreign_key="session.id", index=True)
+    after_round: int
+    slot: str = Field(max_length=20)  # opportunity / warning / recovery / own_read
+    action: str = Field(max_length=20)  # noted / dismissed / own_read
+    headline: str | None = Field(default=None, max_length=200)
+    fact_ids: str = "[]"  # JSON
+    facts_sha256: str | None = Field(default=None, max_length=64)
+    note: str | None = Field(default=None, max_length=1000)
+    user_id: UUID | None = Field(default=None, foreign_key="user.id", index=True)
+    created_at: datetime = Field(default_factory=lambda: datetime.now(UTC))
+
+
+class PupilReadingRow(SQLModel, table=True):
+    """A pupillometer reading entered as the device gave it (ADR-044): no
+    interpretation, no thresholds added by Alion."""
+
+    __tablename__ = "pupil_reading"
+    id: int | None = Field(default=None, primary_key=True)
+    fighter_id: UUID = Field(foreign_key="fighter.id", index=True)
+    session_id: UUID | None = Field(default=None, foreign_key="session.id")
+    taken_at: datetime
+    eye: str = Field(max_length=5)  # left / right
+    npi: float | None = None  # Neurological Pupil index, as the device shows it
+    size_mm: float | None = None
+    device: str | None = Field(default=None, max_length=80)
+    light_lux: float | None = None
+    context: str | None = Field(default=None, max_length=200)  # e.g. "after round 3"
+    entered_by: UUID | None = Field(default=None, foreign_key="user.id")
+    created_at: datetime = Field(default_factory=lambda: datetime.now(UTC))
+
+
 # ----------------------------------------------------------------------
 # IMU samples — wrist/glove inertial sensor (accelerometer + gyroscope).
 # Until real Hykso/Corner trackers arrive, the rows are populated by the

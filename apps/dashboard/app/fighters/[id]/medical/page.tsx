@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
+import { PupilReadingsCard } from "@/components/PupilReadingsCard";
 import {
   api,
   type Allergy,
@@ -215,6 +216,9 @@ export default function MedicalTab({ params }: { params: { id: string } }) {
           refresh();
         }}
       />
+
+      {/* Pupil readings as the device gave them (ADR-044) */}
+      <PupilReadingsCard fighterId={fighterId} />
 
       {/* Overview / contact / clearance — admin info, kept near the bottom */}
       <section className="card" id="medical-overview">

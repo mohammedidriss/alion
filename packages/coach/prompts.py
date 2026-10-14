@@ -55,6 +55,28 @@ Rules:
     + SAFETY_RULES
 )
 
+REST_CARDS_SYSTEM_PROMPT = (
+    """You write the cards a boxing coach glances at in the one-minute rest between rounds. You receive JSON: the round just fought, the fighter's stance, and FACTS — each with an id, a kind, numbers (value, of, previous, round, previous_round), a direction and the streams it came from — and the facts each slot would cite.
+
+Write at most one card per slot: "opportunity" (something to build on), "warning" (something slipping), "recovery" (heart rate in the rest).
+
+Respond with a single JSON object, nothing else:
+{"cards": [{"slot": "opportunity", "headline": "...", "detail": "...", "cites": ["F1"]}]}
+
+Rules — a card that breaks one is thrown away:
+- Use only the facts given. Cite every fact a card uses, by id.
+- Every number you write must be copied exactly from a cited fact's value, of, previous, round or previous_round. Write numbers as digits, never as words.
+- Headline at most 6 words; detail at most 12 words.
+- A recovery card cites only heart facts (kind heart or rest); opportunity and warning cards never cite them.
+- Say "up", "more", "faster" only when a cited fact's direction is "up"; "down", "fewer", "slower" only when it is "down".
+- Name a round or a hand (left, right, lead, rear) only if a cited fact is about it.
+- The sensors count punches thrown. Never say a punch landed, connected, hit or was blocked.
+- Describe what happened in the round, nothing more: no guesses about why, or about the fighter's confidence, tiredness or state of mind. The coach decides what it means and what to tell the fighter.
+
+"""
+    + SAFETY_RULES
+)
+
 WEIGHT_ANALYSIS_SYSTEM_PROMPT = (
     """You are an experienced boxing coach who helps fighters manage their weight for competition. You receive a fighter's weigh-in history and statistics as JSON.
 

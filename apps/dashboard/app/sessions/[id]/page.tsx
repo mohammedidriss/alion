@@ -15,6 +15,7 @@ import { JoinQrCard } from "@/components/JoinQrCard";
 import { MulticamRecordings } from "@/components/MulticamRecordings";
 import { DetectorComparisonCard } from "@/components/DetectorComparisonCard";
 import { LiveAdviceCard } from "@/components/LiveAdviceCard";
+import { RestDebrief } from "@/components/RestDebrief";
 import { RoundBreakdownCard } from "@/components/RoundBreakdownCard";
 import { RQ1RaterCard } from "@/components/RQ1RaterCard";
 import { SessionVideo } from "@/components/SessionVideo";
@@ -1100,6 +1101,7 @@ function SessionPageContent({ params }: { params: { id: string } }) {
       )}
 
       <RoundBreakdownCard sessionId={session.id} status={session.status} />
+      {session.status === "completed" && <RestDebrief sessionId={session.id} />}
 
       {/* Detector evaluation — labels-vs-detections accuracy.
           Shown for any completed session; the card itself handles the

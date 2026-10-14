@@ -20,7 +20,7 @@ from api.routes import capture_coord
 from api.routes.auth import require_current_user
 from api.services import hrv_runner, signed
 from contracts import HRMetricsWindow
-from store import HRSampleRead, HRSampleRow, SessionRepo
+from store import HRSampleRead, HRSampleRow, RestHRSampleRow, SessionRepo
 from store.models import SessionRead
 
 router = APIRouter(
@@ -359,12 +359,27 @@ def _on_camera_timeline(
     lines up with the video and the wrist sensors (to about a second)."""
 
     def write(rows: list[HRSampleRow]) -> None:
-        kept = []
+        kept: list[HRSampleRow | RestHRSampleRow] = []
         for r in rows:
             t = capture_coord.timeline_at_ms(session_id, r.t_ms)
             if t is not None:
                 r.t_ms = t
                 kept.append(r)
+                continue
+            # A beat in the rest between rounds: kept apart, for recovery (ADR-041).
+            pause = capture_coord.pause_at_ms(session_id, r.t_ms)
+            if pause is not None:
+                began, at, into = pause
+                kept.append(
+                    RestHRSampleRow(
+                        session_id=session_id,
+                        pause_started_ms=began,
+                        at_ms=at,
+                        rest_ms=into,
+                        rr_ms=r.rr_ms,
+                        hr_bpm=r.hr_bpm,
+                    )
+                )
         if kept:
             with factory() as db:
                 db.add_all(kept)

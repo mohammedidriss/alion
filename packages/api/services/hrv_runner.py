@@ -37,6 +37,8 @@ log = get_logger(__name__)
 _active_jobs: dict[UUID, threading.Thread] = {}
 _last_error: dict[UUID, str] = {}  # why the latest stream for a capture failed
 _recent_bpm: dict[UUID, deque[float]] = {}  # live view, incl. beats before t = 0
+_recent_rr: dict[UUID, deque[float]] = {}  # the same beats' intervals, for contact quality
+_last_beat_ms: dict[UUID, float] = {}  # wall clock of the latest beat (ADR-042)
 _stop_events: dict[UUID, threading.Event] = {}
 _latest_metrics: dict[UUID, HRMetricsWindow] = {}
 _lock = threading.Lock()
@@ -53,6 +55,17 @@ def recent_bpm(session_id: UUID) -> list[float]:
     shows the strap working before the cameras start."""
     with _lock:
         return list(_recent_bpm.get(session_id, ()))
+
+
+def recent_rr(session_id: UUID) -> list[float]:
+    with _lock:
+        return list(_recent_rr.get(session_id, ()))
+
+
+def last_beat_ms(session_id: UUID) -> float | None:
+    """When the latest beat arrived (wall clock, ms) — None before any."""
+    with _lock:
+        return _last_beat_ms.get(session_id)
 
 
 def last_error(session_id: UUID) -> str | None:
@@ -132,6 +145,8 @@ def _run_stream(
             buffered.append(row)
             with _lock:
                 _recent_bpm.setdefault(session_id, deque(maxlen=60)).append(sample.hr_bpm)
+                _recent_rr.setdefault(session_id, deque(maxlen=60)).append(sample.rr_ms)
+                _last_beat_ms[session_id] = time.time() * 1000.0
             window = rolling.feed(sample)
             with _lock:
                 _latest_metrics[session_id] = window

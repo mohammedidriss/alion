@@ -41,6 +41,22 @@ class LiveOut(BaseModel):
     imu: ImuBleStatus
 
 
+class StreamOut(BaseModel):
+    key: str
+    kind: str  # camera / wrist / heart
+    label: str
+    state: str  # ok / degraded / lost / recovering
+    reason: str | None = None
+
+
+@router.get("/{session_id}/streams", response_model=list[StreamOut])
+def streams(session_id: UUID) -> list[StreamOut]:
+    """Each live stream's health (ADR-042), for the status strip."""
+    from api.services import stream_health
+
+    return [StreamOut(**s.__dict__) for s in stream_health.snapshot(session_id)]
+
+
 def max_hr_for(dob: date | None, today: date | None = None) -> int | None:
     """Age-predicted max HR, Tanaka et al. 2001: 208 − 0.7 × age."""
     if dob is None:

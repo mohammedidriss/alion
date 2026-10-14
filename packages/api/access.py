@@ -221,7 +221,9 @@ def require_admin_viewer(viewer: Viewer = Depends(require_viewer)) -> Viewer:
 # The guard
 # --------------------------------------------------------------------------
 
-_MEDICAL = re.compile(r"^/fighters/\{fighter_id\}/(medical|allergies|medications|conditions)\b")
+_MEDICAL = re.compile(
+    r"^/fighters/\{fighter_id\}/(medical|allergies|medications|conditions|pupil-readings)\b"
+)
 _PROFILE = re.compile(
     r"^/fighters/\{fighter_id\}(/(photo|titles|sponsors|coach-assignments)(/.*)?)?$"
 )

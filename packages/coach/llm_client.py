@@ -206,6 +206,61 @@ async def generate_raw(system_prompt: str, user_content: str) -> str:
     return f'{{"error": "LLM error: {last_err}"}}'
 
 
+async def generate_json(
+    system_prompt: str, user_content: str, schema: dict[str, Any], *, timeout_s: float = 12.0
+) -> dict[str, Any] | None:
+    """A JSON object shaped by `schema`, or None on any failure or timeout.
+
+    Asks for structured output (OpenAI-style `json_schema`, which Ollama and LM
+    Studio constrain the decoding to); a server without it gets the schema in the
+    prompt and the first balanced object is parsed. Callers must verify the
+    content: the schema fixes the shape, not the truth (ADR-041)."""
+    import asyncio
+
+    url, key, model = llm_config()
+    c = _client(url, key)
+    messages = [
+        {"role": "system", "content": system_prompt},
+        {"role": "user", "content": user_content},
+    ]
+
+    async def _call(structured: bool) -> str:
+        kwargs: dict[str, Any] = {
+            "model": model,
+            "messages": messages,
+            "temperature": 0.2,
+            "max_tokens": 600,
+            "timeout": timeout_s,
+        }
+        if structured:
+            kwargs["response_format"] = {
+                "type": "json_schema",
+                "json_schema": {"name": "cards", "schema": schema, "strict": True},
+            }
+        completion = await c.chat.completions.create(**kwargs)
+        return completion.choices[0].message.content or ""
+
+    for structured in (True, False):
+        try:
+            text = await asyncio.wait_for(_call(structured), timeout=timeout_s)
+        except Exception as e:
+            # Too slow: no second try (the cards are already on screen). Anything
+            # else may be a server without structured output — ask again plainly.
+            if isinstance(e, TimeoutError) or "timeout" in type(e).__name__.lower():
+                return None
+            continue
+        body = _first_balanced_object(text.strip())
+        if body is None:
+            continue
+        try:
+            data = json.loads(body)
+        except ValueError:
+            continue
+        if isinstance(data, dict):
+            return data
+    return None
+
+
 def _first_balanced_object(s: str) -> str | None:
     """Return the first {...} substring with balanced braces, or None."""
     start = s.find("{")

@@ -66,6 +66,11 @@ MATCH_TOL_MS = 150.0  # a camera punch and a wrist punch are the same punch
 HAND_MISMATCH_COST_MS = 100.0  # pairing penalty when trusted hands disagree
 SYNC_MIN_PAIRS = 20
 SYNC_SEARCH_MS = 400.0
+# Clock drift (ADR-042): fitted only from enough pairs over enough time, and applied
+# only when it would move a camera's punches by this much across the recording.
+DRIFT_MIN_PAIRS = 40
+DRIFT_MIN_SPAN_MS = 120_000.0
+DRIFT_APPLY_MS = 40.0
 HANDS_ISOLATION_MS = 350.0  # only one wrist punch this close → unambiguous hand
 HANDS_MIN_PUNCHES = 30
 HANDS_RATIO = 2.0
@@ -110,6 +115,8 @@ class CameraReport:
     agreement: float | None  # share of its punches the wrists confirm
     coverage: float | None  # share of the wrist punches it saw
     hands: HandsVerdict
+    drift_ppm: float | None = None  # its clock's drift, straightened out (ADR-042)
+    drift_ref_ms: float | None = None  # the time the drift is measured from
 
 
 @dataclass(frozen=True)
@@ -269,6 +276,58 @@ def sync_offset(camera_t: Sequence[float], wrist_t: Sequence[float]) -> float | 
     return round(float(np.median(close)), 1) if len(close) >= SYNC_MIN_PAIRS else None
 
 
+def sync_drift(camera_t: Sequence[float], wrist_t: Sequence[float]) -> tuple[float, float] | None:
+    """How fast a camera's clock runs against the wrists': (ppm, the time it's
+    referenced to), from a Theil–Sen line through the paired offsets — or None
+    when too few pairs, too short a recording, or too small a drift to matter."""
+    off = sync_offset(camera_t, wrist_t)
+    wt = sorted(wrist_t)
+    if off is None or not wt:
+        return None
+    pts: list[tuple[float, float]] = []
+    for t in camera_t:
+        i = bisect.bisect_left(wt, t)
+        near = [wt[k] for k in (i - 1, i) if 0 <= k < len(wt)]
+        d = min((t - w for w in near), key=abs)
+        if abs(d - off) <= MATCH_TOL_MS:
+            pts.append((t, d))
+    if len(pts) < DRIFT_MIN_PAIRS:
+        return None
+    ts = np.array([p[0] for p in pts])
+    span = float(ts.max() - ts.min())
+    if span < DRIFT_MIN_SPAN_MS:
+        return None
+    ds = np.array([p[1] for p in pts])
+    step = max(1, len(pts) // 200)  # a few hundred points are plenty for the median slope
+    t2, d2 = ts[::step], ds[::step]
+    dt = t2[None, :] - t2[:, None]
+    dd = d2[None, :] - d2[:, None]
+    mask = np.triu(dt > 1000.0, 1)  # pairs at least a second apart
+    if not mask.any():
+        return None
+    slope = float(np.median(dd[mask] / dt[mask]))
+    if abs(slope) * span < DRIFT_APPLY_MS:
+        return None
+    return round(slope * 1e6, 1), float(np.median(ts))
+
+
+def undrift(t_ms: float, drift: tuple[float, float] | None) -> float:
+    """A camera time with its clock's drift taken out (the offset stays)."""
+    if drift is None:
+        return t_ms
+    ppm, ref = drift
+    return t_ms - ppm * 1e-6 * (t_ms - ref)
+
+
+def redrift(t_ms: float, drift: tuple[float, float] | None) -> float:
+    """The inverse of `undrift` (to first order): a straightened time back on the
+    camera's own clock, to find its frame."""
+    if drift is None:
+        return t_ms
+    ppm, ref = drift
+    return t_ms + ppm * 1e-6 * (t_ms - ref)
+
+
 def hands_verdict(
     camera: Sequence[tuple[float, Hand]], wrist: Sequence[WristPunch]
 ) -> tuple[HandsVerdict, int, int]:
@@ -364,6 +423,17 @@ def cross_check(
         gaps = {} if wrist else {"left": [(-np.inf, np.inf)], "right": [(-np.inf, np.inf)]}
     wt = [w.t_ms for w in wrist]
 
+    # A camera whose clock drifts against the wrists is straightened first.
+    drifts: dict[str, tuple[float, float]] = {}
+    for dev, evs in per_camera.items():
+        dr = sync_drift([e.t_ms for e in evs], wt)
+        if dr is not None:
+            drifts[dev] = dr
+    if drifts:
+        per_camera = {
+            dev: [e.model_copy(update={"t_ms": undrift(e.t_ms, drifts.get(dev))}) for e in evs]
+            for dev, evs in per_camera.items()
+        }
     offsets: dict[str, float] = {}
     for dev, evs in per_camera.items():
         off = sync_offset([e.t_ms for e in evs], wt)
@@ -432,6 +502,8 @@ def cross_check(
                 device=dev,
                 punches=len(evs),
                 offset_ms=offsets.get(dev),
+                drift_ppm=drifts[dev][0] if dev in drifts else None,
+                drift_ref_ms=drifts[dev][1] if dev in drifts else None,
                 agreement=round(n / len(evs), 2) if wrist and evs else None,
                 coverage=round(n / len(wrist), 2) if wrist else None,
                 hands=cam_hands,

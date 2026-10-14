@@ -26,7 +26,7 @@ from sqlmodel import col, select
 
 from api.access import Viewer, gym_fighters, require_viewer
 from api.deps import db_session
-from api.services import terms
+from api.services import disk_encryption, terms
 from store import (
     Allergy,
     Coach,
@@ -102,6 +102,7 @@ class PrivacyOut(BaseModel):
     viewers: Viewers | None  # for a fighter: who can see their data right now
     datasets: list[DatasetConsent]
     requests: list[RequestOut]
+    disk_encrypted: str = "unknown"  # on / off / unknown: this computer's disk (ADR-044)
 
 
 def _count(db: DBSession, stmt: object) -> int:
@@ -246,6 +247,7 @@ def my_privacy(
         viewers=viewers,
         datasets=datasets,
         requests=[_request_out(r) for r in mine],
+        disk_encrypted=disk_encryption.status(),
     )
 
 

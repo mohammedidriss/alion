@@ -19,7 +19,7 @@ pytest.importorskip("sklearn")
 SEQUENCE = [("left", "jab"), ("right", "cross"), ("left", "hook"), ("right", "uppercut")] * 4
 
 
-def _take(root: Path, n: int) -> None:
+def _take(root: Path, n: int, person: str = "F-0001") -> None:
     from capture.cv.writer import write_pose_parquet
 
     folder = root / "ds" / "takes" / f"take{n}"
@@ -32,7 +32,7 @@ def _take(root: Path, n: int) -> None:
         json.dumps([{"t_ms": t, "hand": h, "punch_type": k} for t, h, k in punches])
     )
     (folder / "take.json").write_text(
-        json.dumps({"take_id": f"take{n}", "status": "completed", "participant": "F-0001"})
+        json.dumps({"take_id": f"take{n}", "status": "completed", "participant": person})
     )
 
 
@@ -83,3 +83,24 @@ def test_too_few_takes_is_refused(tmp_path: Path, monkeypatch: pytest.MonkeyPatc
     monkeypatch.setattr(camera_type_model, "MODEL_DIR", tmp_path / "models")
     with pytest.raises(ValueError, match="at least"):
         camera_type_model.train()
+
+
+def test_with_two_people_each_is_scored_by_a_model_that_never_saw_them(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    from api.services import camera_type_model, dataset_store
+
+    root = tmp_path / "datasets"
+    for n in range(4):
+        _take(root, n, person="F-0001" if n < 2 else "F-0002")
+    monkeypatch.setattr(dataset_store, "DATASETS_DIR", root)
+    monkeypatch.setattr(camera_type_model, "MODEL_DIR", tmp_path / "models")
+    report = camera_type_model.train()
+    people = report["held_out_participants"]
+    assert set(people["per_participant"]) == {"F-0001", "F-0002"} and people["accuracy"] > 0.8
+
+
+def test_with_one_person_there_is_no_one_to_leave_out(takes: Path) -> None:
+    from api.services import camera_type_model
+
+    assert camera_type_model.train()["held_out_participants"] is None

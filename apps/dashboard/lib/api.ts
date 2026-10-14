@@ -813,6 +813,18 @@ export interface RoundImuBlock {
   mean_peak_g: number | null;
   impact_score: number | null; // Σ punch peaks (g)
   mean_peak_dps?: number | null; // how fast the forearm turned per punch (°/s)
+  clipped?: number; // punches whose reading hit the sensor's 16 g range: a minimum (ADR-042)
+}
+
+/** Heart-rate recovery in the rest after a round (ADR-041). */
+export interface RoundRestBlock {
+  hr_at_bell: number | null;
+  hr_30s: number | null;
+  hr_60s: number | null;
+  drop_30s: number | null;
+  drop_60s: number | null;
+  beats: number;
+  rest_s: number;
 }
 
 export interface RoundExportItem {
@@ -828,6 +840,8 @@ export interface RoundExportItem {
   hrv: RoundHrvBlock;
   imu: RoundImuBlock;
   cross_check: RoundCrossCheckBlock | null;
+  coverage?: Record<string, number | null>; // share of the round each stream covered (ADR-042)
+  rest?: RoundRestBlock | null;
 }
 
 /** The round's punches as the wrist sensors and the cameras settled them. */
@@ -856,6 +870,7 @@ export interface CrossCheckCamera {
   label: string | null;
   punches: number;
   offset_ms: number | null; // clock correction applied against the wrists
+  drift_ppm?: number | null; // its clock's drift, straightened out (ADR-042)
   agreement: number | null; // share of its punches the wrists confirm
   coverage: number | null; // share of the wrist punches it saw
   hands: HandsVerdict;
@@ -970,6 +985,7 @@ export interface RoundsExportResponse {
   round_count: number;
   round_duration_s: number;
   rest_duration_s: number;
+  study_condition?: string | null; // coach_only sessions get no system advice
   /** Where punch numbers come from: wrist sensors × cameras cross-checked, else
    *  stored camera events, else the wrist sensors alone. */
   punch_source: "fused" | "camera" | "wrist" | "none";
@@ -1213,6 +1229,81 @@ export interface PrivacyMe {
   viewers: { coaches: string[]; gyms: string[]; gym_managers: string[] } | null;
   datasets: { dataset: string; code: string | null; consent: string; consent_date: string | null }[];
   requests: DataRequest[];
+  disk_encrypted?: "on" | "off" | "unknown"; // this computer's disk (ADR-044)
+}
+
+// Rest cards (ADR-041): the facts ledger and the three cards between rounds.
+export type RestSlot = "opportunity" | "warning" | "recovery";
+export interface RestFact {
+  id: string;
+  kind: string;
+  round: number | null;
+  previous_round: number | null;
+  what: string;
+  text: string;
+  value: number;
+  unit: string;
+  of: number | null;
+  previous: number | null;
+  direction: "up" | "down" | "same" | null;
+  hand: string | null;
+  streams: string[];
+  evidence: string;
+  quality: number;
+}
+export interface RestCard {
+  slot: RestSlot;
+  shape: string;
+  headline: string;
+  number: string | null;
+  context: string | null;
+  fact_ids: string[];
+  confidence: number; // 0–4 dots
+  streams: string[];
+  source: "template" | "model";
+}
+export interface RestCards {
+  after_round: number;
+  round_count: number;
+  live: boolean;
+  facts: RestFact[];
+  facts_sha256: string;
+  cards: RestCard[];
+  verdicts: { slot: string | null; ok: boolean; gate: string | null }[] | null;
+  model: string | null;
+  advice_id: string | null;
+}
+export interface CardFeedback {
+  id?: number;
+  after_round: number;
+  slot: RestSlot | "own_read";
+  action: "noted" | "dismissed" | "own_read";
+  headline?: string | null;
+  fact_ids?: string[];
+  facts_sha256?: string | null;
+  note?: string | null;
+  created_at?: string;
+}
+// Stream health (ADR-042).
+export interface StreamHealth {
+  key: string;
+  kind: "camera" | "wrist" | "heart";
+  label: string;
+  state: "ok" | "degraded" | "lost" | "recovering" | "off";
+  reason: string | null;
+}
+// Pupil readings as entered (ADR-044).
+export interface PupilReading {
+  id?: number;
+  taken_at: string;
+  eye: "left" | "right";
+  npi: number | null;
+  size_mm: number | null;
+  device: string | null;
+  light_lux: number | null;
+  context: string | null;
+  session_id: string | null;
+  created_at?: string;
 }
 
 // The appropriate-reliance study (ADR-026).
@@ -1847,6 +1938,29 @@ export const api = {
     ),
   roundsExport: (id: string) =>
     req<RoundsExportResponse>(`/sessions/${id}/rounds_export`),
+  restCards: (id: string, afterRound: number, live = false) =>
+    req<RestCards>(`/sessions/${id}/rest_cards?after_round=${afterRound}${live ? "&live=true" : ""}`),
+  phraseRestCards: (id: string, afterRound: number, live = false) =>
+    req<RestCards>(`/sessions/${id}/rest_cards`, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ after_round: afterRound, live }),
+    }),
+  cardFeedback: (id: string) => req<CardFeedback[]>(`/sessions/${id}/rest_cards/feedback`),
+  addCardFeedback: (id: string, body: CardFeedback) =>
+    req<CardFeedback>(`/sessions/${id}/rest_cards/feedback`, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify(body),
+    }),
+  streams: (id: string) => req<StreamHealth[]>(`/v2/sessions/${id}/streams`),
+  pupilReadings: (fighterId: string) => req<PupilReading[]>(`/fighters/${fighterId}/pupil-readings`),
+  addPupilReading: (fighterId: string, body: PupilReading) =>
+    req<PupilReading>(`/fighters/${fighterId}/pupil-readings`, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify(body),
+    }),
   imuSamples: (id: string) => req<IMUSample[]>(`/sessions/${id}/imu/samples`),
 
   // Saved round-structure plans (cap of 3 enforced server-side).

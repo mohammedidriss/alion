@@ -62,6 +62,8 @@ class ImuUnitStatus(BaseModel):
     peak_g: float = 0.0
     error: str | None = None
     trace: list[float] = []  # live: peak |a| per 50 ms, last 5 s (oldest first)
+    drops: int = 0  # connections lost this session (ADR-042)
+    last_ms_ago: float | None = None  # since the latest sample
 
 
 class ImuBleStatus(BaseModel):

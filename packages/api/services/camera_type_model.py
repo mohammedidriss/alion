@@ -54,6 +54,7 @@ class _Punch:
     take: str
     motion: str
     views: list[np.ndarray] = field(default_factory=list)
+    person: str = ""
 
 
 def _punches(datasets: Path | None = None) -> tuple[list[_Punch], dict[str, Any]]:
@@ -75,7 +76,11 @@ def _punches(datasets: Path | None = None) -> tuple[list[_Punch], dict[str, Any]
         if not typed or not cams:
             continue
         mine = [
-            _Punch(str(take.get("take_id", folder.name)), TYPE_TO_MOTION[lab["punch_type"]])
+            _Punch(
+                str(take.get("take_id", folder.name)),
+                TYPE_TO_MOTION[lab["punch_type"]],
+                person=str(take.get("participant") or ""),
+            )
             for lab in typed
         ]
         for cam in cams:
@@ -162,6 +167,27 @@ def _train(datasets: Path | None) -> dict[str, Any]:
             view_pred += [MOTIONS[int(k)] for k in pr.argmax(axis=1)]
             punch_y.append(punches[i].motion)
             punch_pred.append(MOTIONS[int(pr.mean(axis=0).argmax())])
+    # Each participant scored by a model that never saw them (ADR-044).
+    by_person = None
+    named = sorted({p.person for p in punches if p.person})
+    if len(named) >= 2:
+        py: list[str] = []
+        pp: list[str] = []
+        per: dict[str, float] = {}
+        for person in named:
+            train_p = [p for p in punches if p.person != person]
+            test_p = [p for p in punches if p.person == person]
+            if len({p.motion for p in train_p}) < 2:
+                continue
+            m = punch_model.fit_types(_sample(train_p))
+            mine_y = [p.motion for p in test_p]
+            mine_pred = [MOTIONS[int(proba(m, p.views).mean(axis=0).argmax())] for p in test_p]
+            per[person] = round(float(np.mean(np.array(mine_y) == np.array(mine_pred))), 3)
+            py += mine_y
+            pp += mine_pred
+        if py:
+            by_person = {**_score(py, pp), "per_participant": per}
+
     model = punch_model.fit_types(_sample(punches))
     MODEL_DIR.mkdir(parents=True, exist_ok=True)
     version = 1 + max((int(p.stem[1:]) for p in MODEL_DIR.glob("v*.json")), default=0)
@@ -177,6 +203,7 @@ def _train(datasets: Path | None) -> dict[str, Any]:
         },
         "held_out_views": _score(view_y, view_pred),  # one camera at a time
         "held_out_punches": _score(punch_y, punch_pred),  # all the punch's cameras averaged
+        "held_out_participants": by_person,  # each person left out in turn (None: one person)
     }
     (MODEL_DIR / f"v{version}.json").write_text(json.dumps(report, indent=2))
     log.info("camera_types.trained", extra={"_ctx_version": version})

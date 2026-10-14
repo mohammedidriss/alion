@@ -49,10 +49,16 @@ PROFILES: dict[str, dict[str, Any]] = {
 }
 
 
+# The WT901's accelerometer reads ±16 g; an axis at or past this has clipped, so
+# the punch's peak is at least what was read, not what it was (ADR-042).
+CLIP_G = 15.5
+
+
 @dataclass(frozen=True)
 class ImuPunch:
     t_ms: float  # time of the burst's largest raw sample
     peak_g: float  # its dynamic acceleration, ||a| − 1 g|
+    clipped: bool = False  # an axis hit the sensor's range: peak_g is a minimum
 
 
 def detect_punches(
@@ -117,7 +123,8 @@ def detect_punches(
     for p in kept:
         window = np.flatnonzero(np.abs(t - t[p]) <= smooth_ms)
         j = int(window[np.argmax(dyn[window])])
-        events.append(ImuPunch(t_ms=float(t[j]), peak_g=round(float(dyn[j]), 2)))
+        clipped = bool(np.any(np.abs(acc[window]) >= CLIP_G))
+        events.append(ImuPunch(t_ms=float(t[j]), peak_g=round(float(dyn[j]), 2), clipped=clipped))
     return sorted(events, key=lambda e: e.t_ms)
 
 
