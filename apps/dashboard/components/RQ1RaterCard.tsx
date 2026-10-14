@@ -18,7 +18,8 @@ type Criterion = (typeof CRITERIA)[number];
  * IMU, fused) so a blinded coach-rater can score each on a 1–5 Likert
  * across specificity, actionability, correctness, novelty. Order is
  * randomized per session so the rater can't tell which payload produced
- * which response. Ratings persist in localStorage per (rater, session).
+ * which response. Each score belongs to the signed-in rater, under a code made
+ * from their account; changing one keeps the old score (ADR-036).
  */
 export function RQ1RaterCard({ sessionId }: Props) {
   const [raterId, setRaterId] = useState("");
@@ -47,10 +48,12 @@ export function RQ1RaterCard({ sessionId }: Props) {
     return arr;
   }, [sessionId]);
 
-  // Persist the rater id locally so a single coach doesn't have to
-  // retype it on every session — but the actual scores live server-side.
+  // The rater is whoever is signed in; their code labels the export.
   useEffect(() => {
-    setRaterId(localStorage.getItem("rq1:rater") ?? "");
+    api
+      .rq1Me()
+      .then((r) => setRaterId(r.rater_id))
+      .catch(() => setRaterId(""));
   }, []);
 
   // Pull this rater's existing scores for this session so a refresh
@@ -62,7 +65,7 @@ export function RQ1RaterCard({ sessionId }: Props) {
       return;
     }
     api
-      .rq1ListRatings(sessionId, raterId)
+      .rq1ListRatings(sessionId)
       .then((rows) => {
         const next: typeof ratings = { cv: {}, hrv: {}, imu: {}, fused: {} };
         for (const r of rows) {
@@ -116,7 +119,7 @@ export function RQ1RaterCard({ sessionId }: Props) {
 
   const setScore = (mode: PayloadMode, c: Criterion, value: number) => {
     if (!raterId) {
-      setErr("Set a rater id first.");
+      setErr("Sign in again to rate.");
       return;
     }
     // Optimistic update — flip the UI, then persist to the server.
@@ -127,7 +130,6 @@ export function RQ1RaterCard({ sessionId }: Props) {
     api
       .rq1UpsertRating(sessionId, {
         payload_mode: mode,
-        rater_id: raterId,
         criterion: c,
         score: value,
       })
@@ -172,15 +174,14 @@ export function RQ1RaterCard({ sessionId }: Props) {
       </p>
 
       <div className="mt-3 flex flex-wrap items-center gap-2">
-        <input
-          className="rounded border border-white/10 bg-black/30 px-2 py-1 text-sm"
-          placeholder="rater id (e.g. coach_03)"
-          value={raterId}
-          onChange={(e) => {
-            setRaterId(e.target.value);
-            localStorage.setItem("rq1:rater", e.target.value);
-          }}
-        />
+        {raterId && (
+          <span
+            className="rounded border border-white/10 bg-black/30 px-2 py-1 font-mono text-xs text-neutral-300"
+            title="Your rater code: your scores are saved under it, never under your name"
+          >
+            Rating as {raterId}
+          </span>
+        )}
         <button
           onClick={generateAll}
           disabled={generating}

@@ -762,11 +762,12 @@ export interface RQ1Rating {
   score: number;
   notes: string | null;
   created_at: string;
+  superseded_at?: string | null; // replaced by a later score from the same rater (ADR-036)
 }
 
+/** The signed-in rater's score; the server knows who they are (ADR-036). */
 export interface RQ1RatingUpsert {
   payload_mode: PayloadMode;
-  rater_id: string;
   criterion: string;
   score: number;
   notes?: string | null;
@@ -1932,12 +1933,9 @@ export const api = {
       body: JSON.stringify(body),
     }),
   studyExport: () => req<unknown>("/v2/studies/reliance/export"),
-  rq1ListRatings: (sessionId: string, raterId?: string) =>
-    req<RQ1Rating[]>(
-      `/studies/rq1/sessions/${sessionId}/ratings${
-        raterId ? `?rater_id=${encodeURIComponent(raterId)}` : ""
-      }`,
-    ),
+  rq1Me: () => req<{ rater_id: string }>("/studies/rq1/me"),
+  /** The signed-in rater's current scores for a session. */
+  rq1ListRatings: (sessionId: string) => req<RQ1Rating[]>(`/studies/rq1/sessions/${sessionId}/ratings`),
   rq1UpsertRating: (sessionId: string, body: RQ1RatingUpsert) =>
     req<RQ1Rating>(`/studies/rq1/sessions/${sessionId}/ratings`, {
       method: "POST",

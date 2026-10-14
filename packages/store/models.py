@@ -875,12 +875,17 @@ class RaterScoreRow(SQLModel, table=True):
     id: int | None = Field(default=None, primary_key=True)
     session_id: UUID = Field(foreign_key="session.id", index=True)
     payload_mode: PayloadModeEnum
+    # The rater's code, "R-" + the start of their account id (ADR-036) — free
+    # text typed in the card before that.
     rater_id: str = Field(min_length=1, max_length=80, index=True)
-    # 4-criterion Likert; one row per (rater, session, mode, criterion).
+    user_id: UUID | None = Field(default=None, foreign_key="user.id", index=True)
+    # 4-criterion Likert; one current row per (rater, session, mode, criterion).
     criterion: str = Field(min_length=1, max_length=40)
     score: int = Field(ge=1, le=5)
     notes: str | None = None
     created_at: datetime = Field(default_factory=lambda: datetime.now(UTC))
+    # A later score from the same rater replaced this one; it's kept (ADR-036).
+    superseded_at: datetime | None = None
 
 
 class RaterScoreRead(SQLModel):
@@ -891,6 +896,7 @@ class RaterScoreRead(SQLModel):
     score: int
     notes: str | None = None
     created_at: UtcDatetime
+    superseded_at: UtcDatetime | None = None
 
 
 # ----------------------------------------------------------------------
