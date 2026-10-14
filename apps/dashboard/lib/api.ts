@@ -1174,6 +1174,9 @@ export function setPhotoPass(token: string): void {
   photoPassToken = token;
 }
 
+/** Fired when the API refuses a request because the current terms aren't accepted. */
+export const TERMS_CHANGED = "alion:terms-changed";
+
 async function req<T>(path: string, init?: RequestInit): Promise<T> {
   // Auto-attach auth token from storage
   const token =
@@ -1192,6 +1195,12 @@ async function req<T>(path: string, init?: RequestInit): Promise<T> {
     ...init,
     headers,
   });
+  if (r.status === 403 && typeof window !== "undefined") {
+    // The terms changed while this tab was open (ADR-016): tell the app shell, which
+    // fetches the current version and shows the accept screen.
+    const body = await r.clone().text().catch(() => "");
+    if (body.includes("terms_not_accepted")) window.dispatchEvent(new Event(TERMS_CHANGED));
+  }
   if (r.status === 401 && typeof window !== "undefined") {
     // Token expired or invalid — clear auth and redirect to login
     localStorage.removeItem("alion.token");

@@ -5,13 +5,13 @@ import { useEffect, useState } from "react";
 import { Sidebar } from "@/components/Sidebar";
 import { MobileTopBar, MobileBottomBar } from "@/components/MobileNav";
 import { TermsGate } from "@/components/TermsGate";
-import { api, setPhotoPass, type TermsInfo } from "@/lib/api";
+import { api, setPhotoPass, TERMS_CHANGED, type TermsInfo } from "@/lib/api";
 import { useAuth } from "@/lib/auth";
 
 export function AppShell({ children }: { children: React.ReactNode }) {
   const pathname = usePathname();
   const router = useRouter();
-  const { user, loading } = useAuth();
+  const { user, loading, refreshUser } = useAuth();
   const [sidebarOpen, setSidebarOpen] = useState(false);
   // The current terms (ADR-016): a signed-in person who hasn't accepted them sees
   // only the TermsGate — the API refuses their requests until they do.
@@ -20,6 +20,16 @@ export function AppShell({ children }: { children: React.ReactNode }) {
   useEffect(() => {
     if (user && !terms) api.terms().then(setTerms).catch(() => setTermsFailed(true));
   }, [user, terms]);
+  // The terms changed while this tab was open: the API says so on the next request.
+  // Fetch the current version (and the account) again, and the gate shows.
+  useEffect(() => {
+    const onChange = () => {
+      setTerms(null);
+      void refreshUser();
+    };
+    window.addEventListener(TERMS_CHANGED, onChange);
+    return () => window.removeEventListener(TERMS_CHANGED, onChange);
+  }, [refreshUser]);
   // Profile photos need a photo pass (ADR-017): fetch it before the app renders,
   // renew it every six hours (it lasts 24).
   const accepted = !!user && !!terms && user.terms_version === terms.version;
