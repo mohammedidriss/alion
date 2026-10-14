@@ -7,7 +7,8 @@ import { ProfileAvatar } from "@/components/ProfileAvatar";
 import { useAuth } from "@/lib/auth";
 import { api } from "@/lib/api";
 
-type NavItem = { label: string; href: string; icon: string };
+/** `hint`: what the page is, in plain words — shown on hover and to screen readers. */
+type NavItem = { label: string; href: string; icon: string; hint?: string };
 
 /** Extract fighter ID from pathname like /fighters/abc-123/sessions */
 function extractFighterId(pathname: string): string | null {
@@ -21,14 +22,14 @@ function extractCoachId(pathname: string): string | null {
   return m ? m[1] : null;
 }
 
-const FIGHTER_TABS: { slug: string; label: string; icon: string }[] = [
-  { slug: "", label: "Dashboard", icon: "▦" },
-  { slug: "sessions", label: "Training sessions", icon: "▷" },
-  { slug: "hrv", label: "HRV", icon: "♥" },
-  { slug: "observations", label: "Observations", icon: "✎" },
-  { slug: "medical", label: "Health notes", icon: "▣" },
-  { slug: "team", label: "Team", icon: "◈" },
-  { slug: "imu", label: "IMU", icon: "▤" },
+const FIGHTER_TABS: { slug: string; label: string; icon: string; hint: string }[] = [
+  { slug: "", label: "Dashboard", icon: "▦", hint: "This fighter at a glance" },
+  { slug: "sessions", label: "Training sessions", icon: "▷", hint: "Every recorded training session" },
+  { slug: "hrv", label: "Heart rate", icon: "♥", hint: "Heart rate in every session, and resting heart-rate variability (HRV)" },
+  { slug: "observations", label: "Observations", icon: "✎", hint: "Progress over time, coach notes and AI training observations" },
+  { slug: "medical", label: "Health notes", icon: "▣", hint: "Allergies, medications and contacts, kept for the people looking after this fighter" },
+  { slug: "team", label: "Team", icon: "◈", hint: "This fighter's coaches and gym" },
+  { slug: "imu", label: "Wrist sensors", icon: "▤", hint: "Punch force and rotation from the sensors on each wrist (IMU)" },
 ];
 
 export function Sidebar({ onNavigate }: { onNavigate?: () => void } = {}) {
@@ -76,21 +77,21 @@ export function Sidebar({ onNavigate }: { onNavigate?: () => void } = {}) {
   // Bouts (ADR-011) — two-fighter fights; for everyone who runs sessions (not admin,
   // who is restricted from training data).
   if (activeRole && activeRole !== "admin") {
-    navItems.push({ label: "Bouts", href: "/bouts", icon: "⚔" });
+    navItems.push({ label: "Fights", href: "/bouts", icon: "⚔", hint: "Two-fighter bouts: both corners recorded together" });
   }
   // Datasets (ADR-013) — research recordings, kept apart from training sessions.
   // IRB data: researchers only (ALION_RESEARCHERS; the API enforces it, ADR-017).
   if (user?.is_researcher) {
-    navItems.push({ label: "Datasets", href: "/datasets", icon: "▤" });
+    navItems.push({ label: "Research datasets", href: "/datasets", icon: "▤", hint: "Recordings for training the models — researchers only" });
   }
   // The appropriate-reliance study (ADR-026): researchers run it; enrolled coaches
   // and referees take part (the page says if they aren't enrolled).
   if (user?.is_researcher || activeRole === "coach" || activeRole === "referee") {
-    navItems.push({ label: "Study", href: "/study", icon: "◎" });
+    navItems.push({ label: "Study", href: "/study", icon: "◎", hint: "The advisory review study" });
   }
   // Which AI writes the advice — local or remote (ADR-021).
   if (user?.is_researcher || activeRole === "admin") {
-    navItems.push({ label: "AI model", href: "/ai-model", icon: "✦" });
+    navItems.push({ label: "AI model", href: "/ai-model", icon: "✦", hint: "Which computer writes the AI training advice" });
   }
 
   // Fighter context tabs (when viewing any fighter page)
@@ -106,6 +107,7 @@ export function Sidebar({ onNavigate }: { onNavigate?: () => void } = {}) {
         label: t.label,
         href: t.slug ? `/fighters/${fighterId}/${t.slug}` : `/fighters/${fighterId}`,
         icon: t.icon,
+        hint: t.hint,
       }))
     : [];
 
@@ -135,6 +137,7 @@ export function Sidebar({ onNavigate }: { onNavigate?: () => void } = {}) {
           <Link
             key={item.href + item.label}
             href={item.href}
+            title={item.hint}
             onClick={onNavigate}
             className={`flex items-center gap-2.5 rounded-lg px-3 py-2 text-sm transition-colors ${
               isTabActive(item.href)
@@ -165,6 +168,7 @@ export function Sidebar({ onNavigate }: { onNavigate?: () => void } = {}) {
                 <Link
                   key={t.href}
                   href={t.href}
+                  title={t.hint}
                   className={`flex items-center gap-2.5 rounded-lg px-3 py-2 text-sm transition-colors ${
                     active
                       ? "bg-white/10 text-white font-medium"
@@ -210,6 +214,7 @@ export function Sidebar({ onNavigate }: { onNavigate?: () => void } = {}) {
               <Link
                 key={t.href}
                 href={t.href}
+                title={t.hint}
                 className={`flex items-center gap-2.5 rounded-lg px-3 py-2 text-sm transition-colors ${
                   isTabActive(t.href)
                     ? "bg-white/10 text-white font-medium"

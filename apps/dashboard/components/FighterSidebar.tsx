@@ -10,11 +10,11 @@ import { type ProfileKind, useActiveProfile } from "@/lib/activeProfile";
 const TABS: { slug: string; label: string; icon: string; roles?: ProfileKind[] }[] = [
   { slug: "", label: "Dashboard", icon: "▦" },
   { slug: "sessions", label: "Training sessions", icon: "▷" },
-  { slug: "hrv", label: "HRV", icon: "♥" },
+  { slug: "hrv", label: "Heart rate", icon: "♥" },
   { slug: "observations", label: "Observations", icon: "✎" },
   { slug: "medical", label: "Health notes", icon: "▣" },
   { slug: "team", label: "Team", icon: "◈" },
-  { slug: "imu", label: "IMU", icon: "▤" },
+  { slug: "imu", label: "Wrist sensors", icon: "▤" },
 ];
 
 export function FighterSidebar({ fighter }: { fighter: Fighter }) {

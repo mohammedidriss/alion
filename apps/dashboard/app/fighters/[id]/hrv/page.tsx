@@ -63,10 +63,10 @@ function HrvTabContent({ params }: { params: { id: string } }) {
     return (
       <div className="space-y-6 px-4 py-5 sm:px-8 sm:py-6">
         <header>
-          <h1 className="text-2xl font-semibold">HRV</h1>
-          <p className="text-sm text-neutral-400">
-            Heart-rate variability — resting baselines and correlation with
-            performance.
+          <h1 className="text-2xl font-semibold">Heart rate</h1>
+          <p className="text-sm text-neutral-300">
+            Heart rate in every session from the chest strap, and heart-rate variability (HRV) —
+            how much the time between beats varies — from resting baselines.
           </p>
           <SafetyBoundary className="mt-2" />
         </header>
@@ -142,10 +142,11 @@ function HrvTabContent({ params }: { params: { id: string } }) {
   return (
     <div className="space-y-6 px-4 py-5 sm:px-8 sm:py-6">
       <header>
-        <h1 className="text-2xl font-semibold">HRV</h1>
-        <p className="text-sm text-neutral-400">
-          {baselined.length} session{baselined.length === 1 ? "" : "s"} with
-          recorded resting baseline.
+        <h1 className="text-2xl font-semibold">Heart rate</h1>
+        <p className="text-sm text-neutral-300">
+          Heart rate in every session from the chest strap, and heart-rate variability (HRV) —
+          how much the time between beats varies. {baselined.length} session
+          {baselined.length === 1 ? "" : "s"} with a resting baseline.
         </p>
         <SafetyBoundary className="mt-2" />
       </header>

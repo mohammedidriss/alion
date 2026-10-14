@@ -15,10 +15,10 @@ export default function ImuTab({ params }: { params: { id: string } }) {
   return (
     <div className="space-y-6 px-4 py-5 sm:px-8 sm:py-6">
       <header>
-        <h1 className="text-2xl font-semibold">IMU</h1>
-        <p className="text-sm text-neutral-400">
-          Wrist-worn inertial sensors: acceleration and rotation of each fist, on the same
-          timeline as the video.
+        <h1 className="text-2xl font-semibold">Wrist sensors</h1>
+        <p className="text-sm text-neutral-300">
+          A small sensor on each wrist (an IMU) measures each punch&apos;s force and how fast the
+          forearm turns, on the same timeline as the video.
         </p>
       </header>
 

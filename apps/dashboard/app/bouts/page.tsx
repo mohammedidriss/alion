@@ -52,7 +52,7 @@ export default function BoutsPage() {
     <div className="space-y-6 px-4 py-5 sm:px-8 sm:py-6">
       <header className="flex items-center justify-between gap-4">
         <div>
-          <h1 className="text-2xl font-semibold">Bouts</h1>
+          <h1 className="text-2xl font-semibold">Fights</h1>
           <p className="text-sm text-neutral-400">
             Two-fighter fights. For a single fighter, start a training session from the
             fighter&apos;s Training sessions page.

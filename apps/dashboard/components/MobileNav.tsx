@@ -23,11 +23,11 @@ function pageTitle(p: string): string {
   if (/\/sessions\/new/.test(p)) return "Training Session";
   if (/\/sessions\//.test(p)) return "Training Session";
   if (/\/sessions/.test(p)) return "Training Sessions";
-  if (/\/hrv/.test(p)) return "HRV";
-  if (/\/observations/.test(p)) return "Notes";
+  if (/\/hrv/.test(p)) return "Heart rate";
+  if (/\/observations/.test(p)) return "Observations";
   if (/\/medical/.test(p)) return "Health notes";
   if (/\/team/.test(p)) return "Team";
-  if (/\/imu/.test(p)) return "IMU";
+  if (/\/imu/.test(p)) return "Wrist sensors";
   if (/\/fighters\//.test(p)) return "Fighter";
   if (/\/coaches\//.test(p)) return "Coach";
   if (/\/profile/.test(p)) return "Profile";

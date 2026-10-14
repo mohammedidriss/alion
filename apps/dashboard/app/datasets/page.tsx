@@ -61,7 +61,7 @@ export default function DatasetsPage() {
     <div className="space-y-6 px-4 py-5 sm:px-8 sm:py-6">
       <header className="flex flex-wrap items-center justify-between gap-4">
         <div>
-          <h1 className="text-2xl font-semibold">Datasets</h1>
+          <h1 className="text-2xl font-semibold">Research datasets</h1>
           <p className="text-sm text-neutral-400">
             Research recordings for model training, kept separate from training sessions.
           </p>
