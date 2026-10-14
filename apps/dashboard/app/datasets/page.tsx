@@ -9,6 +9,7 @@
 
 import Link from "next/link";
 import { useEffect, useState } from "react";
+import { WristTypesCard } from "@/components/WristTypesCard";
 import { api, type DatasetSummary } from "@/lib/api";
 
 const PROTOCOLS = [
@@ -72,6 +73,8 @@ export default function DatasetsPage() {
           + Record dataset session
         </button>
       </header>
+
+      <WristTypesCard />
 
       {showNew && (
         <div className="card space-y-3">

@@ -79,6 +79,18 @@ def features(win: np.ndarray, hand: str) -> np.ndarray:
     return np.asarray(rows, dtype=float)
 
 
+def motion_to_type(motion: str, hand: str, stance: str | None) -> str | None:
+    """The punch's name: a hook or an uppercut as it is; a straight is the jab on
+    the lead hand and the cross on the rear (None without a fixed stance)."""
+    if motion != "straight":
+        return motion
+    s = (stance or "").lower()
+    lead = "left" if s == "orthodox" else "right" if s == "southpaw" else None
+    if lead is None:
+        return None
+    return "jab" if hand == lead else "cross"
+
+
 def fit(x: np.ndarray, y: np.ndarray, *, seed: int = 0) -> Any:
     import sklearn.ensemble  # type: ignore[import-untyped, import-not-found, unused-ignore]
 

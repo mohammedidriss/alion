@@ -1,10 +1,13 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
+import { PunchDots } from "@/components/PunchDots";
 import { SafetyBoundary } from "@/components/SafetyBoundary";
+import { tallyRows } from "@/lib/punchTally";
 import {
   api,
   type CrossCheckSummary,
+  type PunchTally,
   type RoundExportItem,
   type RoundsExportResponse,
   type SessionStatus,
@@ -141,6 +144,19 @@ export function RoundBreakdownCard({ sessionId, status }: Props) {
           progress chart so it&apos;s comparable across sessions.
         </p>
       )}
+      {fused && xc?.types && (
+        <div className="mt-3 space-y-2 rounded-xl border border-white/10 p-3">
+          <div className="flex flex-wrap items-baseline justify-between gap-2">
+            <h3 className="text-sm font-semibold">Punch types — from the wrist sensors</h3>
+            <span className="text-[11px] text-neutral-400">
+              model v{xc.types_model}
+              {xc.types_accuracy != null &&
+                ` · named right ${Math.round(xc.types_accuracy * 100)}% of the time on recordings it never trained on`}
+            </span>
+          </div>
+          <PunchDots tally={xc.types} stance={data.stance} />
+        </div>
+      )}
       <div className="mt-3 overflow-x-auto">
         <table className="w-full text-xs">
           <thead>
@@ -159,6 +175,11 @@ export function RoundBreakdownCard({ sessionId, status }: Props) {
                   Rotation
                 </th>
               )}
+              {fused && xc?.types && (
+                <th className="py-1.5 pr-3" title="The round's punches named from the wrist sensors">
+                  Types
+                </th>
+              )}
               <th className="py-1.5">
                 {fused ? "Cross-check" : wrist ? "Avg wrist g" : "CV/IMU match"}
               </th>
@@ -172,6 +193,8 @@ export function RoundBreakdownCard({ sessionId, status }: Props) {
                 isLive={status === "capturing" || status === "processing"}
                 wrist={wrist}
                 fused={fused}
+                typesShown={!!xc?.types}
+                stance={data.stance ?? null}
               />
             ))}
           </tbody>
@@ -182,16 +205,30 @@ export function RoundBreakdownCard({ sessionId, status }: Props) {
   );
 }
 
+/** A round's wrist-named punches in one short line: "Jab 12 · Cross 9 · Lead hook 4". */
+function typeLine(t: PunchTally, stance: string | null): string {
+  const parts = tallyRows(t, stance).flatMap((row) =>
+    row.dots
+      .filter((d) => d.count > 0)
+      .map((d) => `${row.side ? d.short : `${row.hand === "left" ? "L" : "R"} ${d.short.toLowerCase()}`} ${d.count}`),
+  );
+  return parts.length ? parts.join(" · ") : "—";
+}
+
 function RoundRow({
   round: r,
   isLive,
   wrist,
   fused,
+  typesShown,
+  stance,
 }: {
   round: RoundExportItem;
   isLive: boolean;
   wrist: boolean;
   fused: boolean;
+  typesShown: boolean;
+  stance: string | null;
 }) {
   const durationMin = r.duration_ms / 60_000;
   const x = fused ? r.cross_check : null;
@@ -288,6 +325,11 @@ function RoundRow({
               </>
             );
           })()}
+        </td>
+      )}
+      {fused && typesShown && (
+        <td className="py-2 pr-3 whitespace-nowrap text-[11px] text-neutral-300">
+          {x?.types ? typeLine(x.types, stance) : "—"}
         </td>
       )}
       <td className="py-2 tabular-nums">

@@ -274,3 +274,27 @@ def test_each_counted_wrist_punch_carries_how_fast_the_forearm_turned(
     assert felt and all(p["peak_dps"] == 900.0 for p in felt)
     camera_only = [p for p in report["punches"] if p["source"] == "camera"]
     assert all(p["peak_dps"] is None for p in camera_only)  # no wrist, no rotation
+
+
+def test_with_a_wrist_type_model_each_wrist_punch_is_named(
+    authed_client: TestClient, session: Session, dirs: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    from api.services import cross_check, wrist_type_model
+
+    def fake_name(t_ms, imu, at_ms, hand, stance):  # type: ignore[no-untyped-def]
+        motion = "straight" if hand == "left" else "hook"
+        return [(motion, "jab" if motion == "straight" else "hook") for _ in at_ms]
+
+    monkeypatch.setattr(wrist_type_model, "name", fake_name)
+    monkeypatch.setattr(wrist_type_model, "current_version", lambda: 7)
+    sid = _session_with_sensors(authed_client, session, dirs)
+    report = cross_check.run_now("session", UUID(sid), db=session)
+    assert report is not None and report["types_model"] == 7
+    left = [p for p in report["punches"] if p["counted"] and p["hand"] == "left" and p["peak_g"]]
+    assert left and all(p["motion"] == "straight" and p["punch_type"] == "jab" for p in left)
+
+    out = authed_client.get(f"/sessions/{sid}/rounds_export").json()
+    assert out["stance"] == "orthodox"
+    types = out["cross_check"]["types"]
+    assert types["left"]["straight"] == types["left"]["total"] == 3  # 10, 20 and 30 s
+    assert types["right"]["hook"] == 1

@@ -23,6 +23,8 @@ data/imu/
 data/datasets/
 # Counters trained on participants' data stay local (ADR-015)
 data/ml/punch_counter/
+# The wrist punch-type model (ADR-029) — trained on participants' takes, never pushed.
+data/ml/wrist_types/
 data/capture/
 *.db
 *.sqlite

@@ -833,6 +833,7 @@ export interface RoundCrossCheckBlock {
   mean_peak_g: number | null;
   impact_score: number | null; // Σ peak g
   mean_peak_dps?: number | null; // how fast the forearm turned per counted punch (°/s)
+  types?: PunchTally | null; // the round's wrist punches by motion
 }
 
 export type HandsVerdict = "consistent" | "swapped" | "unclear";
@@ -859,6 +860,10 @@ export interface CrossCheckSummary {
   camera_only: number;
   unconfirmed: number;
   cameras: CrossCheckCamera[];
+  /** The wrist punches by motion, per hand (ADR-029) — null until a model is trained. */
+  types?: PunchTally | null;
+  types_model?: number | null; // its version
+  types_accuracy?: number | null; // on takes it never trained on
 }
 
 /** Right after a block is saved: is it good enough to move on? */
@@ -949,7 +954,25 @@ export interface RoundsExportResponse {
    *  stored camera events, else the wrist sensors alone. */
   punch_source: "fused" | "camera" | "wrist" | "none";
   cross_check: CrossCheckSummary | null;
+  stance?: string | null; // names jab/cross and lead/rear on the types
   rounds: RoundExportItem[];
+}
+
+/** The wrist punch-type model's report (ADR-029). */
+export interface WristTypeScore {
+  punches: number;
+  accuracy: number;
+  recall: Record<"straight" | "hook" | "uppercut", number | null>;
+  confusion: Record<string, Record<string, number>>;
+  by_hand: Record<string, number>;
+  majority_share: number;
+}
+export interface WristTypesReport {
+  version: number;
+  created_at: string;
+  data: { takes: number; participants: number; stances: Record<string, number>; punches: number; per_motion: Record<string, number> };
+  held_out_takes: WristTypeScore;
+  combos: WristTypeScore | null;
 }
 
 export interface MatrixPoint {
@@ -1791,6 +1814,10 @@ export const api = {
     req<number>(`/v2/sessions/${id}/hrv/load`, { method: "POST" }),
 
   // ---- RQ1 study ----
+  // ---- Wrist punch types (ADR-029) ----
+  wristTypes: () => req<{ report: WristTypesReport | null }>("/v2/wrist-types"),
+  trainWristTypes: () => req<{ report: WristTypesReport }>("/v2/wrist-types/train", { method: "POST" }),
+
   // ---- Appropriate-reliance study (ADR-026) ----
   studyMe: () => req<StudyMe>("/v2/studies/reliance/me"),
   studySubmitSurvey: (body: { trust_items: Record<string, number>; distrust_items: Record<string, number> }) =>

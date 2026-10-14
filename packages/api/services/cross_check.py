@@ -36,7 +36,8 @@ from sqlmodel import col, func, select
 from analyze.imu_punches import detect_punches as detect_wrist_punches
 from analyze.imu_punches import peak_rotations
 from analyze.punch_fusion import WristPunch, camera_punches, cross_check, wrist_gaps
-from api.services import dataset_store, session_analysis
+from analyze.wrist_types import motion_to_type
+from api.services import dataset_store, session_analysis, wrist_type_model
 from capture.cv.writer import read_pose_parquet
 from common import get_logger
 from contracts import Hand
@@ -116,7 +117,10 @@ def _inputs(kind: Kind, capture_id: UUID, db: DBSession) -> _Inputs | None:
         return None
     return _Inputs(
         pose=pose,
-        signature=_sig([_stat(p) for p in pose.values()], imu_sig, duration),
+        # A new wrist punch-type model names the punches again (ADR-029).
+        signature=_sig(
+            [_stat(p) for p in pose.values()], imu_sig, duration, wrist_type_model.current_version()
+        ),
         folder=folder,
     )
 
@@ -213,9 +217,12 @@ def run_now(
     for hand, a in samples.items():
         if len(a) >= 20:
             found = detect_wrist_punches(a[:, 0], a[:, 1], a[:, 2], a[:, 3])
-            turns = peak_rotations(a[:, 0], a[:, 4], a[:, 5], a[:, 6], [e.t_ms for e in found])
+            at = [e.t_ms for e in found]
+            turns = peak_rotations(a[:, 0], a[:, 4], a[:, 5], a[:, 6], at)
+            named = wrist_type_model.name(a[:, 0], a[:, 1:7], at, hand, stance)
             wrist += [
-                WristPunch(e.t_ms, hand, e.peak_g, r) for e, r in zip(found, turns, strict=True)
+                WristPunch(e.t_ms, hand, e.peak_g, r, motion)
+                for e, r, (motion, _) in zip(found, turns, named, strict=True)
             ]
     poses = {dev: read_pose_parquet(path) for dev, path in inp.pose.items()}
     spans = {dev: (f[-1].t_ms - f[0].t_ms) if len(f) > 1 else 0.0 for dev, f in poses.items()}
@@ -249,6 +256,7 @@ def run_now(
         "hands": cc.hands,
         "hands_swapped": cc.hands_swapped,
         "cameras_skipped": skipped,  # too little pose to vote
+        "types_model": wrist_type_model.current_version(),  # names the wrist punches
         "totals": {
             "counted": len(counted),
             "confirmed": by[("both", True)],
@@ -284,6 +292,8 @@ def run_now(
                 "counted": p.counted,
                 "peak_g": p.peak_g,
                 "peak_dps": p.peak_dps,
+                "motion": p.motion,  # from the wrist (ADR-029); None: no model, or no wrist
+                "punch_type": motion_to_type(p.motion, p.hand, stance) if p.motion else None,
                 "speed_ms": p.speed_ms,
                 "cameras": len(p.cameras),
             }

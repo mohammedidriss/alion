@@ -78,6 +78,7 @@ class WristPunch:
     hand: Hand
     peak_g: float
     peak_dps: float | None = None  # the fastest the forearm turned (°/s); None: no gyro
+    motion: str | None = None  # straight / hook / uppercut, from the wrist (ADR-029)
 
 
 @dataclass(frozen=True)
@@ -98,6 +99,7 @@ class FusedPunch:
     speed_ms: float | None = None
     cameras: tuple[str, ...] = ()
     peak_dps: float | None = None  # from the wrist: the fastest the forearm turned (°/s)
+    motion: str | None = None  # from the wrist: straight / hook / uppercut
 
 
 @dataclass(frozen=True)
@@ -375,7 +377,7 @@ def cross_check(
     if swapped:
         # The sensor labelled "left" was on the right wrist: its punches and its
         # dropouts belong to the right hand.
-        wrist = [WristPunch(w.t_ms, _flip(w.hand), w.peak_g, w.peak_dps) for w in wrist]
+        wrist = [WristPunch(w.t_ms, _flip(w.hand), w.peak_g, w.peak_dps, w.motion) for w in wrist]
         gaps = {"left": gaps.get("right", ()), "right": gaps.get("left", ())}
 
     pairs = _pair(
@@ -391,7 +393,15 @@ def cross_check(
             w = wrist[pairs[i]]
             out.append(
                 FusedPunch(
-                    w.t_ms, w.hand, "both", True, w.peak_g, v.speed_ms, v.cameras, w.peak_dps
+                    w.t_ms,
+                    w.hand,
+                    "both",
+                    True,
+                    w.peak_g,
+                    v.speed_ms,
+                    v.cameras,
+                    w.peak_dps,
+                    w.motion,
                 )
             )
         else:
@@ -401,7 +411,7 @@ def cross_check(
             out.append(FusedPunch(v.t_ms, v.hand, "camera", dropout, None, v.speed_ms, v.cameras))
     paired = set(pairs.values())
     out += [
-        FusedPunch(w.t_ms, w.hand, "wrist", True, w.peak_g, peak_dps=w.peak_dps)
+        FusedPunch(w.t_ms, w.hand, "wrist", True, w.peak_g, peak_dps=w.peak_dps, motion=w.motion)
         for j, w in enumerate(wrist)
         if j not in paired
     ]

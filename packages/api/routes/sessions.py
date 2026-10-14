@@ -33,6 +33,7 @@ from api.services import (
     imu_runner,
     sensor_summary,
     signed,
+    wrist_type_model,
 )
 from capture.hrv import parse_rr_csv
 from contracts import HRSample
@@ -1064,6 +1065,7 @@ class RoundCrossCheckBlock(BaseModel):
     mean_peak_g: float | None
     impact_score: float | None  # Σ peak g of the counted punches the wrists felt
     mean_peak_dps: float | None = None  # how fast the forearm turned per counted punch (°/s)
+    types: dict[str, dict[str, int]] | None = None  # the round's wrist punches by motion
 
 
 class CrossCheckCamera(BaseModel):
@@ -1088,6 +1090,11 @@ class CrossCheckSummary(BaseModel):
     camera_only: int = 0
     unconfirmed: int = 0
     cameras: list[CrossCheckCamera] = Field(default_factory=list)
+    # The wrist punches named by the wrist type model (ADR-029): per hand, the
+    # punches the wrists felt and how many of each motion — the cameras' tally shape.
+    types: dict[str, dict[str, int]] | None = None
+    types_model: int | None = None  # its version
+    types_accuracy: float | None = None  # on takes it never trained on
 
 
 class RoundExportItem(BaseModel):
@@ -1121,6 +1128,7 @@ class RoundsExportResponse(BaseModel):
     round_duration_s: int
     rest_duration_s: int
     study_condition: str | None = None
+    stance: str | None = None  # names jab/cross and lead/rear on the types
     rounds: list[RoundExportItem]
 
 
@@ -1308,13 +1316,18 @@ def rounds_export(
                 CrossCheckCamera(**{**c, "label": labels.get(c["device_id"]) or c.get("label")})
                 for c in xc["cameras"]
             ],
+            types=_type_tally(fused),
+            types_model=xc.get("types_model"),
+            types_accuracy=_types_accuracy(xc.get("types_model")),
         )
     elif xc_status == "running":
         summary = CrossCheckSummary(status="running")
 
+    fighter = FighterRepo(db).get(row.fighter_id)
     return RoundsExportResponse(
         session_id=session_id,
         fighter_id=row.fighter_id,
+        stance=str(fighter.stance.value) if fighter and fighter.stance else None,
         started_at=row.started_at,
         round_count=rounds_n,
         round_duration_s=round_s,
@@ -1354,7 +1367,36 @@ def _round_cross_check(
         mean_peak_g=round(sum(gs) / len(gs), 2) if gs else None,
         impact_score=round(sum(gs), 1) if gs else None,
         mean_peak_dps=round(sum(turns) / len(turns)) if turns else None,
+        types=_type_tally(counted),
     )
+
+
+def _type_tally(counted: list[dict[str, Any]]) -> dict[str, dict[str, int]] | None:
+    """The counted punches the wrists felt, per hand, by the motion the wrist type
+    model named (ADR-029) — None when no punch was named (no model trained)."""
+    felt = [p for p in counted if p.get("peak_g") is not None]
+    if not any(p.get("motion") for p in felt):
+        return None
+    out: dict[str, dict[str, int]] = {}
+    for hand in ("left", "right"):
+        mine = [p for p in felt if p["hand"] == hand]
+        out[hand] = {
+            "total": len(mine),
+            **{
+                m: sum(1 for p in mine if p.get("motion") == m)
+                for m in ("straight", "hook", "uppercut")
+            },
+        }
+    return out
+
+
+def _types_accuracy(version: int | None) -> float | None:
+    """The named model's accuracy on takes it never trained on."""
+    report = wrist_type_model.latest_report() if version is not None else None
+    if not report or report.get("version") != version:
+        return None
+    acc = (report.get("held_out_takes") or {}).get("accuracy")
+    return float(acc) if acc is not None else None
 
 
 # ---------------------------------------------------------------------------
