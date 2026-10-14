@@ -9,6 +9,7 @@ import {
   type GymMembership,
 } from "@/lib/api";
 import { useAuth } from "@/lib/auth";
+import { isAdmin } from "@/lib/nav";
 
 interface GymRow extends Gym {
   fighterCount: number;
@@ -159,12 +160,15 @@ export default function GymsPage() {
             {gyms.length} gym{gyms.length !== 1 ? "s" : ""} in the network
           </p>
         </div>
-        <button
-          onClick={() => setShowForm(!showForm)}
-          className="rounded-xl bg-emerald-500 px-4 py-2 text-sm font-medium text-black hover:bg-emerald-400"
-        >
-          {showForm ? "Cancel" : "+ Add Gym"}
-        </button>
+        {/* Only an administrator adds a gym; a manager's gym came with their sign-up (ADR-030). */}
+        {isAdmin(user) && (
+          <button
+            onClick={() => setShowForm(!showForm)}
+            className="rounded-xl bg-emerald-500 px-4 py-2 text-sm font-medium text-black hover:bg-emerald-400"
+          >
+            {showForm ? "Cancel" : "+ Add Gym"}
+          </button>
+        )}
       </header>
 
       {/* Create form */}

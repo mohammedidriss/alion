@@ -6,7 +6,7 @@ from datetime import UTC, datetime
 from uuid import UUID
 
 from sqlmodel import Session as DBSession
-from sqlmodel import select
+from sqlmodel import col, select
 
 from store.models import (
     PARTICIPANT_CODE_PREFIX,
@@ -549,6 +549,7 @@ class GymRepo:
         row.status_note = note
         if status == "left":
             row.left_on = _date.today()
+            self._end_ties(row)
         elif row.left_on is not None and status != "left":
             # Reactivating — clear departure date
             row.left_on = None
@@ -556,6 +557,57 @@ class GymRepo:
         self._session.commit()
         self._session.refresh(row)
         return row
+
+    def _end_ties(self, row: GymMembership) -> None:
+        """Someone left the gym (ADR-050): the coach links that ran through it end —
+        a fighter's with the gym's coaches, a coach's with the gym's fighters — and
+        their profile stops naming the gym. The history stays (ended, not deleted)."""
+        from datetime import date as _date
+
+        from store.models import Coach, CoachAssignment, Fighter, MembershipStatus
+
+        here = (
+            MembershipStatus.ACTIVE,
+            MembershipStatus.TRIAL,
+            MembershipStatus.FROZEN,
+            MembershipStatus.SUSPENDED,
+        )
+
+        def members(kind: str) -> set[UUID]:
+            q = select(GymMembership.member_id).where(
+                GymMembership.gym_id == row.gym_id,
+                GymMembership.member_type == kind,
+                col(GymMembership.status).in_(here),
+            )
+            return set(self._session.exec(q).all())
+
+        open_ties = select(CoachAssignment).where(col(CoachAssignment.ended_on).is_(None))
+        if row.member_type == "fighter":
+            coaches = members("coach") | set(
+                self._session.exec(select(Coach.id).where(Coach.gym_id == row.gym_id)).all()
+            )
+            ties = self._session.exec(
+                open_ties.where(
+                    CoachAssignment.fighter_id == row.member_id,
+                    col(CoachAssignment.coach_id).in_(coaches),
+                )
+            )
+            profile: Fighter | Coach | None = self._session.get(Fighter, row.member_id)
+        else:
+            ties = self._session.exec(
+                open_ties.where(
+                    CoachAssignment.coach_id == row.member_id,
+                    col(CoachAssignment.fighter_id).in_(members("fighter")),
+                )
+            )
+            profile = self._session.get(Coach, row.member_id)
+        for tie in ties:
+            tie.ended_on = _date.today()
+            self._session.add(tie)
+        if profile is not None and profile.gym_id == row.gym_id:
+            profile.gym_id = None
+            profile.gym = None
+            self._session.add(profile)
 
     def remove_member(self, gym_id: UUID, membership_id: int) -> bool:
         """Soft-remove: sets status to 'left' and records departure date."""

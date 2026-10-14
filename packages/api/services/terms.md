@@ -14,20 +14,26 @@ study "Advisory by Design: Expert Trust and Reliance on a Verified Multimodal AI
 Platform for Combat Sport Decisions" (IRB reference [number]). Contact:
 Mohammed.idriss@hotmail.com.
 
-## 2. Your account
+## 2. Who can take part
+
+Only people taking part in this study use Alion: accepting these terms is your
+agreement to take part, and nobody can sign in without it. You must be **18 or
+older**; Alion is not for anyone under 18.
+
+## 3. Your account
 
 You sign up with your name and email address. These are used to log you in and to
 show you your own data. They stay in the platform's database on [the research
 team's computers / location], are not stored on a public cloud, and are not
 shared with anyone outside the research team.
 
-## 3. What is recorded
+## 4. What is recorded
 
 During sessions the platform may record: video from cameras, wrist-sensor motion
 data, heart-rate data from a chest strap, and the punches detected from them.
 Video is recorded **without sound**.
 
-## 4. Who can see your data
+## 5. Who can see your data
 
 - You see everything about yourself.
 - Your coaches see your training sessions; they see your health notes only if
@@ -38,13 +44,16 @@ Video is recorded **without sound**.
   health notes, for the study. Every look at health notes is logged.
 - Administrators manage accounts and gyms; they don't see training or health data.
 
-## 5. How your recordings are used
+## 6. How your data is used
 
-Recorded sessions — video, wrist-sensor and heart-rate data, and the punches
-detected from them — are used by the research team to develop and improve the
-platform, including the models that detect and name punches.
+All data on the platform — training sessions (video, wrist-sensor and heart-rate
+data, and the punches detected from them), labels and notes, health notes, and
+research datasets — is used by the research team to develop, train and evaluate
+the platform's AI models and to improve the platform. This is part of taking
+part in the study, so there is no separate choice about it while you use Alion;
+to stop, withdraw (section 9).
 
-## 6. Research datasets
+## 7. Research datasets
 
 If you take part in a research dataset, what goes into it is **de-identified**:
 
@@ -54,23 +63,23 @@ If you take part in a research dataset, what goes into it is **de-identified**:
   produced;
 - datasets are not shared with anyone [outside the research team].
 
-## 7. Advice from the platform
+## 8. Advice from the platform
 
 The platform is an early version still in development. It can make mistakes. Any
 advice it shows is non-binding: a person makes every decision.
 
-## 8. Withdrawing
+## 9. Withdrawing
 
-You can withdraw from a research dataset at any time by contacting
-Mohammed.idriss@hotmail.com, or by asking on the Privacy & consent page. Your
-recordings in that dataset are then deleted. Models already trained on the data
-are not changed.
+You can withdraw from the study, or from a research dataset, at any time by
+contacting Mohammed.idriss@hotmail.com, or by asking on the Privacy & consent
+page. Your recordings in a dataset are then deleted. Models already trained on
+the data are not changed.
 
-## 9. How long data is kept
+## 10. How long data is kept
 
 [Retention periods — e.g. raw recordings destroyed [N] years after capture.]
 
-## 10. Changes to these terms
+## 11. Changes to these terms
 
 If these terms change, you will be asked to accept the new version the next time
 you sign in.

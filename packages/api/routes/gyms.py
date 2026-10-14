@@ -12,7 +12,7 @@ from uuid import UUID
 from fastapi import APIRouter, Depends, HTTPException, status
 from pydantic import BaseModel
 from sqlmodel import Session as DBSession
-from sqlmodel import select
+from sqlmodel import col, select
 
 from api import access
 from api.deps import db_session, gym_repo, resolve_gym_id
@@ -526,6 +526,21 @@ def update_membership_status(
 # ------------------------------------------------------------------
 
 
+def _checks_in(db: DBSession, gym_id: UUID, member_id: UUID, member_type: str) -> bool:
+    """An active or trial member of the gym — or a coach whose profile names it."""
+    if member_type == "coach":
+        coach = db.get(Coach, member_id)
+        if coach is not None and coach.gym_id == gym_id:
+            return True
+    q = select(GymMembership.id).where(
+        GymMembership.gym_id == gym_id,
+        GymMembership.member_id == member_id,
+        GymMembership.member_type == member_type,
+        col(GymMembership.status).in_((MembershipStatus.ACTIVE, MembershipStatus.TRIAL)),
+    )
+    return db.exec(q).first() is not None
+
+
 @router.post(
     "/{gym_id}/checkins",
     response_model=CheckInRead,
@@ -543,6 +558,11 @@ def check_in(
         raise HTTPException(status_code=404, detail="gym not found")
     if data.member_type not in ("fighter", "coach"):
         raise HTTPException(status_code=422, detail="member_type must be 'fighter' or 'coach'")
+    if not _checks_in(session, gym_id, data.member_id, data.member_type):
+        raise HTTPException(
+            status_code=409,
+            detail="Only the gym's active or trial members check in (ADR-050)",
+        )
 
     ci_repo = CheckInRepo(session)
     ci = ci_repo.check_in(gym_id, data.member_id, data.member_type, data.notes)

@@ -203,6 +203,16 @@ export type GymPatch = Partial<Omit<Gym, "id" | "created_at">>;
 export type MembershipStatus = "active" | "frozen" | "suspended" | "trial" | "left" | "invited" | "declined";
 
 /** A gym asking the signed-in fighter to join it (ADR-035). */
+/** A gym the signed-in fighter is in (GET /v2/my-gyms, ADR-050). */
+export interface MyGym {
+  id: number; // the membership
+  gym_id: string;
+  gym_name: string;
+  gym_city: string | null;
+  status: string;
+  joined_on: string | null;
+}
+
 export interface GymInvitation {
   id: number;
   gym_id: string;
@@ -2067,6 +2077,9 @@ export const api = {
   gymInvitations: () => req<GymInvitation[]>("/v2/gym-invitations"),
   answerGymInvitation: (id: number, answer: "accept" | "decline") =>
     req<{ status: string }>(`/v2/gym-invitations/${id}/${answer}`, { method: "POST" }),
+  myGyms: () => req<MyGym[]>("/v2/my-gyms"),
+  leaveGym: (membershipId: number) =>
+    req<{ status: string }>(`/v2/my-gyms/${membershipId}/leave`, { method: "POST" }),
   privacyRequest: (kind: DataRequestKind, note?: string) =>
     req<DataRequest>("/v2/privacy/requests", {
       method: "POST",

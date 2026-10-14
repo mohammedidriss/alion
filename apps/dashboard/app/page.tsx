@@ -234,7 +234,7 @@ export default function Home() {
                   className="mt-0.5 h-3.5 w-3.5 rounded border-white/20 bg-white/[0.03] accent-emerald-500"
                 />
                 <span className="text-xs text-neutral-400">
-                  I agree to the{" "}
+                  I am 18 or older, and I agree to take part in the study and to the{" "}
                   <a href="/terms" target="_blank" className="text-emerald-300 underline hover:text-emerald-200">
                     terms and conditions
                   </a>

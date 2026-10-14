@@ -49,7 +49,8 @@ export function TermsGate({ terms }: { terms: TermsInfo }) {
             onChange={(e) => setAgreed(e.target.checked)}
             className="mt-0.5 h-4 w-4 accent-emerald-500"
           />
-          I have read and agree to the terms and conditions (version {terms.version}).
+          I am 18 or older, and I have read and agree to the terms and conditions (version{" "}
+          {terms.version}), including taking part in the study.
         </label>
         {err && <p className="mt-2 text-xs text-red-300">{err}</p>}
         <div className="mt-4 flex flex-wrap gap-2">

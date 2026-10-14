@@ -6,6 +6,7 @@ import { useCallback, useEffect, useMemo, useState } from "react";
 import { AdviceNotice } from "@/components/AdviceNotice";
 import { FighterDashboard } from "@/components/FighterDashboard";
 import { GymInvitationsCard } from "@/components/GymInvitationsCard";
+import { MyGymsCard } from "@/components/MyGymsCard";
 import { PolarH10Card } from "@/components/PolarH10Card";
 import { ProfileAvatar } from "@/components/ProfileAvatar";
 import { Sparkline } from "@/components/Sparkline";
@@ -294,6 +295,7 @@ export default function FighterPage({ params }: { params: { id: string } }) {
         </div>
       </header>
       {user?.role === "fighter" && user.profile_id === id && <GymInvitationsCard />}
+      {user?.role === "fighter" && user.profile_id === id && <MyGymsCard />}
 
       {nextStep}
 

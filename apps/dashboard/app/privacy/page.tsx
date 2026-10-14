@@ -9,6 +9,7 @@
 import Link from "next/link";
 import { useCallback, useEffect, useState } from "react";
 import { GymInvitationsCard } from "@/components/GymInvitationsCard";
+import { MyGymsCard } from "@/components/MyGymsCard";
 import { api, type DataRequestKind, type PrivacyMe } from "@/lib/api";
 
 const REQUESTS: { kind: DataRequestKind; title: string; text: string }[] = [
@@ -132,6 +133,7 @@ export default function PrivacyPage() {
       )}
 
       {me?.viewers && <GymInvitationsCard onAnswered={load} />}
+      {me?.viewers && <MyGymsCard onChanged={load} />}
 
       <section className="card space-y-3 text-sm">
         <h2 className="text-base font-semibold">Who can see it</h2>

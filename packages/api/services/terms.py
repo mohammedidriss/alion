@@ -13,7 +13,7 @@ from __future__ import annotations
 from pathlib import Path
 
 # Raise whenever terms.md changes; anything not "draft-…" is a real version.
-TERMS_VERSION = "draft-3"  # draft-3: who sees what, and recordings used for the models
+TERMS_VERSION = "draft-4"  # draft-4: study participants only, 18+, all data trains the models
 TERMS_FILE = Path(__file__).with_name("terms.md")
 
 
