@@ -24,7 +24,10 @@ from store import (
     FighterRepo,
     GymManagerRepo,
     GymRepo,
+    GymStaff,
+    GymStaffRole,
     RefereeRepo,
+    StaffStatus,
     User,
     UserCreate,
     UserRead,
@@ -186,6 +189,24 @@ async def require_current_user(user: User = Depends(require_signed_in)) -> User:
     return user
 
 
+def _gym_roles(db: Any, user: User) -> list[dict[str, str]]:
+    """The account's active roles at gyms (ADR-052) — what its menu shows."""
+    from sqlmodel import or_
+
+    from store import Gym
+
+    who = [GymStaff.user_id == user.id]
+    if user.role == UserRole.COACH and user.profile_id is not None:
+        who.append(GymStaff.coach_id == user.profile_id)
+    rows = db.exec(select(GymStaff).where(or_(*who), GymStaff.status == StaffStatus.ACTIVE)).all()
+    out = []
+    for s in rows:
+        gym = db.get(Gym, s.gym_id)
+        if gym is not None:
+            out.append({"gym_id": str(gym.id), "gym_name": gym.name, "role": s.role})
+    return sorted(out, key=lambda r: (r["gym_name"], r["role"]))
+
+
 def user_out(user: User) -> UserRead:
     """The account as the API returns it: whether it is a researcher, and whether
     it takes part in a study as a reviewer or an RQ1 rater (what its menu shows)."""
@@ -199,6 +220,7 @@ def user_out(user: User) -> UserRead:
     out.is_researcher = researchers.is_researcher(user)
     db = object_session(user)
     if db is not None:
+        out.gym_roles = _gym_roles(db, user)
         out.is_reviewer = (
             db.execute(_sel(StudyReviewerRow.id).where(StudyReviewerRow.user_id == user.id)).first()
             is not None
@@ -317,7 +339,9 @@ def register(
         if data.role == UserRole.GYM_MANAGER
         else None
     )
-    profile_id = _create_profile_for_role(user, session, gym_id=new_gym.id if new_gym else None)
+    profile_id = _create_profile_for_role(
+        user, session, gym_id=new_gym.id if new_gym else None, staff_role=GymStaffRole.OWNER
+    )
     if profile_id:
         repo.set_profile_id(user.id, profile_id)
         user.profile_id = profile_id
@@ -333,6 +357,7 @@ def _create_profile_for_role(
     user: User,
     session: DBSession,
     gym_id: UUID | None = None,
+    staff_role: GymStaffRole = GymStaffRole.MANAGER,
 ) -> UUID | None:
     """Create a profile entity matching the user's role and return its id."""
     if user.role == UserRole.FIGHTER:
@@ -354,6 +379,19 @@ def _create_profile_for_role(
             raise HTTPException(status_code=404, detail="Gym not found")
         gm_repo = GymManagerRepo(session)
         gm = gm_repo.create(GymManagerCreate(name=user.name, gym_id=gym_id))
+        # …and on the gym's staff (ADR-052): its owner when they signed up with it.
+        now = datetime.now(UTC)
+        session.add(
+            GymStaff(
+                gym_id=gym_id,
+                user_id=user.id,
+                role=staff_role,
+                status=StaffStatus.ACTIVE,
+                created_at=now,
+                started_at=now,
+            )
+        )
+        session.commit()
         return gm.id
     return None
 

@@ -7,6 +7,7 @@ import { CoachNextStep } from "@/components/NextStep";
 import { ProfileAvatar } from "@/components/ProfileAvatar";
 import { api, type Coach, type CoachNote, type CoachingLevel, type Fighter } from "@/lib/api";
 import { useAuth } from "@/lib/auth";
+import { StaffInvitationsCard } from "@/components/StaffInvitationsCard";
 
 
 export default function CoachPage({ params }: { params: { id: string } }) {
@@ -135,6 +136,7 @@ export default function CoachPage({ params }: { params: { id: string } }) {
       <Link href="/" className="text-sm text-neutral-400 hover:text-neutral-100">
         ← Main page
       </Link>
+      {isMe && <StaffInvitationsCard />}
 
       <header className="flex items-start gap-5">
         <button

@@ -121,11 +121,14 @@ def test_a_fighter_who_left_comes_back_only_by_accepting(client: TestClient) -> 
     assert client.get(f"/sessions/{sid}", headers=gina).status_code == 200
 
 
-def test_coaches_and_accounts_the_gym_makes_join_at_once(client: TestClient) -> None:
+def test_coaches_are_invited_to_the_staff_and_accounts_the_gym_makes_join_at_once(
+    client: TestClient,
+) -> None:
     gina, gym = _manager(client, "gina-c@alion.test", "Midtown")
     carla = _signup(client, "carla-c@alion.test", "coach")
-    r = _import(client, gym, carla, gina)
-    assert r.status_code == 201 and r.json()["status"] == "active"
+    r = _import(client, gym, carla, gina)  # a coach joins the staff, and accepts (ADR-052)
+    assert r.status_code == 201 and r.json()["status"] == "invited"
+    assert r.json()["member_type"] == "coach"
     r = client.post(
         f"/gyms/{gym}/members/create-account",
         json={

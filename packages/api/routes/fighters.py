@@ -863,6 +863,7 @@ def list_coach_assignments(
     fighter_id: UUID,
     fighters: FighterRepo = Depends(fighter_repo),
     team: FighterTeamRepo = Depends(fighter_team_repo),
+    db: DBSession = Depends(db_session),
 ) -> list[CoachAssignmentRead]:
     if fighters.get(fighter_id) is None:
         raise HTTPException(status_code=404, detail="fighter not found")
@@ -881,9 +882,41 @@ def list_coach_assignments(
                 notes=a.notes,
                 created_at=a.created_at,
                 health_access=a.health_access,
+                source_gym_id=a.source_gym_id,
+                source_gym_name=_gym_name(db, a.source_gym_id),
             )
         )
     return out
+
+
+def _gym_name(db: DBSession, gym_id: UUID | None) -> str | None:
+    from store import Gym
+
+    gym = db.get(Gym, gym_id) if gym_id else None
+    return gym.name if gym else None
+
+
+def _link_source(
+    viewer: access.Viewer, db: DBSession, fighter_id: UUID, coach_id: UUID
+) -> UUID | None:
+    """The gym a support-team link is made through (ADR-052), or None — the
+    fighter's own. The fighter (or a researcher) adds anyone. A gym's owner,
+    manager or head coach adds, for one of the gym's fighters, only someone on
+    that gym's coaching staff; so does a coach adding a colleague at their gym."""
+    if viewer.own_fighter == fighter_id or viewer.researcher:
+        return None
+    theirs = {
+        g for g in viewer.led_gyms | viewer.coach_gyms if fighter_id in access.gym_fighters(db, g)
+    }
+    if not theirs:
+        return None  # e.g. an administrator, or a coach outside any gym of theirs
+    at = theirs & access.staff_gyms(db, coach_id)
+    if not at:
+        raise HTTPException(
+            status_code=422,
+            detail="Through the gym, add someone on its coaching staff — invite them on the Staff page first",
+        )
+    return min(at, key=str)
 
 
 @router.post(
@@ -909,7 +942,12 @@ def add_coach_assignment(
     # Only the fighter (or a researcher) shares their health notes (ADR-046).
     if data.health_access and not (viewer.own_fighter == fighter_id or viewer.researcher):
         data = data.model_copy(update={"health_access": False})
+    source = _link_source(viewer, db, fighter_id, coach.id)
     row = team.add_coach_assignment(fighter_id, data)
+    row.source_gym_id, row.granted_by = source, viewer.user.id
+    db.add(row)
+    db.commit()
+    db.refresh(row)
     return CoachAssignmentRead(
         id=row.id,
         fighter_id=row.fighter_id,
@@ -922,6 +960,8 @@ def add_coach_assignment(
         notes=row.notes,
         created_at=row.created_at,
         health_access=row.health_access,
+        source_gym_id=row.source_gym_id,
+        source_gym_name=_gym_name(db, row.source_gym_id),
     )
 
 

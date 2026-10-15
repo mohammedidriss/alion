@@ -14,7 +14,7 @@ from api import access
 from api.deps import coach_note_repo, coach_repo, db_session, resolve_gym_id
 from api.routes.auth import get_current_user, require_current_user
 from api.services.photos import delete_photos_for, save_photo
-from store import CoachingLevel, CoachNoteRepo, CoachRepo, User
+from store import Coach, CoachingLevel, CoachNoteRepo, CoachRepo, User
 from store.models import (
     CoachAssignment,
     CoachCreate,
@@ -65,7 +65,31 @@ def create_coach(
         raise HTTPException(status_code=403, detail="Only an admin or a gym manager adds coaches")
     if viewer.manager_gym is not None:
         data.gym_id = viewer.manager_gym
-    return CoachRead.model_validate(repo.create(data), from_attributes=True)
+    coach = repo.create(data)
+    if viewer.manager_gym is not None:
+        # A profile the gym makes is on its staff at once (ADR-052).
+        from api.routes.gym_staff import add_staff
+        from store import GymStaffRole
+
+        add_staff(
+            viewer.db,
+            viewer.manager_gym,
+            role=GymStaffRole.COACH,
+            user=None,
+            coach_id=coach.id,
+            invited_by=viewer.user.id,
+            active=True,
+        )
+    return CoachRead.model_validate(coach, from_attributes=True)
+
+
+def _gym_coaches(db: DBSession, repo: CoachRepo, gym_id: UUID) -> list[Coach]:
+    """A gym's coaches: its coaching staff (ADR-052), and profiles naming the gym."""
+    staff = set(access.gym_coach_ids(db, gym_id))
+    by_profile = repo.list_for_gym(gym_id)
+    extra = [c for c in (db.get(Coach, cid) for cid in staff) if c is not None]
+    seen = {c.id for c in by_profile}
+    return sorted(by_profile + [c for c in extra if c.id not in seen], key=lambda c: c.name)
 
 
 @router.get("", response_model=list[CoachRead])
@@ -80,7 +104,7 @@ def list_coaches(
         scoped_gym = resolve_gym_id(current_user, session)
         if scoped_gym:
             gym_id = scoped_gym
-    rows = repo.list_for_gym(gym_id) if gym_id else repo.list_all()
+    rows = _gym_coaches(session, repo, gym_id) if gym_id else repo.list_all()
     # Resolve gym names for coaches that have gym_id but no gym text
     gym_ids = {c.gym_id for c in rows if c.gym_id and not c.gym}
     gym_names: dict[UUID, str] = {}

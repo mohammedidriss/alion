@@ -24,6 +24,9 @@ const ROLE_LABELS: Record<CoachRole, string> = {
   nutrition: "Nutrition",
   cutman: "Cutman",
   mental: "Mental",
+  assistant: "Assistant coach",
+  physio: "Physiotherapist",
+  fighter_manager: "Manager",
   other: "Other",
 };
 
@@ -38,7 +41,8 @@ const STATUS_TINT: Record<TitleStatus, string> = {
 export default function TeamTab({ params }: { params: { id: string } }) {
   const fighterId = params.id;
   const { user } = useAuth();
-  const readOnly = user?.role === "gym_manager" || user?.role === "physician";
+  // Gym owners, managers and head coaches add the gym's own staff (ADR-052).
+  const readOnly = user?.role === "physician";
   // Only the fighter (or a researcher) decides who sees their health notes (ADR-046).
   const ownsHealth = (user?.role === "fighter" && user.profile_id === fighterId) || !!user?.is_researcher;
   const [fighter, setFighter] = useState<Fighter | null>(null);
@@ -283,13 +287,13 @@ function CoachesSection({
   return (
     <section className="card">
       <div className="flex items-baseline justify-between">
-        <h2 className="text-base font-semibold">Gym &amp; coaches</h2>
+        <h2 className="text-base font-semibold">Gym &amp; support team</h2>
         {!readOnly && (
           <button
             onClick={() => setAdding(!adding)}
             className="text-xs text-emerald-400 hover:underline"
           >
-            {adding ? "cancel" : "+ assign coach"}
+            {adding ? "cancel" : "+ add to the support team"}
           </button>
         )}
       </div>
@@ -383,6 +387,14 @@ function CoachesSection({
                   {!a.ended_on && (
                     <span className="pill bg-emerald-500/15 text-emerald-300">
                       current
+                    </span>
+                  )}
+                  {a.source_gym_name && (
+                    <span
+                      className="pill bg-white/[0.06] text-neutral-400"
+                      title="Made by the gym's staff: it ends when either of you leaves the gym"
+                    >
+                      through {a.source_gym_name}
                     </span>
                   )}
                 </div>

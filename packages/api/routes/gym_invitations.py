@@ -22,9 +22,9 @@ from pydantic import BaseModel
 from sqlmodel import Session as DBSession
 from sqlmodel import col, select
 
-from api.access import Viewer, require_viewer
+from api.access import Viewer, gym_leaders, require_viewer
 from api.deps import db_session
-from store import Fighter, Gym, GymManager, GymRepo
+from store import Fighter, Gym, GymRepo
 from store.models import GymMembership, MembershipStatus, UtcDatetime
 
 router = APIRouter(prefix="/v2/gym-invitations", tags=["gyms"])
@@ -80,7 +80,7 @@ def my_invitations(
         gym = db.get(Gym, m.gym_id)
         if gym is None:
             continue
-        managers = db.exec(select(GymManager.name).where(GymManager.gym_id == gym.id)).all()
+        managers = gym_leaders(db, {gym.id})  # who'd see their training (ADR-052)
         note = m.status_note or ""
         out.append(
             GymInvitation(
@@ -88,7 +88,7 @@ def my_invitations(
                 gym_id=gym.id,
                 gym_name=gym.name,
                 gym_city=gym.city,
-                managers=sorted(managers),
+                managers=managers,
                 invited_by=note.removeprefix("Invited by ")
                 if note.startswith("Invited by ")
                 else None,

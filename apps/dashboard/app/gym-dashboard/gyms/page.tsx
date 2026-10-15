@@ -9,7 +9,7 @@ import {
   type GymMembership,
 } from "@/lib/api";
 import { useAuth } from "@/lib/auth";
-import { isAdmin } from "@/lib/nav";
+import { isAdmin, managesGym } from "@/lib/nav";
 
 interface GymRow extends Gym {
   fighterCount: number;
@@ -19,7 +19,7 @@ interface GymRow extends Gym {
 
 export default function GymsPage() {
   const { user } = useAuth();
-  const isGymManager = user?.role === "gym_manager";
+  const isGymManager = managesGym(user); // a manager account, or owner/manager at a gym (ADR-052)
 
   const [gyms, setGyms] = useState<GymRow[]>([]);
   const [loading, setLoading] = useState(true);

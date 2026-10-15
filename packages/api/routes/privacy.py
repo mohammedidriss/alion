@@ -24,7 +24,7 @@ from sqlalchemy import func
 from sqlmodel import Session as DBSession
 from sqlmodel import col, select
 
-from api.access import Viewer, gym_fighters, require_viewer
+from api.access import Viewer, gym_fighters, gym_leaders, require_viewer
 from api.deps import db_session
 from api.services import disk_encryption, terms
 from store import (
@@ -36,7 +36,6 @@ from store import (
     DatasetParticipant,
     Fighter,
     Gym,
-    GymManager,
     GymMembership,
     HRSampleRow,
     IMUSampleRow,
@@ -204,9 +203,7 @@ def my_privacy(
             gym_ids.add(fighter.gym_id)
         gym_ids = {g for g in gym_ids if fid in gym_fighters(db, g)}  # the ones they haven't left
         gyms = db.exec(select(Gym).where(col(Gym.id).in_(gym_ids or {UUID(int=0)}))).all()
-        managers = db.exec(
-            select(GymManager).where(col(GymManager.gym_id).in_(gym_ids or {UUID(int=0)}))
-        ).all()
+        managers = gym_leaders(db, gym_ids)  # owners, managers, head coaches (ADR-052)
         shared = {
             a.coach_id
             for a in db.exec(
@@ -235,7 +232,7 @@ def my_privacy(
             coaches_with_health=sorted(with_health),
             physicians=sorted(physicians),
             gyms=sorted(g.name for g in gyms),
-            gym_managers=sorted(m.name for m in managers),
+            gym_managers=managers,
         )
         for p in db.exec(
             select(DatasetParticipant).where(DatasetParticipant.fighter_id == fid)

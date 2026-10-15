@@ -18,11 +18,13 @@ import {
   type Session,
 } from "@/lib/api";
 import { useAuth } from "@/lib/auth";
+import { managesGym } from "@/lib/nav";
+import { StaffInvitationsCard } from "@/components/StaffInvitationsCard";
 
 export default function GymDashboardPage() {
   const router = useRouter();
   const { user } = useAuth();
-  const isGymManager = user?.role === "gym_manager";
+  const isGymManager = managesGym(user); // a manager account, or owner/manager at a gym (ADR-052)
 
   const [gym, setGym] = useState<Gym | null>(null);
   const [fighters, setFighters] = useState<Fighter[]>([]);
@@ -171,6 +173,7 @@ export default function GymDashboardPage() {
   return (
     <div className="space-y-6 px-4 py-6 sm:px-8 sm:py-8">
       {/* Header */}
+      <StaffInvitationsCard />
       <header>
         <h1 className="text-2xl font-bold">{gym?.name ?? "Gym"} Dashboard</h1>
         <p className="text-sm text-neutral-500">

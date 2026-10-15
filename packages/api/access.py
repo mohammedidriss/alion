@@ -42,12 +42,15 @@ from uuid import UUID
 
 from fastapi import Depends, HTTPException, Request, status
 from sqlmodel import Session as DBSession
-from sqlmodel import col, select
+from sqlmodel import col, or_, select
 
 from api.deps import db_session
 from api.routes.auth import get_current_user
 from api.services import researchers
 from store import (
+    COACHING_ROLES,
+    LEADING_ROLES,
+    MANAGING_ROLES,
     AccessLog,
     Bout,
     Coach,
@@ -56,7 +59,9 @@ from store import (
     Fighter,
     GymManager,
     GymMembership,
+    GymStaff,
     PhysicianAssignmentRow,
+    StaffStatus,
     User,
     UserRole,
 )
@@ -101,11 +106,47 @@ class Viewer:
         return self.user.profile_id if self.user.role == UserRole.COACH else None
 
     @cached_property
+    def staff(self) -> list[GymStaff]:
+        """This person's active roles at gyms (ADR-052), by account or coach profile."""
+        who = [GymStaff.user_id == self.user.id]
+        if self.coach_id is not None:
+            who.append(GymStaff.coach_id == self.coach_id)
+        q = select(GymStaff).where(or_(*who), GymStaff.status == StaffStatus.ACTIVE)
+        return list(self.db.exec(q).all())
+
+    def gyms_as(self, roles: frozenset[str]) -> set[UUID]:
+        return {s.gym_id for s in self.staff if s.role in roles}
+
+    @cached_property
+    def managed_gyms(self) -> set[UUID]:
+        """Gyms whose members, staff and settings this person manages: as owner or
+        manager (ADR-052), or by a gym manager profile (ADR-017)."""
+        out = self.gyms_as(MANAGING_ROLES)
+        if self.user.role == UserRole.GYM_MANAGER and self.user.profile_id is not None:
+            gm = self.db.get(GymManager, self.user.profile_id)
+            if gm is not None:
+                out.add(gm.gym_id)
+        return out
+
+    @cached_property
+    def led_gyms(self) -> set[UUID]:
+        """…and as head coach: the gym's fighters' training, and support-team links."""
+        return self.managed_gyms | self.gyms_as(LEADING_ROLES)
+
+    @cached_property
+    def coach_gyms(self) -> set[UUID]:
+        """Gyms this person coaches at (head coach or coach)."""
+        return self.gyms_as(COACHING_ROLES)
+
+    @cached_property
     def manager_gym(self) -> UUID | None:
-        if self.user.role != UserRole.GYM_MANAGER or self.user.profile_id is None:
-            return None
-        gm = self.db.get(GymManager, self.user.profile_id)
-        return gm.gym_id if gm else None
+        """The gym this person manages — their manager profile's, else one of their
+        managed gyms (a fighter or coach a manager creates joins it)."""
+        if self.user.role == UserRole.GYM_MANAGER and self.user.profile_id is not None:
+            gm = self.db.get(GymManager, self.user.profile_id)
+            if gm is not None:
+                return gm.gym_id
+        return min(self.managed_gyms, key=str) if self.managed_gyms else None
 
     @cached_property
     def coached(self) -> set[UUID]:
@@ -156,16 +197,13 @@ class Viewer:
 
     @cached_property
     def coach_gym_fighters(self) -> set[UUID]:
-        """Fighters at this coach's gym — their basic profiles only."""
-        if self.coach_id is None:
-            return set()
-        coach = self.db.get(Coach, self.coach_id)
-        return gym_fighters(self.db, coach.gym_id) if coach and coach.gym_id else set()
+        """Fighters at the gyms this person coaches at — their basic profiles only."""
+        return set().union(*(gym_fighters(self.db, g) for g in self.coach_gyms))
 
     @cached_property
     def managed(self) -> set[UUID]:
-        """Fighters at the gym this user manages."""
-        return gym_fighters(self.db, self.manager_gym) if self.manager_gym else set()
+        """Fighters at the gyms this person leads (owner, manager, head coach)."""
+        return set().union(*(gym_fighters(self.db, g) for g in self.led_gyms))
 
     def can(self, fighter_id: UUID, level: Level) -> bool:
         if self.researcher:
@@ -196,6 +234,47 @@ class Viewer:
     def require(self, fighter_id: UUID, level: Level) -> None:
         if not self.can(fighter_id, level):
             raise forbidden(level)
+
+
+def staff_gyms(db: DBSession, coach_id: UUID) -> set[UUID]:
+    """The gyms a coach profile is on the staff of, as head coach or coach."""
+    q = select(GymStaff.gym_id).where(
+        GymStaff.coach_id == coach_id,
+        GymStaff.status == StaffStatus.ACTIVE,
+        col(GymStaff.role).in_(COACHING_ROLES),
+    )
+    return set(db.exec(q).all())
+
+
+def gym_coach_ids(db: DBSession, gym_id: UUID) -> list[UUID]:
+    """The coach profiles on a gym's coaching staff (head coaches and coaches)."""
+    q = select(GymStaff.coach_id).where(
+        GymStaff.gym_id == gym_id,
+        GymStaff.status == StaffStatus.ACTIVE,
+        col(GymStaff.role).in_(COACHING_ROLES),
+    )
+    return [c for c in db.exec(q).all() if c is not None]
+
+
+def gym_leaders(db: DBSession, gym_ids: set[UUID]) -> list[str]:
+    """Who leads these gyms — sees their fighters' training: owners, managers and
+    head coaches (ADR-052), and gym manager profiles (ADR-017)."""
+    if not gym_ids:
+        return []
+    names = set(db.exec(select(GymManager.name).where(col(GymManager.gym_id).in_(gym_ids))).all())
+    for s in db.exec(
+        select(GymStaff).where(
+            col(GymStaff.gym_id).in_(gym_ids),
+            GymStaff.status == StaffStatus.ACTIVE,
+            col(GymStaff.role).in_(LEADING_ROLES),
+        )
+    ).all():
+        person = db.get(User, s.user_id) if s.user_id else None
+        coach = db.get(Coach, s.coach_id) if s.coach_id else None
+        name = person.name if person else coach.name if coach else None
+        if name:
+            names.add(name)
+    return sorted(names)
 
 
 def gym_fighters(db: DBSession, gym_id: UUID) -> set[UUID]:
@@ -371,7 +450,7 @@ def _coach_rule(
     coach = viewer.db.get(Coach, coach_id)
     if coach is None:
         return
-    manages = viewer.manager_gym is not None and coach.gym_id == viewer.manager_gym
+    manages = bool(viewer.managed_gyms & (staff_gyms(viewer.db, coach_id) | {coach.gym_id}))
     if write:
         if not (me or viewer.admin or manages):
             raise HTTPException(status_code=403, detail="Only an admin, this coach or their gym")
@@ -410,10 +489,9 @@ def _gym_rule(viewer: Viewer, db: DBSession, gym_id: UUID, path: str, write: boo
     gym_page = path.rstrip("/").endswith("{gym_id}")
     if gym_page and not write:
         return
-    if viewer.admin or viewer.manager_gym == gym_id:
+    if viewer.admin or gym_id in viewer.managed_gyms:
         return
-    coach = db.get(Coach, viewer.coach_id) if viewer.coach_id else None
-    if coach is not None and coach.gym_id == gym_id and not gym_page:
+    if gym_id in viewer.led_gyms | viewer.coach_gyms and not gym_page:
         return
     raise HTTPException(status_code=403, detail="Only this gym's managers, coaches or an admin")
 

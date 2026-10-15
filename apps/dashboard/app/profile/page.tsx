@@ -17,6 +17,7 @@ import {
   type TitleStatus,
 } from "@/lib/api";
 import { useAuth } from "@/lib/auth";
+import { StaffInvitationsCard } from "@/components/StaffInvitationsCard";
 
 // --- Constants ---
 const STANCES: Stance[] = ["orthodox", "southpaw", "switch"];
@@ -345,6 +346,7 @@ export default function ProfilePage() {
 
   return (
     <div className="mx-auto max-w-3xl space-y-8 px-4 py-6 sm:px-8 sm:py-8">
+      <StaffInvitationsCard />
       {/* Header */}
       <header className="flex items-center gap-4">
         <ProfileAvatar name={user.name} photo_path={user.photo_path} size={64} />

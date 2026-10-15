@@ -17,6 +17,7 @@ import {
   type Stance,
 } from "@/lib/api";
 import { useAuth } from "@/lib/auth";
+import { managesGym } from "@/lib/nav";
 
 const STANCES: Stance[] = ["orthodox", "southpaw", "switch"];
 const HANDS: Hand[] = ["left", "right"];
@@ -56,7 +57,7 @@ function labelFor(s: string) {
 
 export default function MembersPage() {
   const { user } = useAuth();
-  const isGymManager = user?.role === "gym_manager";
+  const isGymManager = managesGym(user); // a manager account, or owner/manager at a gym (ADR-052)
 
   const [gymId, setGymId] = useState<string | null>(null);
   const [fighters, setFighters] = useState<Fighter[]>([]);
@@ -416,7 +417,11 @@ export default function MembersPage() {
                 try {
                   const result = await api.importGymMember(gymId, importId.trim());
                   setImportSuccess(
-                    result.status === "invited"
+                    result.member_type === "coach"
+                      ? result.status === "invited"
+                        ? `${result.member_name} is invited to your staff as a coach — they accept it on their Alion home page. See the Staff page.`
+                        : `${result.member_name} is on your staff as a coach. See the Staff page.`
+                      : result.status === "invited"
                       ? `Invitation sent to ${result.member_name || "the fighter"}. They accept it on their Alion home page — you'll see their training once they do.`
                       : `Successfully added ${result.member_name || "member"} (${result.member_type}) to your gym!`,
                   );

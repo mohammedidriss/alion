@@ -559,51 +559,16 @@ class GymRepo:
         return row
 
     def _end_ties(self, row: GymMembership) -> None:
-        """Someone left the gym (ADR-050): the coach links that ran through it end —
-        a fighter's with the gym's coaches, a coach's with the gym's fighters — and
+        """Someone left the gym (ADR-050): the coach links made through it end, and
         their profile stops naming the gym. The history stays (ended, not deleted)."""
-        from datetime import date as _date
+        from store.models import Coach, Fighter
 
-        from store.models import Coach, CoachAssignment, Fighter, MembershipStatus
-
-        here = (
-            MembershipStatus.ACTIVE,
-            MembershipStatus.TRIAL,
-            MembershipStatus.FROZEN,
-            MembershipStatus.SUSPENDED,
-        )
-
-        def members(kind: str) -> set[UUID]:
-            q = select(GymMembership.member_id).where(
-                GymMembership.gym_id == row.gym_id,
-                GymMembership.member_type == kind,
-                col(GymMembership.status).in_(here),
-            )
-            return set(self._session.exec(q).all())
-
-        open_ties = select(CoachAssignment).where(col(CoachAssignment.ended_on).is_(None))
         if row.member_type == "fighter":
-            coaches = members("coach") | set(
-                self._session.exec(select(Coach.id).where(Coach.gym_id == row.gym_id)).all()
-            )
-            ties = self._session.exec(
-                open_ties.where(
-                    CoachAssignment.fighter_id == row.member_id,
-                    col(CoachAssignment.coach_id).in_(coaches),
-                )
-            )
+            end_gym_links(self._session, row.gym_id, fighter_id=row.member_id)
             profile: Fighter | Coach | None = self._session.get(Fighter, row.member_id)
         else:
-            ties = self._session.exec(
-                open_ties.where(
-                    CoachAssignment.coach_id == row.member_id,
-                    col(CoachAssignment.fighter_id).in_(members("fighter")),
-                )
-            )
+            end_gym_links(self._session, row.gym_id, coach_id=row.member_id)
             profile = self._session.get(Coach, row.member_id)
-        for tie in ties:
-            tie.ended_on = _date.today()
-            self._session.add(tie)
         if profile is not None and profile.gym_id == row.gym_id:
             profile.gym_id = None
             profile.gym = None
@@ -613,6 +578,66 @@ class GymRepo:
         """Soft-remove: sets status to 'left' and records departure date."""
         result = self.update_membership_status(gym_id, membership_id, "left")
         return result is not None
+
+
+def end_gym_links(
+    session: DBSession,
+    gym_id: UUID,
+    *,
+    fighter_id: UUID | None = None,
+    coach_id: UUID | None = None,
+) -> int:
+    """End the open coach links made through a gym — a fighter's (they left it) or
+    a coach's (they left its staff) — and return how many (ADR-050, ADR-052).
+
+    A link records the gym it came through. One made before links recorded
+    anything (no source, no maker) counts as the gym's when its coach is on the
+    gym's staff and its fighter a member: ending it errs on the side of privacy.
+    A link the fighter made themselves stays."""
+    from datetime import date as _date
+
+    from store.models import COACHING_ROLES, CoachAssignment, GymStaff, MembershipStatus
+
+    here = (
+        MembershipStatus.ACTIVE,
+        MembershipStatus.TRIAL,
+        MembershipStatus.FROZEN,
+        MembershipStatus.SUSPENDED,
+    )
+    gym_coaches = set(
+        session.exec(
+            select(GymStaff.coach_id).where(
+                GymStaff.gym_id == gym_id, col(GymStaff.role).in_(COACHING_ROLES)
+            )
+        ).all()
+    ) | set(session.exec(select(Coach.id).where(Coach.gym_id == gym_id)).all())
+    gym_fighters = set(
+        session.exec(
+            select(GymMembership.member_id).where(
+                GymMembership.gym_id == gym_id,
+                GymMembership.member_type == "fighter",
+                col(GymMembership.status).in_((*here, MembershipStatus.LEFT)),
+            )
+        ).all()
+    )
+    q = select(CoachAssignment).where(col(CoachAssignment.ended_on).is_(None))
+    if fighter_id is not None:
+        q = q.where(CoachAssignment.fighter_id == fighter_id)
+    if coach_id is not None:
+        q = q.where(CoachAssignment.coach_id == coach_id)
+    n = 0
+    for link in session.exec(q).all():
+        through = link.source_gym_id == gym_id or (
+            link.source_gym_id is None
+            and link.granted_by is None
+            and link.coach_id in gym_coaches
+            and link.fighter_id in gym_fighters
+        )
+        if through:
+            link.ended_on = _date.today()
+            session.add(link)
+            n += 1
+    return n
 
 
 class RefereeRepo:

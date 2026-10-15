@@ -236,6 +236,8 @@ class UserRead(SQLModel):
     is_reviewer: bool = False  # enrolled in the appropriate-reliance study (ADR-026)
     is_rq1_rater: bool = False  # chosen to rate RQ1 advice (ADR-045)
     removed_at: UtcDatetime | None = None  # removed by an administrator (ADR-048)
+    # Roles at gyms (ADR-052): [{"gym_id", "gym_name", "role"}], active ones.
+    gym_roles: list[dict[str, str]] = []
 
 
 # ----------------------------------------------------------------------
@@ -376,6 +378,66 @@ class GymManager(SQLModel, table=True):
     gym_id: UUID = Field(foreign_key="gym.id", index=True)
     notes: str | None = None
     created_at: datetime = Field(default_factory=lambda: datetime.now(UTC))
+
+
+class GymStaffRole(StrEnum):
+    """A person's role at one gym (ADR-052) — not their account type: a coach
+    account can own a gym, and one person can hold several roles."""
+
+    OWNER = "owner"
+    MANAGER = "manager"
+    HEAD_COACH = "head_coach"
+    COACH = "coach"
+
+
+class StaffStatus(StrEnum):
+    INVITED = "invited"  # until they accept
+    ACTIVE = "active"
+    DECLINED = "declined"
+    LEFT = "left"
+
+
+# Members, staff and the gym's settings.
+MANAGING_ROLES = frozenset({GymStaffRole.OWNER, GymStaffRole.MANAGER})
+# …and the gym's fighters' training, and support-team links through the gym.
+LEADING_ROLES = MANAGING_ROLES | {GymStaffRole.HEAD_COACH}
+# Coach the gym's fighters (a coach profile is needed to be assigned to one).
+COACHING_ROLES = frozenset({GymStaffRole.HEAD_COACH, GymStaffRole.COACH})
+
+
+class GymStaff(SQLModel, table=True):
+    """Someone's role at a gym (ADR-052): invited, then active once they accept."""
+
+    __tablename__ = "gym_staff"
+    id: int | None = Field(default=None, primary_key=True)
+    gym_id: UUID = Field(foreign_key="gym.id", index=True)
+    user_id: UUID | None = Field(default=None, foreign_key="user.id", index=True)  # the account
+    # Their coach profile — set for coaches; None for an owner or manager without one.
+    coach_id: UUID | None = Field(default=None, foreign_key="coach.id", index=True)
+    role: str = Field(max_length=20)  # GymStaffRole
+    status: str = Field(default=StaffStatus.INVITED, max_length=12)  # StaffStatus
+    invited_by: UUID | None = None  # the account that added them
+    note: str | None = Field(default=None, max_length=300)
+    created_at: datetime = Field(default_factory=lambda: datetime.now(UTC))
+    started_at: datetime | None = None
+    ended_at: datetime | None = None
+
+
+class GymStaffRead(SQLModel):
+    id: int
+    gym_id: UUID
+    gym_name: str
+    user_id: UUID | None = None
+    coach_id: UUID | None = None
+    name: str
+    email: str | None = None
+    role: str
+    status: str
+    invited_by_name: str | None = None
+    note: str | None = None
+    created_at: UtcDatetime
+    started_at: UtcDatetime | None = None
+    ended_at: UtcDatetime | None = None
 
 
 class GymManagerCreate(SQLModel):
@@ -1514,6 +1576,10 @@ class CoachRole(StrEnum):
     NUTRITION = "nutrition"
     CUTMAN = "cutman"
     MENTAL = "mental"
+    # A fighter's support team beyond coaching (ADR-052).
+    ASSISTANT = "assistant"
+    PHYSIO = "physio"
+    FIGHTER_MANAGER = "fighter_manager"
     OTHER = "other"
 
 
@@ -1533,6 +1599,10 @@ class CoachAssignment(SQLModel, table=True):
     # The fighter lets this coach see their health notes (ADR-046): off for a new
     # coach; the fighter turns it on.
     health_access: bool = False
+    # Where the link came from (ADR-052): the gym whose staff made it — it ends when
+    # the fighter or the coach leaves that gym — or None, the fighter's own.
+    source_gym_id: UUID | None = None
+    granted_by: UUID | None = None  # the account that made it (None: before ADR-052)
 
 
 class PhysicianAssignmentRow(SQLModel, table=True):
@@ -1567,6 +1637,8 @@ class CoachAssignmentRead(SQLModel):
     notes: str | None = None
     created_at: UtcDatetime
     health_access: bool = False
+    source_gym_id: UUID | None = None  # made through this gym's staff (ADR-052)
+    source_gym_name: str | None = None
 
 
 # ----------------------------------------------------------------------

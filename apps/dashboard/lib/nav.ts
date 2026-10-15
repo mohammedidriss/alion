@@ -24,6 +24,14 @@ export function seesModels(user: AuthUser | null | undefined): boolean {
   return isAdmin(user);
 }
 
+/** Owns or manages a gym: a gym manager account, or that role at a gym (ADR-052). */
+export function managesGym(user: AuthUser | null | undefined): boolean {
+  return (
+    !!user &&
+    (user.role === "gym_manager" || (user.gym_roles ?? []).some((r) => r.role === "owner" || r.role === "manager"))
+  );
+}
+
 export function homeHref(user: AuthUser | null | undefined): string {
   if (!user) return "/";
   if (user.role === "fighter" && user.profile_id) return `/fighters/${user.profile_id}`;
@@ -44,9 +52,10 @@ export function navSections(user: AuthUser | null | undefined): NavSection[] {
 
   const mine: NavItem[] = [{ label: "Home", href: homeHref(user), icon: "H" }];
   if (role === "physician") mine.push({ label: "My fighters", href: "/physician", icon: "✚", hint: "The fighters who chose you as their physician" });
-  if (role === "gym_manager") {
+  if (managesGym(user)) {
+    if (role !== "gym_manager") mine.push({ label: "My gym", href: "/gym-dashboard", icon: "⌂" });
     mine.push({ label: "Members", href: "/gym-dashboard/members", icon: "◉" });
-    mine.push({ label: "Coaches", href: "/gym-dashboard/coaches", icon: "◈" });
+    mine.push({ label: "Staff", href: "/gym-dashboard/coaches", icon: "◈", hint: "Owners, managers, head coaches and coaches" });
     mine.push({ label: "Gyms", href: "/gym-dashboard/gyms", icon: "⌂" });
   }
   if (["fighter", "coach", "referee", "gym_manager"].includes(role) || researcher) {

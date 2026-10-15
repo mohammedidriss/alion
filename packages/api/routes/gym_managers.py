@@ -56,13 +56,46 @@ def create_gym_manager(
     return _enrich(mgr, g.name)
 
 
+def _staff_managed_gym(user: User, db: DBSession) -> GymManagerRead | None:
+    from sqlmodel import col, select
+
+    from store import MANAGING_ROLES, Gym, GymStaff, StaffStatus
+
+    row = db.exec(
+        select(GymStaff)
+        .where(
+            GymStaff.user_id == user.id,
+            GymStaff.status == StaffStatus.ACTIVE,
+            col(GymStaff.role).in_(MANAGING_ROLES),
+        )
+        .order_by(col(GymStaff.started_at))
+    ).first()
+    gym = db.get(Gym, row.gym_id) if row else None
+    if row is None or gym is None:
+        return None
+    return GymManagerRead(
+        id=user.id,
+        name=user.name,
+        email=user.email,
+        gym_id=gym.id,
+        gym_name=gym.name,
+        created_at=row.started_at or row.created_at,
+    )
+
+
 @router.get("/me", response_model=GymManagerRead)
 def get_my_gym_manager_profile(
     repo: GymManagerRepo = Depends(gym_manager_repo),
     gyms: GymRepo = Depends(gym_repo),
     current_user: User = Depends(require_current_user),
+    db: DBSession = Depends(db_session),
 ) -> GymManagerRead:
-    """Return the gym manager profile for the currently logged-in gym_manager user."""
+    """Return the gym manager profile for the currently logged-in gym_manager user —
+    or, for someone who owns or manages a gym from another account (ADR-052), that
+    gym in the same shape, so the gym's pages work for them."""
+    staff_gym = _staff_managed_gym(current_user, db)
+    if current_user.role != "gym_manager" and staff_gym is not None:
+        return staff_gym
     if not current_user.profile_id:
         raise HTTPException(
             status_code=404,

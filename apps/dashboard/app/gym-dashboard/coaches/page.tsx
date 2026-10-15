@@ -9,12 +9,14 @@ import {
   type CoachingLevel,
 } from "@/lib/api";
 import { useAuth } from "@/lib/auth";
+import { managesGym } from "@/lib/nav";
+import { StaffPanel } from "@/components/StaffPanel";
 
 const COACHING_LEVELS: CoachingLevel[] = ["amateur", "professional", "both"];
 
 export default function CoachesPage() {
   const { user } = useAuth();
-  const isGymManager = user?.role === "gym_manager";
+  const isGymManager = managesGym(user); // a manager account, or owner/manager at a gym (ADR-052)
 
   const [gymId, setGymId] = useState<string | null>(null);
   const [coaches, setCoaches] = useState<Coach[]>([]);
@@ -134,7 +136,7 @@ export default function CoachesPage() {
     <div className="space-y-6 px-4 py-6 sm:px-8 sm:py-8">
       <header className="flex items-center justify-between">
         <div>
-          <h1 className="text-2xl font-bold">Coaches</h1>
+          <h1 className="text-2xl font-bold">Staff</h1>
           <p className="text-sm text-neutral-500">
             {coaches.length} coach{coaches.length !== 1 ? "es" : ""} on staff
           </p>
@@ -143,9 +145,11 @@ export default function CoachesPage() {
           onClick={() => setShowForm(!showForm)}
           className="rounded-xl bg-emerald-500 px-4 py-2 text-sm font-medium text-black hover:bg-emerald-400"
         >
-          {showForm ? "Cancel" : "+ Add Coach"}
+          {showForm ? "Cancel" : "+ New coach profile"}
         </button>
       </header>
+
+      {gymId && <StaffPanel gymId={gymId} />}
 
       {/* Create form */}
       {showForm && (

@@ -115,6 +115,9 @@ export type CoachRole =
   | "nutrition"
   | "cutman"
   | "mental"
+  | "assistant"
+  | "physio"
+  | "fighter_manager"
   | "other";
 
 export interface CoachAssignment {
@@ -129,6 +132,27 @@ export interface CoachAssignment {
   notes: string | null;
   created_at: string;
   health_access?: boolean; // the fighter shares their health notes with this coach (ADR-046)
+  source_gym_id?: string | null; // made through this gym's staff — ends when either leaves it (ADR-052)
+  source_gym_name?: string | null;
+}
+
+/** A role at a gym (ADR-052): owner, manager, head coach or coach. */
+export type GymStaffRole = "owner" | "manager" | "head_coach" | "coach";
+export interface GymStaff {
+  id: number;
+  gym_id: string;
+  gym_name: string;
+  user_id: string | null;
+  coach_id: string | null;
+  name: string;
+  email: string | null;
+  role: GymStaffRole;
+  status: "invited" | "active" | "declined" | "left";
+  invited_by_name: string | null;
+  note: string | null;
+  created_at: string;
+  started_at: string | null;
+  ended_at: string | null;
 }
 
 /** A physician a fighter chose (ADR-046). */
@@ -1166,6 +1190,8 @@ export interface AuthUser {
   is_reviewer?: boolean;
   /** Chosen to rate RQ1 advice (ADR-045). */
   is_rq1_rater?: boolean;
+  /** Active roles at gyms (ADR-052). */
+  gym_roles?: { gym_id: string; gym_name: string; role: GymStaffRole }[];
 }
 
 /** One of the coach's AI setups (ADR-021). */
@@ -2078,6 +2104,18 @@ export const api = {
   answerGymInvitation: (id: number, answer: "accept" | "decline") =>
     req<{ status: string }>(`/v2/gym-invitations/${id}/${answer}`, { method: "POST" }),
   myGyms: () => req<MyGym[]>("/v2/my-gyms"),
+  gymStaff: (gymId: string) => req<GymStaff[]>(`/gyms/${gymId}/staff`),
+  inviteStaff: (gymId: string, body: { email?: string; system_id?: string; role: GymStaffRole }) =>
+    req<GymStaff>(`/gyms/${gymId}/staff`, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify(body),
+    }),
+  endStaff: (gymId: string, staffId: number) =>
+    req<GymStaff>(`/gyms/${gymId}/staff/${staffId}/end`, { method: "POST" }),
+  myStaff: () => req<GymStaff[]>("/v2/my-staff"),
+  answerStaff: (staffId: number, answer: "accept" | "decline" | "leave") =>
+    req<GymStaff>(`/v2/my-staff/${staffId}/${answer}`, { method: "POST" }),
   leaveGym: (membershipId: number) =>
     req<{ status: string }>(`/v2/my-gyms/${membershipId}/leave`, { method: "POST" }),
   privacyRequest: (kind: DataRequestKind, note?: string) =>

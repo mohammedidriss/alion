@@ -2,6 +2,9 @@
 
 from store.database import create_db_and_tables, get_session
 from store.models import (
+    COACHING_ROLES,
+    LEADING_ROLES,
+    MANAGING_ROLES,
     MAX_ROUND_PLANS,
     WEIGHT_CLASSES,
     AccessLog,
@@ -64,6 +67,9 @@ from store.models import (
     GymMembership,
     GymMembershipRead,
     GymRead,
+    GymStaff,
+    GymStaffRead,
+    GymStaffRole,
     HandEnum,
     HRSampleRead,
     HRSampleRow,
@@ -105,6 +111,7 @@ from store.models import (
     SessionSourceEnum,
     SessionStatus,
     SkillLevel,
+    StaffStatus,
     Stance,
     StudyConditionEnum,
     TakeStatusEnum,
@@ -139,6 +146,9 @@ from store.repo import (
 )
 
 __all__ = [
+    "COACHING_ROLES",
+    "LEADING_ROLES",
+    "MANAGING_ROLES",
     "MAX_ROUND_PLANS",
     "WEIGHT_CLASSES",
     "AccessLog",
@@ -211,6 +221,9 @@ __all__ = [
     "GymMembershipRead",
     "GymRead",
     "GymRepo",
+    "GymStaff",
+    "GymStaffRead",
+    "GymStaffRole",
     "HRSampleRead",
     "HRSampleRow",
     "HandEnum",
@@ -257,6 +270,7 @@ __all__ = [
     "SessionSourceEnum",
     "SessionStatus",
     "SkillLevel",
+    "StaffStatus",
     "Stance",
     "StudyConditionEnum",
     "TakeStatusEnum",

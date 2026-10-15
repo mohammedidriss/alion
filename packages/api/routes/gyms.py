@@ -24,9 +24,12 @@ from store import (
     Fighter,
     FighterRepo,
     GymRepo,
+    GymStaff,
+    GymStaffRole,
     User,
     UserCreate,
     UserRepo,
+    UserRole,
 )
 from store.models import (
     CheckInRead,
@@ -221,6 +224,41 @@ def list_members(
     ]
 
 
+def _staff_reply(row: GymStaff, name: str) -> GymMembershipRead:
+    """A coach joins the gym's staff (ADR-052), not its members: the reply to an add
+    or import describes the staff role in the members list's shape."""
+    return GymMembershipRead(
+        id=row.id or 0,
+        gym_id=row.gym_id,
+        member_id=row.coach_id or UUID(int=0),
+        member_type="coach",
+        member_name=name,
+        status=row.status,
+        joined_on=row.started_at.date() if row.started_at else None,
+        created_at=row.created_at,
+    )
+
+
+def _invite_coach(db: DBSession, gym_id: UUID, coach: Coach, by: User) -> GymMembershipRead:
+    """A coach added by profile or System ID is invited to the staff as a coach; a
+    profile nobody signs in to joins at once."""
+    from api.routes.gym_staff import add_staff
+
+    account = db.exec(
+        select(User).where(User.profile_id == coach.id, User.role == UserRole.COACH)
+    ).first()
+    row = add_staff(
+        db,
+        gym_id,
+        role=GymStaffRole.COACH,
+        user=account,
+        coach_id=coach.id,
+        invited_by=by.id,
+        active=account is None,
+    )
+    return _staff_reply(row, coach.name)
+
+
 @router.post(
     "/{gym_id}/members",
     response_model=GymMembershipRead,
@@ -243,8 +281,10 @@ def add_member(
         if fighter is None:
             raise HTTPException(status_code=404, detail="fighter not found")
         return _read(_invite_fighter(session, gym_id, fighter, current_user), fighter.name)
-    m = repo.add_member(gym_id, data.member_id, data.member_type)
-    return _read(m, "")
+    coach = CoachRepo(session).get(data.member_id)
+    if coach is None:
+        raise HTTPException(status_code=404, detail="coach not found")
+    return _invite_coach(session, gym_id, coach, current_user)
 
 
 @router.delete(
@@ -318,38 +358,8 @@ def import_member(
     if member_type == "fighter" and fighter:
         return _read(_invite_fighter(session, gym_id, fighter, current_user), member_name)
 
-    # Check for duplicate membership
-    existing = repo.list_members(gym_id)
-    for m, _name in existing:
-        if str(m.member_id).replace("-", "") == system_id:
-            raise HTTPException(
-                status_code=409,
-                detail=f"{member_name} is already a member of this gym",
-            )
-
-    # Set gym_id on the coach record so they show in gym-filtered lists
-    gym = repo.get(gym_id)
-    gym_name = gym.name if gym else None
-    if member_type == "coach" and coach:
-        coach.gym_id = gym_id
-        coach.gym = gym_name
-        session.add(coach)
-        session.commit()
-        session.refresh(coach)
-
-    m = repo.add_member(gym_id, system_uuid, member_type)
-    return GymMembershipRead(
-        id=m.id,
-        gym_id=m.gym_id,
-        member_id=m.member_id,
-        member_type=m.member_type,
-        member_name=member_name,
-        status=m.status,
-        joined_on=m.joined_on,
-        left_on=m.left_on,
-        status_note=m.status_note,
-        created_at=m.created_at,
-    )
+    assert coach is not None
+    return _invite_coach(session, gym_id, coach, current_user)
 
 
 # ------------------------------------------------------------------
@@ -433,6 +443,20 @@ def create_member_account(
 
     profile_id = profile.id
     user_repo.set_profile_id(new_user.id, profile_id)
+
+    if member_type == "coach":
+        from api.routes.gym_staff import add_staff
+
+        staff = add_staff(
+            session,
+            gym_id,
+            role=GymStaffRole.COACH,
+            user=new_user,
+            coach_id=profile_id,
+            invited_by=current_user.id,
+            active=True,  # the gym made the account; they accept the terms at first sign-in
+        )
+        return _staff_reply(staff, data.name.strip())
 
     # Link to gym
     m = repo.add_member(gym_id, profile_id, member_type)

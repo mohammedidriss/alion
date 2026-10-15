@@ -28,6 +28,7 @@ from api.routes import (
     fighters,
     gym_invitations,
     gym_managers,
+    gym_staff,
     gyms,
     health,
     hrv,
@@ -234,6 +235,8 @@ app.include_router(reliance.router)  # the appropriate-reliance study (ADR-026)
 app.include_router(privacy.router)  # what's kept, who sees it, requests (ADR-033)
 app.include_router(gym_invitations.router)  # a fighter accepts a gym (ADR-035)
 app.include_router(gym_invitations.my_gyms)  # …and leaves one (ADR-050)
+app.include_router(gym_staff.router)  # a gym's staff (ADR-052)
+app.include_router(gym_staff.mine)
 app.include_router(rest_cards.router)  # the minute between rounds (ADR-041)
 app.include_router(physicians.router)  # a physician's fighters (ADR-046)
 app.include_router(round_plans.router)
