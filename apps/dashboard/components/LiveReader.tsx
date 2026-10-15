@@ -121,7 +121,13 @@ export function LiveReader({
         {imuMine ? (
           <div className="space-y-2">
             {(["left", "right"] as ImuHand[]).map((hand) => (
-              <WristRow key={hand} hand={hand} unit={imu?.units[hand]} running={!!imu?.running} />
+              <WristRow
+                key={hand}
+                hand={hand}
+                unit={imu?.units[hand]}
+                running={!!imu?.running}
+                punches={reading?.wrist_punches?.[hand] ?? null}
+              />
             ))}
             {!imu?.running && (
               <p className="text-center text-[10px] text-neutral-600">
@@ -278,10 +284,13 @@ function WristRow({
   hand,
   unit,
   running,
+  punches,
 }: {
   hand: ImuHand;
   unit: ImuUnitStatus | undefined;
   running: boolean;
+  /** This wrist's punches so far, counted from its own samples (ADR-059). */
+  punches: number | null;
 }) {
   const trace = unit?.trace ?? [];
   const now = trace.length ? trace[trace.length - 1] : null;
@@ -314,6 +323,14 @@ function WristRow({
           </>
         )}
       </svg>
+      {punches != null && (
+        <span
+          className="w-10 text-right text-xs font-semibold tabular-nums text-emerald-300"
+          title={`Punches this wrist has thrown so far, from its own sensor`}
+        >
+          {punches}👊
+        </span>
+      )}
       <div className="w-14 text-right leading-tight">
         <div className="text-xs font-semibold tabular-nums" style={{ color: connected ? "#fafafa" : "#525252" }}>
           {connected && now != null ? `${now.toFixed(1)}g` : "--"}

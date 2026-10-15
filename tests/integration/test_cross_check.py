@@ -33,12 +33,21 @@ def _frames(session_id: UUID, n: int) -> list[PoseFrame]:
 @pytest.fixture
 def dirs(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Iterator[Path]:
     from api.routes import capture_coord
-    from api.services import cross_check, dataset_store, session_analysis
+    from api.services import (
+        camera_type_model,
+        dataset_store,
+        punch_counter,
+        session_analysis,
+        wrist_type_model,
+    )
 
     monkeypatch.setattr(session_analysis, "POSE_DIR", tmp_path / "pose")
     monkeypatch.setattr(capture_coord, "_VIDEO_DIR", tmp_path / "clips")
     monkeypatch.setattr(capture_coord, "_STATE_DIR", tmp_path / "capture")
     monkeypatch.setattr(dataset_store, "DATASETS_DIR", tmp_path / "datasets")
+    # No trained type models unless a test brings one (not the checkout's data/ml).
+    monkeypatch.setattr(camera_type_model, "MODEL_DIR", tmp_path / "camera_types")
+    monkeypatch.setattr(wrist_type_model, "MODEL_DIR", tmp_path / "wrist_types")
 
     def fake_camera(frames: list[PoseFrame], *, stance: str | None = None) -> list[PunchEvent]:
         return [
@@ -53,7 +62,7 @@ def dirs(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Iterator[Path]:
             for t, h in SEEN[len(frames)]
         ]
 
-    monkeypatch.setattr(cross_check, "camera_punches", fake_camera)
+    monkeypatch.setattr(punch_counter, "camera_punches", fake_camera)
     (tmp_path / "pose").mkdir()
     (tmp_path / "clips").mkdir()
     yield tmp_path

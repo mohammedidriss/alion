@@ -695,6 +695,8 @@ export interface LiveReading {
     error: string | null; // why the strap's stream failed
   };
   imu: ImuBleStatus;
+  /** Punches each wrist sensor felt so far — the live count to trust (ADR-059); null before any sample. */
+  wrist_punches?: { left: number; right: number } | null;
 }
 
 // Datasets (ADR-013) — dataset recording kept separate from training sessions.
@@ -1137,6 +1139,8 @@ export interface TrainingReport {
     // recorded training sessions, trained on and never scored (ADR-047; absent before it)
     sessions?: number;
     session_punches?: number;
+    /** The other exported datasets it also learned from (ADR-059; absent before it). */
+    other_datasets?: { dataset_id: string; name?: string | null; stretches: number; punches: number }[];
     reviewed_labels: boolean;
   };
   train_cv: CounterScore;
@@ -1668,6 +1672,15 @@ export interface MulticamDevice {
   tally?: PunchTally | null;
   /** "orthodox" | "southpaw" — names jab/cross and lead/rear; null for a switch hitter. */
   stance?: string | null;
+  /** How well it sees the wrists over its last couple of seconds (ADR-059). */
+  quality?: CamQuality | null;
+}
+/** Share of recent frames each wrist was seen in (and both at once), and the frame rate. */
+export interface CamQuality {
+  both: number;
+  left: number;
+  right: number;
+  fps: number;
 }
 export interface MulticamJoinInfo {
   join_token: string;
@@ -1878,11 +1891,21 @@ export const api = {
     punches = 0,
     label?: string, // lets the device re-join the roster if the API restarted
     tally?: PunchTally, // the same punches by hand and type
+    quality?: CamQuality | null, // how well it sees the wrists (ADR-059)
   ) =>
     req<MulticamState>(`${capBase(id)}/multicam/heartbeat`, {
       method: "POST",
       headers: { "content-type": "application/json" },
-      body: JSON.stringify({ token, device_id, status, punches, role: "camera", label, tally: tally ?? null }),
+      body: JSON.stringify({
+        token,
+        device_id,
+        status,
+        punches,
+        role: "camera",
+        label,
+        tally: tally ?? null,
+        quality: quality ?? null,
+      }),
     }),
   multicamState: (id: CaptureRef, token: string) =>
     req<MulticamState>(`${capBase(id)}/multicam/state?token=${encodeURIComponent(token)}`),
@@ -1972,8 +1995,21 @@ export const api = {
       body: JSON.stringify({ fighter_id: fighterId, block: block ?? null }),
     }),
   takeCheck: (id: string) => req<TakeCheck>(`/v2/takes/${id}/check`),
-  trainCounter: (datasetId: string) =>
-    req<TrainingStatus>(`/v2/datasets/${datasetId}/train`, { method: "POST" }),
+  trainCounter: (datasetId: string, includeOthers = true) =>
+    req<TrainingStatus>(`/v2/datasets/${datasetId}/train?include_others=${includeOthers}`, { method: "POST" }),
+  /** The counter counting the cameras' punches after a recording (ADR-059); null: the detector. */
+  punchCounter: () =>
+    req<{
+      counter: {
+        dataset_id: string;
+        dataset_name: string | null;
+        version: number;
+        created_at: string | null;
+        f1: number | null;
+        precision: number | null;
+        f1_detector: number | null;
+      } | null;
+    }>("/v2/punch-counter"),
   trainingStatus: (datasetId: string) =>
     req<TrainingStatus>(`/v2/datasets/${datasetId}/training`),
   protocolPlan: () => req<ProtocolBlockSpec[]>(`/v2/protocol/plan`),

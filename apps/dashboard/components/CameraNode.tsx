@@ -14,9 +14,41 @@ import { MEDIAPIPE_WASM, poseModelUrl } from "@/lib/mediapipe";
 import { PunchOverlay } from "@/components/PunchDots";
 import { PunchDetector, classifyPunchType } from "@/lib/punchDetector";
 import { addPunch, emptyTally, LIVE_TYPES } from "@/lib/punchTally";
-import { api, type CaptureRef, type PunchTally } from "@/lib/api";
+import { api, type CamQuality, type CaptureRef, type PunchTally } from "@/lib/api";
 
 type Phase = "connecting" | "ready" | "countdown" | "recording" | "stopped" | "error";
+
+const SEEN_WINDOW_MS = 2500; // the stretch a camera's view of the wrists is judged on
+const SEEN_MIN_VIS = 0.5; // a wrist counts as seen at this MediaPipe visibility
+
+/** Note one pose frame: which wrists it saw (a frame with no pose sees neither). */
+function noteSeen(
+  seen: { t: number; l: boolean; r: boolean }[],
+  lms: { visibility?: number }[] | undefined,
+): void {
+  const now = performance.now();
+  seen.push({
+    t: now,
+    l: !!lms && (lms[15]?.visibility ?? 0) >= SEEN_MIN_VIS,
+    r: !!lms && (lms[16]?.visibility ?? 0) >= SEEN_MIN_VIS,
+  });
+  while (seen.length && now - seen[0].t > SEEN_WINDOW_MS) seen.shift();
+}
+
+/** The share of recent frames each wrist was seen in, both at once, and the frame rate. */
+function wristQuality(seen: { t: number; l: boolean; r: boolean }[]): CamQuality | null {
+  if (seen.length < 5) return null;
+  const n = seen.length;
+  const span = (seen[n - 1].t - seen[0].t) / 1000;
+  const share = (f: (s: { l: boolean; r: boolean }) => boolean) =>
+    Math.round((100 * seen.filter(f).length) / n) / 100;
+  return {
+    both: share((s) => s.l && s.r),
+    left: share((s) => s.l),
+    right: share((s) => s.r),
+    fps: span > 0 ? Math.min(240, Math.round((10 * (n - 1)) / span) / 10) : 0,
+  };
+}
 
 const LABELS = ["front", "left", "right", "45-left", "45-right", "overhead"];
 
@@ -143,6 +175,9 @@ export function CameraNode({
   const detectorRef = useRef<PunchDetector>(new PunchDetector(null));
   const rafRef = useRef<number>(0);
   const punchCountRef = useRef(0);
+  // How well this camera sees the wrists (ADR-059): each pose frame's time and which
+  // wrists it saw, over the last couple of seconds — sent with every heartbeat.
+  const seenRef = useRef<{ t: number; l: boolean; r: boolean }[]>([]);
   const tallyRef = useRef<PunchTally>(emptyTally()); // the same punches by hand and type
   const pausedRef = useRef(false); // gates the pose loop while the coach has paused
   const pauseStartRef = useRef<number | null>(null); // when the current pause began
@@ -323,6 +358,7 @@ export function CameraNode({
           punchCountRef.current,
           labelRef.current,
           tallyRef.current,
+          wristQuality(seenRef.current),
         );
         offsetRef.current = st.server_now_ms - Date.now();
         setStance(st.stance ?? null);
@@ -577,6 +613,31 @@ export function CameraNode({
     return () => document.removeEventListener("visibilitychange", onVis);
   }, [phase]);
 
+  // Before recording: watch the pose anyway, so the coach sees whether this camera
+  // can see both wrists before pressing Start (ADR-059). No punches are counted.
+  useEffect(() => {
+    if (phase !== "ready" || !poseReady) return;
+    const video = videoRef.current;
+    const lm = landmarkerRef.current as {
+      detectForVideo: (v: HTMLVideoElement, t: number) => { landmarks?: { visibility?: number }[][] };
+    } | null;
+    if (!video || !lm) return;
+    let raf = 0;
+    let lastFrame = -1;
+    const loop = () => {
+      raf = requestAnimationFrame(loop);
+      if (video.readyState < 2 || video.currentTime === lastFrame) return;
+      lastFrame = video.currentTime;
+      try {
+        noteSeen(seenRef.current, lm.detectForVideo(video, performance.now()).landmarks?.[0]);
+      } catch {
+        /* a frame the model can't take: skip it */
+      }
+    };
+    raf = requestAnimationFrame(loop);
+    return () => cancelAnimationFrame(raf);
+  }, [phase, poseReady]);
+
   // Count punches live during recording, using the shared PunchDetector.
   useEffect(() => {
     if (phase !== "recording") return;
@@ -614,6 +675,7 @@ export function CameraNode({
         return;
       }
       const lms = res.landmarks?.[0];
+      noteSeen(seenRef.current, lms);
       if (!lms) return;
       const world = res.worldLandmarks?.[0] ?? null;
       const tMs = performance.now() - perfAtT0 - pausedAccumRef.current;
@@ -712,7 +774,12 @@ export function CameraNode({
           <span className="truncate">💻 {label}</span>
           <span className="flex items-center gap-2">
             {(phase === "recording" || phase === "stopped") && punchCount > 0 && (
-              <span className="font-semibold text-emerald-400">{punchCount}👊</span>
+              <span
+                className="font-semibold text-neutral-300"
+                title="This camera's own estimate — the wrist sensors give the count when they're on"
+              >
+                ~{punchCount}👊 est.
+              </span>
             )}
             {phase === "recording" ? (
               paused ? (
@@ -792,6 +859,9 @@ export function CameraNode({
           // Under the REC badge, so it never runs into it on a narrow phone.
           <div className={`absolute left-3 ${phase === "recording" ? "top-12" : "top-3"}`}>
             <PunchOverlay types={LIVE_TYPES} total={punchCount} tally={tally} stance={stance} size="md" />
+            <div className="mt-1 rounded bg-black/60 px-1.5 py-0.5 text-[10px] text-neutral-300">
+              this camera&apos;s estimate
+            </div>
           </div>
         )}
       </div>

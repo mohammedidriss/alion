@@ -36,9 +36,15 @@ from sqlmodel import col, func, select
 from analyze import punch_model
 from analyze.imu_punches import detect_punches as detect_wrist_punches
 from analyze.imu_punches import peak_rotations
-from analyze.punch_fusion import WristPunch, camera_punches, cross_check, redrift, wrist_gaps
+from analyze.punch_fusion import WristPunch, cross_check, redrift, wrist_gaps
 from analyze.wrist_types import MOTIONS, motion_to_type
-from api.services import camera_type_model, dataset_store, session_analysis, wrist_type_model
+from api.services import (
+    camera_type_model,
+    dataset_store,
+    punch_counter,
+    session_analysis,
+    wrist_type_model,
+)
 from capture.cv.writer import read_pose_parquet
 from common import get_logger
 from contracts import Hand
@@ -49,7 +55,7 @@ log = get_logger(__name__)
 Kind = Literal["session", "take"]
 Status = Literal["ready", "running", "none"]
 
-VERSION = 4  # bump when the fusion rules change, so old results re-run (4: clock drift)
+VERSION = 5  # bump when the fusion rules change, so old results re-run (5: trained counter)
 DEBOUNCE_S = 8.0  # the cameras' pose uploads land within seconds of each other
 MIN_CAMERA_SPAN = 0.3  # of the longest camera's pose — less and the camera sits out
 BACKGROUND = True  # tests switch the background runs off and call run_now
@@ -125,6 +131,7 @@ def _inputs(kind: Kind, capture_id: UUID, db: DBSession) -> _Inputs | None:
             duration,
             wrist_type_model.current_version(),
             camera_type_model.current_version(),
+            punch_counter.label(),  # a new trained counter counts again (ADR-059)
         ),
         folder=folder,
     )
@@ -297,7 +304,7 @@ def run_now(
     # recovered from the clip (pose_backfill re-runs this then).
     skipped = sorted(d for d, span in spans.items() if span < MIN_CAMERA_SPAN * longest)
     per_camera = {
-        dev: camera_punches(frames, stance=stance)
+        dev: punch_counter.camera_punches(frames, stance=stance)
         for dev, frames in poses.items()
         if frames and dev not in skipped
     }

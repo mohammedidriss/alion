@@ -28,7 +28,14 @@ import { PunchDots, PunchOverlay } from "@/components/PunchDots";
 import { RestMode } from "@/components/RestMode";
 import { RoundTimer } from "@/components/SessionRounds";
 import { StreamStrip, useStreams } from "@/components/StreamStrip";
-import { api, type CaptureRef, type MulticamDevice, type Session, type Take } from "@/lib/api";
+import {
+  api,
+  type CamQuality,
+  type CaptureRef,
+  type MulticamDevice,
+  type Session,
+  type Take,
+} from "@/lib/api";
 import { say, unlockCues } from "@/lib/cues";
 import { leadingTally, LIVE_TYPES } from "@/lib/punchTally";
 
@@ -82,6 +89,8 @@ export function MulticamPanel({
   const [msg, setMsg] = useState<string | null>(null);
   const [imuMsg, setImuMsg] = useState<string | null>(null);
   const [imuMine, setImuMine] = useState(false); // the IMU pair belongs to this fighter
+  // The wrist sensors' own punch count (ADR-059) — the count, when they're on.
+  const [wrist, setWrist] = useState<{ left: number; right: number } | null>(null);
   // Rest Mode (ADR-043): which rest is on screen, and whether bells pause by themselves.
   const [rest, setRest] = useState<{ afterRound: number; startedAt: number } | null>(null);
   const restedRef = useRef(0); // the last round whose rest has begun
@@ -170,6 +179,23 @@ export function MulticamPanel({
     return () => clearInterval(id);
   }, [captureStartMs, stopping, cap, imuMine]);
 
+  // While recording with the wrists on, their punch count is the headline (ADR-059):
+  // each wrist counts its own punches, so a still hand that shakes adds nothing.
+  useEffect(() => {
+    if (captureStartMs === null || !imuMine) return;
+    let alive = true;
+    const poll = async () => {
+      const r = await api.liveReading(cap).catch(() => null);
+      if (alive && r?.wrist_punches) setWrist(r.wrist_punches);
+    };
+    poll();
+    const id = setInterval(poll, 1500);
+    return () => {
+      alive = false;
+      clearInterval(id);
+    };
+  }, [captureStartMs, imuMine, cap]);
+
   // Refresh the live-grid frames ~1×/s.
   useEffect(() => {
     const id = setInterval(() => setTick((t) => t + 1), 1000);
@@ -183,6 +209,7 @@ export function MulticamPanel({
       const r = await api.multicamStart(cap);
       restedRef.current = 0;
       setRest(null);
+      setWrist(null);
       pausedAccumRef.current = 0;
       pauseStartRef.current = null;
       setPaused(false);
@@ -368,6 +395,11 @@ export function MulticamPanel({
   const tally = leadingTally(allCams);
   const stance = allCams.find((c) => c.stance)?.stance ?? null;
   const canStart = allCams.length > 0 || laptopOn;
+  // Cameras that can't count well from where they stand (ADR-059): both wrists in
+  // view under 70% of the time, or pose running under 25 frames a second.
+  const poorCams = allCams.filter(
+    (d) => d.quality && (d.quality.both < QUALITY_BOTH || d.quality.fps < QUALITY_FPS),
+  );
   // Cameras whose pose isn't ready yet, or whose page is off screen while recording.
   const loadingCams = devices.filter((d) => d.role === "camera" && d.status === "loading");
   const hiddenCams = devices.filter((d) => d.role === "camera" && d.status === "hidden");
@@ -411,10 +443,28 @@ export function MulticamPanel({
         <h3 className="font-semibold">Cameras</h3>
         <span className="text-xs text-neutral-500">
           {allCams.length} connected
-          {maxPunches > 0 && <span className="text-emerald-400"> · ~{maxPunches} punches</span>}
+          {wrist ? (
+            <span
+              className="text-emerald-400"
+              title="Counted by the wrist sensors — each wrist counts its own punches"
+            >
+              {" "}
+              · {wrist.left + wrist.right} punches (L {wrist.left} · R {wrist.right}, wrist sensors)
+            </span>
+          ) : (
+            maxPunches > 0 && (
+              <span
+                className="text-neutral-300"
+                title="The cameras' estimate — put the wrist sensors on for the count"
+              >
+                {" "}
+                · ~{maxPunches} punches (camera estimate)
+              </span>
+            )
+          )}
         </span>
       </div>
-      {maxPunches > 0 && <PunchDots tally={tally} stance={stance} types={LIVE_TYPES} />}
+      {!wrist && maxPunches > 0 && <PunchDots tally={tally} stance={stance} types={LIVE_TYPES} />}
 
       {/* Controls above the grid: Start → Pause/Resume + Stop (Stop ends & saves). */}
       <div className="flex flex-wrap items-center gap-2">
@@ -494,6 +544,27 @@ export function MulticamPanel({
         )}
         {imuMsg && <span className="text-xs text-red-300">{imuMsg}</span>}
       </div>
+
+      {/* Before Start: a camera that can't see both wrists, or runs slow, miscounts. */}
+      {!capturing && poorCams.length > 0 && (
+        <div className="rounded-xl border border-amber-500/30 bg-amber-950/30 px-3 py-2 text-xs text-amber-200">
+          <p className="font-semibold">
+            {poorCams
+              .map(
+                (d) =>
+                  `${d.label}: ${Math.round((d.quality?.both ?? 0) * 100)}% both wrists, ` +
+                  `${Math.round(d.quality?.fps ?? 0)} fps`,
+              )
+              .join(" · ")}
+          </p>
+          <p className="mt-0.5 text-amber-200/80">
+            A camera counts well when it sees both wrists all the time. Put it about 45° in front
+            of the fighter, at chest height, 2.5–3 m away, with the whole body and both gloves in
+            frame; use 60 fps where the phone offers it. The fighter can stand in their stance and
+            throw a few punches while you adjust.
+          </p>
+        </div>
+      )}
 
       {/* Body sensors connect before Start, so they record from the same t = 0. */}
       {!capturing && (sensors.l !== null || sensors.hr !== null) && (
@@ -622,11 +693,17 @@ export function MulticamPanel({
                     <PunchOverlay types={LIVE_TYPES} total={d.punches} tally={d.tally} stance={stance} />
                   </div>
                 )}
+                {d.quality && <QualityBadge q={d.quality} />}
                 <div className="absolute inset-x-0 bottom-0 flex items-center justify-between bg-black/60 px-2 py-1 text-[11px]">
                   <span className="truncate">📷 {d.label}</span>
                   <span className="flex items-center gap-2">
                     {d.punches > 0 && (
-                      <span className="font-semibold text-emerald-400">{d.punches}👊</span>
+                      <span
+                        className="font-semibold text-neutral-300"
+                        title="This camera's own estimate — the wrist sensors give the count when they're on"
+                      >
+                        ~{d.punches}👊 est.
+                      </span>
                     )}
                     <StatusDot status={d.status} />
                   </span>
@@ -652,6 +729,28 @@ export function MulticamPanel({
         </p>
       )}
     </div>
+  );
+}
+
+const QUALITY_BOTH = 0.7;
+const QUALITY_FPS = 25;
+
+/** What a camera sees of the wrists, and how fast its pose runs (ADR-059). */
+function QualityBadge({ q }: { q: CamQuality }) {
+  const ok = q.both >= QUALITY_BOTH && q.fps >= QUALITY_FPS;
+  return (
+    <span
+      title={
+        `Both wrists in view ${Math.round(q.both * 100)}% of the last few seconds ` +
+        `(left ${Math.round(q.left * 100)}%, right ${Math.round(q.right * 100)}%); ` +
+        `pose at ${Math.round(q.fps)} frames a second`
+      }
+      className={`absolute left-1 top-1 rounded px-1.5 py-0.5 text-[10px] font-semibold ${
+        ok ? "bg-black/60 text-emerald-300" : "bg-amber-500/90 text-black"
+      }`}
+    >
+      {ok ? "✓" : "⚠"} both wrists {Math.round(q.both * 100)}% · {Math.round(q.fps)} fps
+    </span>
   );
 }
 

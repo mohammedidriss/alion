@@ -41,6 +41,7 @@ from api.services import (
     imu_runner,
     pose_backfill,
     video_blur,
+    wrist_live,
 )
 from store import (
     ConsentEnum,
@@ -645,7 +646,11 @@ def take_live(
         zone=hr_zone(bpm, max_hr) if bpm is not None and max_hr else None,
         error=hrv_runner.last_error(take_id),
     )
-    return LiveOut(heart=heart, imu=session_status(take_id))
+    return LiveOut(
+        heart=heart,
+        imu=session_status(take_id),
+        wrist_punches=wrist_live.take_counts(take_id, folder),
+    )
 
 
 # --------------------------------------------------------------------------

@@ -18,7 +18,7 @@ from sqlmodel import col, select
 from api.deps import db_session, fighter_repo, session_repo
 from api.routes.auth import require_current_user
 from api.routes.imu_ble import ImuBleStatus, session_status
-from api.services import hrv_runner
+from api.services import hrv_runner, wrist_live
 from store import FighterRepo, HRSampleRow, SessionRepo
 
 router = APIRouter(prefix="/sessions", tags=["live"], dependencies=[Depends(require_current_user)])
@@ -39,6 +39,9 @@ class LiveHeart(BaseModel):
 class LiveOut(BaseModel):
     heart: LiveHeart
     imu: ImuBleStatus
+    # Punches each wrist sensor felt so far — the live count to trust (ADR-059);
+    # None before any wrist sample.
+    wrist_punches: dict[str, int] | None = None
 
 
 class StreamOut(BaseModel):
@@ -103,4 +106,8 @@ def live(
         zone=hr_zone(bpm, max_hr) if bpm is not None and max_hr else None,
         error=hrv_runner.last_error(session_id),
     )
-    return LiveOut(heart=heart, imu=session_status(session_id))
+    return LiveOut(
+        heart=heart,
+        imu=session_status(session_id),
+        wrist_punches=wrist_live.session_counts(db, session_id),
+    )

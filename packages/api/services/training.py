@@ -41,7 +41,7 @@ import numpy as np
 
 from analyze import classify_punch_type, punch_model
 from analyze.punch_fusion import camera_punches
-from api.services import dataset_export, session_corpus
+from api.services import dataset_export, dataset_store, session_corpus
 from common import get_logger
 from contracts import Hand, Landmark, PoseFrame, WorldLandmark
 from studies import DetectedPunch, match_events
@@ -396,8 +396,45 @@ def _score_types(
             types["end_to_end"].add(label, found_named[best[1]])
 
 
-def run(dataset_id: UUID) -> dict[str, Any]:
-    """Train and score; returns (and saves) the report."""
+def _other_datasets(dataset_id: UUID) -> list[UUID]:
+    """The other datasets with an export to learn from (ADR-059)."""
+    out = []
+    for m in sorted(dataset_store.DATASETS_DIR.glob("*/export/manifest.json")):
+        try:
+            other = UUID(m.parent.parent.name)
+        except ValueError:
+            continue
+        if other != dataset_id:
+            out.append(other)
+    return out
+
+
+def _others_stretches(dataset_id: UUID) -> tuple[list[Stretch], list[dict[str, Any]]]:
+    """Every exported take of the other datasets — their train and test stretches
+    alike — to learn from; this dataset's test takes stay the score (ADR-059)."""
+    out: list[Stretch] = []
+    used = []
+    for other in _other_datasets(dataset_id):
+        try:
+            m = json.loads(manifest_path(other).read_text())
+        except (OSError, ValueError):
+            continue
+        got = _stretches(other, m, "train") + _stretches(other, m, "test")
+        if got:
+            out += got
+            used.append(
+                {
+                    "dataset_id": str(other),
+                    "stretches": len(got),
+                    "punches": sum(len(s.labels) for s in got),
+                }
+            )
+    return out, used
+
+
+def run(dataset_id: UUID, include_others: bool = True) -> dict[str, Any]:
+    """Train and score; returns (and saves) the report. With `include_others`, the
+    other exported datasets' takes join the training stretches (ADR-059)."""
     import joblib  # type: ignore[import-untyped, import-not-found, unused-ignore]
 
     manifest = json.loads(manifest_path(dataset_id).read_text())
@@ -405,6 +442,8 @@ def run(dataset_id: UUID) -> dict[str, Any]:
     test = _stretches(dataset_id, manifest, "test")
     if not train or not any(s.labels for s in train):
         raise ValueError("the export has no labelled training stretches")
+    others, others_used = _others_stretches(dataset_id) if include_others else ([], [])
+    train += others
     sessions = _session_stretches(dataset_id)  # for training only (ADR-047)
     train += sessions
 
@@ -480,12 +519,18 @@ def run(dataset_id: UUID) -> dict[str, Any]:
         "model_file": str(model_file),
         "threshold": threshold,
         "data": {
-            "takes": len({s.take_id for s in train + test} - {s.take_id for s in sessions}),
+            "takes": len(
+                {s.take_id for s in train + test}
+                - {s.take_id for s in sessions}
+                - {s.take_id for s in others}
+            ),
             "fighters": len({t["participant"] for t in manifest.get("takes", [])}),
             "train_stretches": len(train),
             "test_stretches": len(test),
             "train_punches": sum(len(s.labels) for s in train),
             "test_punches": sum(len(s.labels) for s in test),
+            # the other datasets' takes, trained on and never scored (ADR-059)
+            "other_datasets": others_used,
             # recorded training sessions, trained on and never scored (ADR-047)
             "sessions": len({s.take_id for s in sessions}),
             "session_stretches": len(sessions),
@@ -532,7 +577,7 @@ def run(dataset_id: UUID) -> dict[str, Any]:
     return report
 
 
-def start(dataset_id: UUID) -> bool:
+def start(dataset_id: UUID, include_others: bool = True) -> bool:
     """Train in the background; False if a run for this dataset is going already."""
     key = str(dataset_id)
     with _lock:
@@ -544,7 +589,7 @@ def start(dataset_id: UUID) -> bool:
 
     def work() -> None:
         try:
-            run(dataset_id)
+            run(dataset_id, include_others)
             err = None
         except Exception as e:  # reported to the coach, not raised into a thread
             log.exception("training.failed", extra={"_ctx_dataset_id": key})

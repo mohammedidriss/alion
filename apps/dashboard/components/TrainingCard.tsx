@@ -47,6 +47,9 @@ export function TrainingCard({
   const [st, setSt] = useState<TrainingStatus | null>(null);
   const [err, setErr] = useState<string | null>(null);
   const [starting, setStarting] = useState(false);
+  // Learn from the other exported datasets' takes too (ADR-059); this one's test
+  // takes stay the score either way.
+  const [withOthers, setWithOthers] = useState(true);
 
   const load = useCallback(
     () =>
@@ -71,7 +74,7 @@ export function TrainingCard({
     try {
       // every take in, recovered pose included; no face blurring — training needs no video
       await api.datasetExport(datasetId, { blur: false });
-      setSt(await api.trainCounter(datasetId));
+      setSt(await api.trainCounter(datasetId, withOthers));
     } catch (e) {
       setErr(errText(e));
     } finally {
@@ -96,6 +99,16 @@ export function TrainingCard({
           {starting ? "Exporting…" : st?.running ? "Training…" : r ? "🧠 Train again" : "🧠 Train"}
         </button>
       </div>
+      <label className="flex items-center gap-1.5 text-xs text-neutral-400">
+        <input
+          type="checkbox"
+          checked={withOthers}
+          onChange={(e) => setWithOthers(e.target.checked)}
+          disabled={starting || !!st?.running}
+        />
+        Also learn from the other exported datasets (their takes train it; this dataset&apos;s test
+        takes still score it)
+      </label>
 
       {err && <p className="text-xs text-red-300">{err}</p>}
       {st?.running && (
@@ -121,7 +134,13 @@ export function TrainingCard({
             <div className="mt-1 text-xs text-neutral-400">
               Trained on {r.data.train_punches} punches ({r.data.train_stretches} stretches, {r.data.takes}{" "}
               takes, {r.data.fighters} fighter{r.data.fighters === 1 ? "" : "s"}
-              {r.data.sessions ? `; ${r.data.session_punches} of them from ${r.data.sessions} recorded session${r.data.sessions === 1 ? "" : "s"}` : ""}) · model v{r.version},{" "}
+              {r.data.sessions ? `; ${r.data.session_punches} of them from ${r.data.sessions} recorded session${r.data.sessions === 1 ? "" : "s"}` : ""}
+              {r.data.other_datasets?.length
+                ? `; ${r.data.other_datasets
+                    .map((o) => `${o.punches} from ${o.name ?? "another dataset"}`)
+                    .join(", ")}`
+                : ""}
+              ) · model v{r.version},{" "}
               {new Date(r.created_at).toLocaleString()}
             </div>
           </div>

@@ -89,6 +89,38 @@ function ModelHeading({ title, does, learns }: { title: string; does: string; le
   );
 }
 
+/** Which counter counts the cameras' punches after a recording (ADR-059): the
+ *  newest trained one — live, each camera shows its own quick estimate. */
+function CounterInUse() {
+  type InUse = Awaited<ReturnType<typeof api.punchCounter>>["counter"];
+  const [c, setC] = useState<InUse | undefined>(undefined);
+  useEffect(() => {
+    api
+      .punchCounter()
+      .then((r) => setC(r.counter))
+      .catch(() => setC(undefined));
+  }, []);
+  if (c === undefined) return null;
+  const pct = (v: number | null) => (v == null ? "—" : `${Math.round(v * 100)}%`);
+  return (
+    <p className="px-1 text-xs text-neutral-400">
+      {c ? (
+        <>
+          In use after each recording:{" "}
+          <span className="text-neutral-200">
+            v{c.version} trained on {c.dataset_name ?? "a dataset"}
+          </span>
+          {c.created_at && ` (${new Date(c.created_at).toLocaleDateString()})`} — {pct(c.f1)} of
+          punches right on its test takes vs {pct(c.f1_detector)} for the hand-written detector.
+          The newest trained counter is the one in use.
+        </>
+      ) : (
+        "In use after each recording: the hand-written detector — train a counter to replace it."
+      )}
+    </p>
+  );
+}
+
 function PunchModels({ initialDataset }: { initialDataset: string | null }) {
   const [datasets, setDatasets] = useState<DatasetSummary[]>([]);
   const [plan, setPlan] = useState<ProtocolBlockSpec[]>([]);
@@ -112,8 +144,9 @@ function PunchModels({ initialDataset }: { initialDataset: string | null }) {
         <ModelHeading
           title="Punch counter — cameras"
           does="Counts punches, and which hand threw them, from the cameras' pose."
-          learns="a protocol dataset's exported takes (the wrist sensors give each punch's time) and every training session recorded with wrists and cameras; scored on the dataset's test takes, next to today's counter."
+          learns="a protocol dataset's exported takes, the other exported datasets' takes (the wrist sensors give each punch's time) and every training session recorded with wrists and cameras; scored on the dataset's test takes, next to today's counter."
         />
+        <CounterInUse />
         {datasets.length > 1 && (
           <select
             value={picked ?? ""}

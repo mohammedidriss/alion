@@ -28,4 +28,8 @@ def recorded(tmp_path_factory: pytest.TempPathFactory, monkeypatch: pytest.Monke
     monkeypatch.setattr(session_corpus, "LABELS_DIR", root / "labels")
     monkeypatch.setattr(session_corpus, "POSE_DIR", root / "processed")
     monkeypatch.setattr(session_corpus, "imu_streams", lambda sid: {})  # not the real database
+    # …and counts the cameras' punches with the detector unless a test trains a counter.
+    from api.services import punch_counter
+
+    monkeypatch.setattr(punch_counter, "MODELS_DIR", root / "counters")
     return root

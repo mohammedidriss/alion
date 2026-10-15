@@ -89,6 +89,7 @@ class _Device:
     frame_ms: float = 0.0
     punches: int = 0  # live punch count this device has detected (client-side)
     tally: PunchTally | None = None  # the same punches, by hand and type
+    quality: CamQuality | None = None  # how well it sees the wrists (ADR-059)
 
 
 @dataclass
@@ -428,6 +429,18 @@ class HandTally(BaseModel):
     uppercut: int = Field(default=0, ge=0)
 
 
+class CamQuality(BaseModel):
+    """How well a camera sees the fighter, over its last couple of seconds (ADR-059):
+    the share of frames each wrist was seen in (MediaPipe visibility ≥ 0.5), both
+    at once, and its frame rate. A camera that can't see both wrists counts the
+    hidden one wrong; under ~25 fps the pose jitters."""
+
+    both: float = Field(ge=0.0, le=1.0)
+    left: float = Field(ge=0.0, le=1.0)
+    right: float = Field(ge=0.0, le=1.0)
+    fps: float = Field(ge=0.0, le=240.0)
+
+
 class PunchTally(BaseModel):
     """A camera's live punches by hand and type. Kept by hand (left/right), not
     lead/rear, so it doesn't depend on the stance; the screens name lead and rear."""
@@ -444,6 +457,7 @@ class DeviceOut(BaseModel):
     punches: int = 0
     tally: PunchTally | None = None
     stance: str | None = None  # "orthodox" | "southpaw", to name jab/cross and lead/rear
+    quality: CamQuality | None = None
 
 
 class JoinInfo(BaseModel):
@@ -468,6 +482,7 @@ class HeartbeatBody(BaseModel):
     status: str = "ready"
     punches: int = 0
     tally: PunchTally | None = None
+    quality: CamQuality | None = None
     # Sent so a device the server no longer knows (API restarted) can re-join.
     role: str = "camera"
     label: str | None = None
@@ -535,6 +550,7 @@ def list_devices(session_id: UUID, db: DBSession = Depends(db_session)) -> list[
             punches=d.punches,
             tally=d.tally,
             stance=stance,
+            quality=d.quality,
         )
         for d in live
     ]
@@ -727,6 +743,8 @@ def heartbeat(
         dev.status = body.status
         dev.punches = body.punches
         dev.tally = body.tally
+        if body.quality is not None:
+            dev.quality = body.quality
         dev.last_seen_ms = _now_ms()
         state = CaptureState(
             command=c.command,
