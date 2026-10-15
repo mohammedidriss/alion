@@ -15,6 +15,7 @@ import {
   type TitleStatus,
 } from "@/lib/api";
 import { useAuth } from "@/lib/auth";
+import { FighterSquadsCard } from "@/components/SquadCards";
 
 const ROLE_LABELS: Record<CoachRole, string> = {
   head_coach: "Head coach",
@@ -185,6 +186,8 @@ export default function TeamTab({ params }: { params: { id: string } }) {
       </section>
 
       {/* GYM + COACHES */}
+      <FighterSquadsCard fighterId={fighterId} own={user?.role === "fighter" && user.profile_id === fighterId} />
+
       <CoachesSection
         fighter={fighter}
         coaches={coaches}

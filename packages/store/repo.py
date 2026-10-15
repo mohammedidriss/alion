@@ -565,6 +565,7 @@ class GymRepo:
 
         if row.member_type == "fighter":
             end_gym_links(self._session, row.gym_id, fighter_id=row.member_id)
+            end_squad_places(self._session, row.gym_id, fighter_id=row.member_id)
             profile: Fighter | Coach | None = self._session.get(Fighter, row.member_id)
         else:
             end_gym_links(self._session, row.gym_id, coach_id=row.member_id)
@@ -578,6 +579,46 @@ class GymRepo:
         """Soft-remove: sets status to 'left' and records departure date."""
         result = self.update_membership_status(gym_id, membership_id, "left")
         return result is not None
+
+
+def end_squad_places(
+    session: DBSession,
+    gym_id: UUID,
+    *,
+    fighter_id: UUID | None = None,
+    coach_id: UUID | None = None,
+) -> int:
+    """Someone left a gym (or its staff): their places on its squads end, the
+    history kept (ADR-053)."""
+    from datetime import date as _date
+
+    from store.models import Squad, SquadMember, SquadStaff
+
+    squads = select(Squad.id).where(Squad.gym_id == gym_id)
+    rows: list[SquadMember | SquadStaff] = []
+    if fighter_id is not None:
+        rows += session.exec(
+            select(SquadMember).where(
+                SquadMember.fighter_id == fighter_id,
+                col(SquadMember.left_on).is_(None),
+                col(SquadMember.squad_id).in_(squads),
+            )
+        ).all()
+    if coach_id is not None:
+        rows += session.exec(
+            select(SquadStaff).where(
+                SquadStaff.coach_id == coach_id,
+                col(SquadStaff.ended_on).is_(None),
+                col(SquadStaff.squad_id).in_(squads),
+            )
+        ).all()
+    for r in rows:
+        if isinstance(r, SquadMember):
+            r.left_on, r.is_main = _date.today(), False
+        else:
+            r.ended_on = _date.today()
+        session.add(r)
+    return len(rows)
 
 
 def end_gym_links(

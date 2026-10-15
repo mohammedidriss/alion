@@ -94,9 +94,36 @@ def create_session(
     repo: SessionRepo = Depends(session_repo),
     viewer: access.Viewer = Depends(access.require_viewer),
 ) -> SessionRead:
-    """Open a training session — for yourself, or a fighter you coach (ADR-017)."""
+    """Open a training session — for yourself, or a fighter you coach (ADR-017). It
+    records the squad it's trained with — the one given, else the fighter's main
+    squad — and that squad's gym (ADR-053)."""
+    from sqlmodel import col, select
+
+    from api.routes.squads import main_squad
+    from store import Squad, SquadMember
+
     viewer.require(data.fighter_id, access.Level.TRAINING_WRITE)
-    row = repo.create(data)
+    db = viewer.db
+    squad = db.get(Squad, data.squad_id) if data.squad_id else main_squad(db, data.fighter_id)
+    if data.squad_id is not None:
+        on_it = (
+            squad is not None
+            and db.exec(
+                select(SquadMember).where(
+                    SquadMember.squad_id == squad.id,
+                    SquadMember.fighter_id == data.fighter_id,
+                    col(SquadMember.left_on).is_(None),
+                )
+            ).first()
+        )
+        if not on_it:
+            raise HTTPException(status_code=422, detail="The fighter isn't on that squad")
+    row = repo.create(data.model_copy(update={"squad_id": squad.id if squad else None}))
+    if squad is not None:
+        row.gym_id = squad.gym_id
+        db.add(row)
+        db.commit()
+        db.refresh(row)
     return SessionRead.model_validate(row, from_attributes=True)
 
 

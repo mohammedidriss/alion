@@ -40,7 +40,7 @@ from store import (
     User,
     UserRole,
 )
-from store.repo import end_gym_links
+from store.repo import end_gym_links, end_squad_places
 
 router = APIRouter(prefix="/gyms", tags=["gym-staff"], dependencies=[Depends(require_current_user)])
 mine = APIRouter(prefix="/v2/my-staff", tags=["gym-staff"])
@@ -107,6 +107,18 @@ def _end(db: DBSession, row: GymStaff, note: str, *, admin: bool = False) -> Non
     db.add(row)
     if row.coach_id is not None and row.role in COACHING_ROLES:
         end_gym_links(db, row.gym_id, coach_id=row.coach_id)
+        # …and their squads at the gym, unless they still coach there in another role.
+        still = db.exec(
+            select(GymStaff.id).where(
+                GymStaff.gym_id == row.gym_id,
+                GymStaff.coach_id == row.coach_id,
+                GymStaff.status == StaffStatus.ACTIVE,
+                col(GymStaff.role).in_(COACHING_ROLES),
+                GymStaff.id != row.id,
+            )
+        ).first()
+        if still is None:
+            end_squad_places(db, row.gym_id, coach_id=row.coach_id)
         coach = db.get(Coach, row.coach_id)
         if coach is not None and coach.gym_id == row.gym_id:
             coach.gym_id = None

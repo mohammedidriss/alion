@@ -20,6 +20,7 @@ import {
 import { useAuth } from "@/lib/auth";
 import { managesGym } from "@/lib/nav";
 import { StaffInvitationsCard } from "@/components/StaffInvitationsCard";
+import { GymSquadsWeekCard } from "@/components/SquadCards";
 
 export default function GymDashboardPage() {
   const router = useRouter();
@@ -180,6 +181,8 @@ export default function GymDashboardPage() {
           {[gym?.city, gym?.country].filter(Boolean).join(", ") || "No location set"}
         </p>
       </header>
+
+      {gym && <GymSquadsWeekCard gymId={gym.id} />}
 
       {!loading && fighters.length === 0 && coaches.length === 0 && (
         <NextStep

@@ -38,6 +38,7 @@ from dataclasses import dataclass, field
 from datetime import date
 from enum import StrEnum
 from functools import cached_property
+from typing import Any
 from uuid import UUID
 
 from fastapi import Depends, HTTPException, Request, status
@@ -61,6 +62,9 @@ from store import (
     GymMembership,
     GymStaff,
     PhysicianAssignmentRow,
+    Squad,
+    SquadMember,
+    SquadStaff,
     StaffStatus,
     User,
     UserRole,
@@ -150,7 +154,8 @@ class Viewer:
 
     @cached_property
     def coached(self) -> set[UUID]:
-        """Fighters with a current assignment to this coach."""
+        """Fighters this coach coaches: a current assignment (their support team), or
+        a squad they both are on (ADR-053)."""
         if self.coach_id is None:
             return set()
         today = date.today()
@@ -162,7 +167,7 @@ class Viewer:
             for a in rows
             if (a.ended_on is None or a.ended_on >= today)
             and (a.started_on is None or a.started_on <= today)
-        }
+        } | squad_fighters(self.db, self.coach_id)
 
     @cached_property
     def coached_health(self) -> set[UUID]:
@@ -234,6 +239,29 @@ class Viewer:
     def require(self, fighter_id: UUID, level: Level) -> None:
         if not self.can(fighter_id, level):
             raise forbidden(level)
+
+
+def open_squads() -> Any:
+    """A query for the squads that give access today: not archived, not past their
+    end date."""
+    today = date.today()
+    return select(Squad.id).where(
+        col(Squad.archived_at).is_(None),
+        or_(col(Squad.ends_on).is_(None), col(Squad.ends_on) >= today),
+    )
+
+
+def squad_fighters(db: DBSession, coach_id: UUID) -> set[UUID]:
+    """The fighters on the open squads this coach coaches, while both are on it."""
+    mine = select(SquadStaff.squad_id).where(
+        SquadStaff.coach_id == coach_id,
+        col(SquadStaff.ended_on).is_(None),
+        col(SquadStaff.squad_id).in_(open_squads()),
+    )
+    q = select(SquadMember.fighter_id).where(
+        col(SquadMember.squad_id).in_(mine), col(SquadMember.left_on).is_(None)
+    )
+    return set(db.exec(q).all())
 
 
 def staff_gyms(db: DBSession, coach_id: UUID) -> set[UUID]:

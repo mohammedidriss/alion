@@ -32,6 +32,15 @@ export function managesGym(user: AuthUser | null | undefined): boolean {
   );
 }
 
+/** Runs a gym's squads: its owner, manager or head coach (ADR-053). */
+export function leadsGym(user: AuthUser | null | undefined): boolean {
+  return (
+    !!user &&
+    (user.role === "gym_manager" ||
+      (user.gym_roles ?? []).some((r) => r.role === "owner" || r.role === "manager" || r.role === "head_coach"))
+  );
+}
+
 export function homeHref(user: AuthUser | null | undefined): string {
   if (!user) return "/";
   if (user.role === "fighter" && user.profile_id) return `/fighters/${user.profile_id}`;
@@ -56,6 +65,11 @@ export function navSections(user: AuthUser | null | undefined): NavSection[] {
     if (role !== "gym_manager") mine.push({ label: "My gym", href: "/gym-dashboard", icon: "⌂" });
     mine.push({ label: "Members", href: "/gym-dashboard/members", icon: "◉" });
     mine.push({ label: "Staff", href: "/gym-dashboard/coaches", icon: "◈", hint: "Owners, managers, head coaches and coaches" });
+  }
+  if (leadsGym(user)) {
+    mine.push({ label: "Squads", href: "/squads", icon: "◇", hint: "Teams, classes and fight camps within your gym" });
+  }
+  if (managesGym(user)) {
     mine.push({ label: "Gyms", href: "/gym-dashboard/gyms", icon: "⌂" });
   }
   if (["fighter", "coach", "referee", "gym_manager"].includes(role) || researcher) {
@@ -106,6 +120,7 @@ export const FIGHTER_TABS: { slug: string; label: string; icon: string; hint: st
   { slug: "observations", label: "Observations", icon: "✎", hint: "Progress over time, coach notes and AI training observations" },
   { slug: "medical", label: "Health notes", icon: "▣", hint: "Allergies, medications, conditions and pupil readings" },
   { slug: "team", label: "Team", icon: "◈", hint: "This fighter's coaches, physicians and gym" },
+  { slug: "profile", label: "Profile", icon: "◉", hint: "Edit the profile, or delete it" },
 ];
 
 /** The fighter tabs this account may open (the API checks each). */
@@ -114,11 +129,14 @@ export function fighterTabsFor(user: AuthUser | null | undefined) {
   if (user.is_researcher) return FIGHTER_TABS;
   switch (user.role) {
     case "admin":
-      return FIGHTER_TABS.filter((t) => ["", "team"].includes(t.slug));
+      return FIGHTER_TABS.filter((t) => ["", "team", "profile"].includes(t.slug));
     case "gym_manager":
       return FIGHTER_TABS.filter((t) => t.slug !== "medical");
     case "physician":
       return FIGHTER_TABS.filter((t) => ["", "sessions", "hrv", "medical", "team"].includes(t.slug));
+    case "fighter":
+      // A fighter's own profile is edited on the profile page; others' aren't theirs to edit.
+      return FIGHTER_TABS.filter((t) => t.slug !== "profile");
     default:
       return FIGHTER_TABS;
   }

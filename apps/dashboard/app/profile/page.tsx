@@ -18,6 +18,9 @@ import {
 } from "@/lib/api";
 import { useAuth } from "@/lib/auth";
 import { StaffInvitationsCard } from "@/components/StaffInvitationsCard";
+import { ConfirmModal } from "@/components/ConfirmModal";
+import { GymInvitationsCard } from "@/components/GymInvitationsCard";
+import { MyGymsCard } from "@/components/MyGymsCard";
 
 // --- Constants ---
 const STANCES: Stance[] = ["orthodox", "southpaw", "switch"];
@@ -52,6 +55,7 @@ const legendCls = "px-2 text-xs uppercase tracking-wider text-neutral-500";
 export default function ProfilePage() {
   const router = useRouter();
   const { user, refreshUser } = useAuth();
+  const [confirmDelete, setConfirmDelete] = useState(false);
 
   // --- Account fields ---
   const [name, setName] = useState(user?.name ?? "");
@@ -347,6 +351,9 @@ export default function ProfilePage() {
   return (
     <div className="mx-auto max-w-3xl space-y-8 px-4 py-6 sm:px-8 sm:py-8">
       <StaffInvitationsCard />
+      {/* Your gym: invitations to answer, the gyms you're in, leaving one (ADR-035, ADR-050). */}
+      {user.role === "fighter" && <GymInvitationsCard />}
+      {user.role === "fighter" && <MyGymsCard />}
       {/* Header */}
       <header className="flex items-center gap-4">
         <ProfileAvatar name={user.name} photo_path={user.photo_path} size={64} />
@@ -816,6 +823,41 @@ export default function ProfilePage() {
           </button>
         </div>
       </form>
+
+      {/* Deleting the fighter profile — moved here from the dashboard, for the same
+          people as before: a researcher on their own profile. */}
+      {user.role === "fighter" && user.is_researcher && user.profile_id && fighter && (
+        <section className="rounded-xl border border-red-500/20 p-5 space-y-2">
+          <h2 className="text-sm font-semibold text-red-300">Delete profile</h2>
+          <p className="text-xs text-neutral-400">
+            Deletes the fighter profile with all its sessions, pose data, videos, weigh-ins and punches. It can&apos;t be undone.
+          </p>
+          <button
+            type="button"
+            onClick={() => setConfirmDelete(true)}
+            className="rounded-xl border border-red-500/30 bg-red-500/10 px-3 py-1.5 text-sm text-red-300 hover:bg-red-500/20"
+          >
+            Delete profile
+          </button>
+        </section>
+      )}
+      {confirmDelete && fighter && user.profile_id && (
+        <ConfirmModal
+          title="Delete your fighter profile?"
+          body={`This also deletes all of ${fighter.name}'s sessions, captured pose data, uploaded videos, weigh-ins, and detected events. Cannot be undone.`}
+          requireTyped={fighter.name}
+          onCancel={() => setConfirmDelete(false)}
+          onConfirm={async () => {
+            try {
+              await api.deleteFighter(user.profile_id as string);
+              router.push("/");
+            } catch (e) {
+              setError(e instanceof Error ? e.message : String(e));
+              setConfirmDelete(false);
+            }
+          }}
+        />
+      )}
     </div>
   );
 }

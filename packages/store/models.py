@@ -440,6 +440,57 @@ class GymStaffRead(SQLModel):
     ended_at: UtcDatetime | None = None
 
 
+class SquadKind(StrEnum):
+    """What a squad is (ADR-053)."""
+
+    COMPETITION = "competition"  # a competition team: amateur, pro
+    CLASS = "class"  # a regular group: beginners, development
+    CAMP = "camp"  # a fight camp: ends on a date
+    OTHER = "other"
+
+
+class Squad(SQLModel, table=True):
+    """A group of fighters within a gym, with its own coaches (ADR-053)."""
+
+    id: UUID = Field(default_factory=uuid4, primary_key=True)
+    gym_id: UUID = Field(foreign_key="gym.id", index=True)
+    name: str = Field(min_length=1, max_length=120)
+    kind: str = Field(default=SquadKind.COMPETITION, max_length=20)  # SquadKind
+    level: str | None = Field(default=None, max_length=80)  # e.g. "amateur", "pro", "youth"
+    description: str | None = Field(default=None, max_length=500)
+    starts_on: date | None = None
+    ends_on: date | None = None  # a camp's last day: its coaches' access ends after it
+    created_by: UUID | None = None
+    created_at: datetime = Field(default_factory=lambda: datetime.now(UTC))
+    archived_at: datetime | None = None  # closed: no access through it any more
+
+
+class SquadMember(SQLModel, table=True):
+    """A fighter on a squad (ADR-053); one of their squads can be their main one."""
+
+    __tablename__ = "squad_member"
+    id: int | None = Field(default=None, primary_key=True)
+    squad_id: UUID = Field(foreign_key="squad.id", index=True)
+    fighter_id: UUID = Field(foreign_key="fighter.id", index=True)
+    is_main: bool = False
+    joined_on: date = Field(default_factory=lambda: date.today())
+    left_on: date | None = None
+    added_by: UUID | None = None
+
+
+class SquadStaff(SQLModel, table=True):
+    """A coach of a squad (ADR-053): one of the gym's coaching staff."""
+
+    __tablename__ = "squad_staff"
+    id: int | None = Field(default=None, primary_key=True)
+    squad_id: UUID = Field(foreign_key="squad.id", index=True)
+    coach_id: UUID = Field(foreign_key="coach.id", index=True)
+    role: str = Field(default="coach", max_length=20)  # "head_coach" | "coach"
+    started_on: date = Field(default_factory=lambda: date.today())
+    ended_on: date | None = None
+    added_by: UUID | None = None
+
+
 class GymManagerCreate(SQLModel):
     name: str = Field(min_length=1, max_length=120)
     gym_id: UUID
@@ -634,6 +685,9 @@ class Session(SQLModel, table=True):
         default=None,
         sa_column=sa.Column(sa.String, nullable=True),
     )
+    # The gym and squad it was trained with (ADR-053): None for a session on one's own.
+    gym_id: UUID | None = Field(default=None, index=True)
+    squad_id: UUID | None = Field(default=None, index=True)
 
 
 class SessionCreate(SQLModel):
@@ -642,11 +696,15 @@ class SessionCreate(SQLModel):
     notes: str | None = None
     pose_backend: PoseBackendEnum = PoseBackendEnum.MEDIAPIPE
     study_condition: StudyConditionEnum | None = None
+    # The squad it's trained with (ADR-053); left out, the fighter's main squad.
+    squad_id: UUID | None = None
 
 
 class SessionRead(SQLModel):
     id: UUID
     fighter_id: UUID
+    gym_id: UUID | None = None
+    squad_id: UUID | None = None
     source: SessionSourceEnum
     status: SessionStatus
     started_at: UtcDatetime

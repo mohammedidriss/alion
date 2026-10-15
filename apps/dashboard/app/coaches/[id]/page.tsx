@@ -8,6 +8,7 @@ import { ProfileAvatar } from "@/components/ProfileAvatar";
 import { api, type Coach, type CoachNote, type CoachingLevel, type Fighter } from "@/lib/api";
 import { useAuth } from "@/lib/auth";
 import { StaffInvitationsCard } from "@/components/StaffInvitationsCard";
+import { MySquadsCard } from "@/components/SquadCards";
 
 
 export default function CoachPage({ params }: { params: { id: string } }) {
@@ -137,6 +138,7 @@ export default function CoachPage({ params }: { params: { id: string } }) {
         ← Main page
       </Link>
       {isMe && <StaffInvitationsCard />}
+      {isMe && <MySquadsCard />}
 
       <header className="flex items-start gap-5">
         <button

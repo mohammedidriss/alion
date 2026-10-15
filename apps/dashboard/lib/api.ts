@@ -136,6 +136,38 @@ export interface CoachAssignment {
   source_gym_name?: string | null;
 }
 
+/** A squad within a gym (ADR-053): a competition team, a class, a fight camp. */
+export type SquadKind = "competition" | "class" | "camp" | "other";
+export interface Squad {
+  id: string;
+  gym_id: string;
+  gym_name: string;
+  name: string;
+  kind: SquadKind;
+  level: string | null;
+  description: string | null;
+  starts_on: string | null;
+  ends_on: string | null;
+  open: boolean; // gives access today: not archived, not past its end date
+  archived_at: string | null;
+  fighters: number;
+  coaches: string[];
+  sessions_7d: number | null; // trained with this squad this week (null: you can't see their training)
+  trained_7d: number | null; // its fighters who trained at all this week
+  members?: { id: number; fighter_id: string; name: string; is_main: boolean; joined_on: string; left_on: string | null }[] | null;
+  staff?: { id: number; coach_id: string; name: string; role: "head_coach" | "coach"; started_on: string; ended_on: string | null }[] | null;
+  member_id?: number | null; // on a fighter's list: their place on it
+  is_main?: boolean | null;
+}
+export type SquadInput = {
+  name: string;
+  kind: SquadKind;
+  level?: string | null;
+  description?: string | null;
+  starts_on?: string | null;
+  ends_on?: string | null;
+};
+
 /** A role at a gym (ADR-052): owner, manager, head coach or coach. */
 export type GymStaffRole = "owner" | "manager" | "head_coach" | "coach";
 export interface GymStaff {
@@ -651,6 +683,8 @@ export interface DatasetDetail {
 export interface Session {
   id: string;
   fighter_id: string;
+  gym_id?: string | null; // the gym and squad it was trained with (ADR-053)
+  squad_id?: string | null;
   source: SessionSource;
   status: SessionStatus;
   started_at: string;
@@ -2114,6 +2148,46 @@ export const api = {
   endStaff: (gymId: string, staffId: number) =>
     req<GymStaff>(`/gyms/${gymId}/staff/${staffId}/end`, { method: "POST" }),
   myStaff: () => req<GymStaff[]>("/v2/my-staff"),
+  gymSquads: (gymId: string, archived = false) =>
+    req<Squad[]>(`/gyms/${gymId}/squads${archived ? "?archived=true" : ""}`),
+  createSquad: (gymId: string, body: SquadInput) =>
+    req<Squad>(`/gyms/${gymId}/squads`, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify(body),
+    }),
+  getSquad: (id: string) => req<Squad>(`/squads/${id}`),
+  updateSquad: (id: string, body: Partial<SquadInput>) =>
+    req<Squad>(`/squads/${id}`, {
+      method: "PATCH",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify(body),
+    }),
+  archiveSquad: (id: string) => req<Squad>(`/squads/${id}/archive`, { method: "POST" }),
+  addSquadMember: (id: string, fighterId: string, isMain = false) =>
+    req<Squad>(`/squads/${id}/members`, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ fighter_id: fighterId, is_main: isMain }),
+    }),
+  setMainSquad: (id: string, memberId: number, isMain: boolean) =>
+    req<Squad>(`/squads/${id}/members/${memberId}`, {
+      method: "PATCH",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ is_main: isMain }),
+    }),
+  endSquadMember: (id: string, memberId: number) =>
+    req<Squad>(`/squads/${id}/members/${memberId}/end`, { method: "POST" }),
+  addSquadCoach: (id: string, coachId: string, role: "head_coach" | "coach" = "coach") =>
+    req<Squad>(`/squads/${id}/staff`, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ coach_id: coachId, role }),
+    }),
+  endSquadCoach: (id: string, staffId: number) =>
+    req<Squad>(`/squads/${id}/staff/${staffId}/end`, { method: "POST" }),
+  fighterSquads: (fighterId: string) => req<Squad[]>(`/fighters/${fighterId}/squads`),
+  mySquads: () => req<Squad[]>("/v2/my-squads"),
   answerStaff: (staffId: number, answer: "accept" | "decline" | "leave") =>
     req<GymStaff>(`/v2/my-staff/${staffId}/${answer}`, { method: "POST" }),
   leaveGym: (membershipId: number) =>
