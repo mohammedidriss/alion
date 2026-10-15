@@ -14,7 +14,7 @@ from fastapi.security import OAuth2PasswordBearer, OAuth2PasswordRequestForm
 from jose import JWTError, jwt
 from pydantic import BaseModel, Field, field_validator
 from sqlmodel import Session as DBSession
-from sqlmodel import select
+from sqlmodel import col, select
 
 from api.deps import db_session
 from api.services import researchers, signed, terms
@@ -569,6 +569,25 @@ def _require_admin(user: User = Depends(require_current_user)) -> User:
     return user
 
 
+def system_admin_id(db: DBSession) -> UUID | None:
+    """The system administrator: the founding admin account — the earliest-created
+    account with the admin role, made when Alion was installed. Nobody can remove,
+    disable or demote it, so the system always keeps its administrator. Admin
+    accounts added later can still be managed."""
+    row = db.exec(
+        select(User).where(User.role == UserRole.ADMIN).order_by(col(User.created_at), col(User.id))
+    ).first()
+    return row.id if row else None
+
+
+def _guard_system_admin(db: DBSession, target: User, action: str) -> None:
+    if target.id == system_admin_id(db):
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail=f"The system administrator can't be {action}",
+        )
+
+
 # --- Admin endpoints ---
 
 
@@ -595,6 +614,7 @@ class UnifiedPerson(BaseModel):
     removed: bool = False  # the login or the profile was deleted; email is the one it had
     account_removed: bool = False  # the login was deleted (ADR-048)
     profile_removed: bool = False  # the fighter profile was deleted, recordings kept (ADR-056)
+    is_system_admin: bool = False  # can't be removed, disabled or demoted
 
 
 @router.get("/admin/everyone", response_model=list[UnifiedPerson])
@@ -605,6 +625,7 @@ def admin_list_everyone(
     coaches: CoachRepo = Depends(lambda s=Depends(db_session): CoachRepo(s)),
     referees: RefereeRepo = Depends(lambda s=Depends(db_session): RefereeRepo(s)),
     gym_managers: GymManagerRepo = Depends(lambda s=Depends(db_session): GymManagerRepo(s)),
+    db: DBSession = Depends(db_session),
 ) -> list[UnifiedPerson]:
     """Unified view: every profile (fighter/coach/etc.) + every login account.
 
@@ -614,6 +635,7 @@ def admin_list_everyone(
     """
     # Build a map from profile_id → user for fast lookup
     all_users = repo.list_all()
+    system_admin = system_admin_id(db)
     profile_to_user = {u.profile_id: u for u in all_users if u.profile_id}
     accounted_user_ids = set()
 
@@ -637,6 +659,7 @@ def admin_list_everyone(
                     removed=bool(user and user.removed_at) or bool(getattr(p, "removed_at", None)),
                     account_removed=bool(user and user.removed_at),
                     profile_removed=bool(getattr(p, "removed_at", None)),
+                    is_system_admin=bool(user and user.id == system_admin),
                 )
             )
 
@@ -660,6 +683,7 @@ def admin_list_everyone(
                     photo_path=u.photo_path,
                     removed=u.removed_at is not None,
                     account_removed=u.removed_at is not None,
+                    is_system_admin=u.id == system_admin,
                 )
             )
 
@@ -722,12 +746,16 @@ def admin_reset_password(
     data: AdminResetPasswordRequest,
     _admin: User = Depends(_require_admin),
     repo: UserRepo = Depends(_user_repo),
+    db: DBSession = Depends(db_session),
 ) -> dict[str, str]:
-    """Reset any user's password (admin only)."""
+    """Reset any user's password (admin only) — but only the system administrator
+    resets its own, so nobody else can take that account over."""
     target = repo.get(user_id)
     if target is None:
         raise HTTPException(status_code=404, detail="User not found")
     _not_removed(target)
+    if target.id != _admin.id:
+        _guard_system_admin(db, target, "given a new password by anyone else")
     new_hash = _hash_password(data.new_password)
     repo.update(user_id, {"password_hash": new_hash})
     return {"status": "ok", "message": f"Password reset for {target.email}"}
@@ -747,12 +775,24 @@ def admin_update_user(
     data: AdminUpdateUserRequest,
     _admin: User = Depends(_require_admin),
     repo: UserRepo = Depends(_user_repo),
+    db: DBSession = Depends(db_session),
 ) -> UserRead:
-    """Update any user's fields (admin only)."""
+    """Update any user's fields (admin only). The system administrator can't be
+    disabled or given another role, and only it changes its own email."""
     target = repo.get(user_id)
     if target is None:
         raise HTTPException(status_code=404, detail="User not found")
     _not_removed(target)
+    if data.is_active is False:
+        _guard_system_admin(db, target, "disabled")
+    if data.role is not None and data.role != UserRole.ADMIN:
+        _guard_system_admin(db, target, "given another role")
+    if (
+        data.email is not None
+        and data.email.strip().lower() != target.email
+        and target.id != _admin.id
+    ):
+        _guard_system_admin(db, target, "given a new email by anyone else")
     fields = {k: v for k, v in data.model_dump().items() if v is not None}
     if not fields:
         raise HTTPException(status_code=400, detail="No fields to update")
@@ -799,6 +839,7 @@ def remove_account(db: DBSession, target: User, by: User) -> str:
     email it had. Only a researcher removes a researcher's account."""
     if target.removed_at is not None:
         raise HTTPException(status_code=409, detail="This account was already removed")
+    _guard_system_admin(db, target, "removed")
     if researchers.is_researcher(target) and not researchers.is_researcher(by):
         raise HTTPException(status_code=403, detail="Only a researcher removes a researcher")
     email, now = target.email, datetime.now(UTC)
@@ -874,14 +915,16 @@ def admin_deactivate_user(
     user_id: UUID,
     _admin: User = Depends(_require_admin),
     repo: UserRepo = Depends(_user_repo),
+    db: DBSession = Depends(db_session),
 ) -> dict[str, str]:
-    """Deactivate a user (soft disable, preserves data)."""
+    """Deactivate a user (soft disable, preserves data). Never the system administrator."""
     if user_id == _admin.id:
         raise HTTPException(status_code=400, detail="Cannot deactivate your own account")
     target = repo.get(user_id)
     if target is None:
         raise HTTPException(status_code=404, detail="User not found")
     _not_removed(target)
+    _guard_system_admin(db, target, "disabled")
     repo.update(user_id, {"is_active": False})
     return {"status": "ok", "message": f"Deactivated {target.email}"}
 

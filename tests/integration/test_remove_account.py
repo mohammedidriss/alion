@@ -75,6 +75,17 @@ def test_who_can_remove_whom(admin_client: TestClient, authed_client: TestClient
     admin_id = str(admin_client.get("/auth/me").json()["id"])
     researcher_id = str(authed_client.get("/auth/me").json()["id"])
     assert admin_client.delete(f"/auth/admin/users/{admin_id}").status_code == 400  # not yourself
-    # An admin can't remove the researcher; the researcher can remove an admin.
+    # An admin can't remove the researcher; the researcher can remove an admin —
+    # but never the system administrator, the founding admin account.
     assert admin_client.delete(f"/auth/admin/users/{researcher_id}").status_code == 403
-    assert authed_client.delete(f"/auth/admin/users/{admin_id}").status_code == 200
+    assert authed_client.delete(f"/auth/admin/users/{admin_id}").status_code == 403
+    later = admin_client.post(
+        "/auth/admin/users",
+        json={
+            "email": "later-admin@alion.test",
+            "password": "Another-Pass-123!",
+            "name": "Later Admin",
+            "role": "admin",
+        },
+    ).json()["id"]
+    assert authed_client.delete(f"/auth/admin/users/{later}").status_code == 200

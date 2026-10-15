@@ -366,7 +366,13 @@ export default function AdminUsersPage() {
                     type="email"
                     value={editEmail}
                     onChange={(e) => setEditEmail(e.target.value)}
-                    className="w-full rounded-xl border border-white/10 bg-white/[0.03] px-4 py-2.5 text-sm text-neutral-200 focus:border-emerald-500/40 focus:outline-none"
+                    disabled={editUser.is_system_admin && editUser.user_id !== me?.id}
+                    title={
+                      editUser.is_system_admin && editUser.user_id !== me?.id
+                        ? "Only the system administrator changes its own email"
+                        : undefined
+                    }
+                    className="w-full rounded-xl border border-white/10 bg-white/[0.03] px-4 py-2.5 text-sm text-neutral-200 focus:border-emerald-500/40 focus:outline-none disabled:opacity-50"
                   />
                 </div>
                 <div>
@@ -374,7 +380,9 @@ export default function AdminUsersPage() {
                   <select
                     value={editRole}
                     onChange={(e) => setEditRole(e.target.value as UserRole)}
-                    className="w-full rounded-xl border border-white/10 bg-white/[0.03] px-4 py-2.5 text-sm text-neutral-200 focus:border-emerald-500/40 focus:outline-none"
+                    disabled={editUser.is_system_admin}
+                    title={editUser.is_system_admin ? "The system administrator stays an administrator" : undefined}
+                    className="w-full rounded-xl border border-white/10 bg-white/[0.03] px-4 py-2.5 text-sm text-neutral-200 focus:border-emerald-500/40 focus:outline-none disabled:opacity-50"
                   >
                     {ROLES.map((r) => (
                       <option key={r} value={r}>{r.replace("_", " ")}</option>
@@ -470,12 +478,27 @@ export default function AdminUsersPage() {
                       </button>
                       <button
                         onClick={() => setResetUser(u)}
-                        className="rounded-lg p-2 text-xs text-amber-400/70 hover:bg-amber-500/10 hover:text-amber-300"
-                        title="Reset password"
+                        disabled={u.is_system_admin && u.user_id !== me?.id}
+                        className="rounded-lg p-2 text-xs text-amber-400/70 hover:bg-amber-500/10 hover:text-amber-300 disabled:opacity-30"
+                        title={
+                          u.is_system_admin && u.user_id !== me?.id
+                            ? "Only the system administrator changes its own password"
+                            : "Reset password"
+                        }
                       >
                         <span className="hidden sm:inline">Reset PW</span>
                         <span className="sm:hidden">🔑</span>
                       </button>
+                      {u.is_system_admin ? (
+                        <span
+                          className="rounded-lg p-2 text-xs text-purple-300/80"
+                          title="The system administrator can't be disabled or removed"
+                        >
+                          <span className="hidden sm:inline">🔒 Protected</span>
+                          <span className="sm:hidden">🔒</span>
+                        </span>
+                      ) : (
+                      <>
                       <button
                         onClick={() => handleToggleActive(u)}
                         disabled={u.user_id === me?.id}
@@ -503,6 +526,8 @@ export default function AdminUsersPage() {
                         <span className="hidden sm:inline">{u.user_id ? "Remove" : "Delete"}</span>
                         <span className="sm:hidden">🗑</span>
                       </button>
+                      </>
+                      )}
                     </div>
                     )}
                   </td>
