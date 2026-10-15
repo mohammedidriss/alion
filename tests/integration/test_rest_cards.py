@@ -326,3 +326,91 @@ def test_a_model_trial_times_the_cards_and_checks_them_but_records_nothing(
     # Only installed models; only sessions the caller may read.
     assert authed_client.post("/v2/llm/trial", json={**body, "model": "llama3"}).status_code == 409
     assert admin_client.post("/v2/llm/trial", json=body).status_code == 403
+
+
+def test_a_saved_comparison_runs_every_round_and_is_rated_blind(
+    authed_client: TestClient,
+    client: TestClient,
+    sid: str,
+    two_setups: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """ADR-058: a comparison runs on the server — every model, every round, every
+    repeat — is saved, rated under blind codes until the names are revealed, and
+    exports as CSV."""
+    import coach
+    from api.routes import llm, llm_compare
+
+    monkeypatch.setattr(llm_compare, "BACKGROUND", False)
+    monkeypatch.setattr(llm, "installed_models", lambda url, key: ["gemma3:4b", "qwen3:8b"])
+
+    async def awake(url: str, key: str, model: str) -> dict[str, Any]:
+        return {"ok": True, "seconds": 0.1}
+
+    async def phrase(
+        system: str,
+        user: str,
+        schema: dict[str, Any],
+        *,
+        timeout_s: float = 12.0,
+        target: tuple[str, str, str] | None = None,
+    ) -> dict[str, Any] | None:
+        return {"cards": []} if target and target[2] == "qwen3:8b" else None
+
+    monkeypatch.setattr(llm_compare, "ping", awake)
+    monkeypatch.setattr(coach, "generate_json", phrase)
+    body = {
+        "models": [
+            {"choice": "local", "model": "gemma3:4b"},
+            {"choice": "remote", "model": "qwen3:8b"},
+        ],
+        "session_ids": [sid],
+        "repeats": 2,
+    }
+    r = authed_client.post("/v2/llm/comparisons", json=body)
+    assert r.status_code == 201, r.text
+    out = r.json()
+    assert out["status"] == "done" and out["done"] == out["total"] == 2 * 2 * 3
+    assert sorted(m["code"] for m in out["models"]) == ["A", "B"]
+    assert all("model" not in m for m in out["models"])  # blind until revealed
+    by_code = {m["code"]: m for m in out["models"]}
+    assert all(m["consistent"] in (None, 1.0) for m in by_code.values())
+
+    detail = authed_client.get(f"/v2/llm/comparisons/{out['id']}").json()
+    # One model never answers; the other answers every round that has facts to phrase.
+    answered = {c: [t for t in detail["trials"] if t["code"] == c] for c in by_code}
+    assert sorted(sum(t["answered"] for t in ts) for ts in answered.values())[0] == 0
+    talker = max(answered.values(), key=lambda ts: sum(t["answered"] for t in ts))
+    assert all(t["answered"] == (t["detail"]["facts"] > 0) for t in talker)
+    t1, t2 = detail["trials"][0]["id"], detail["trials"][1]["id"]
+    assert "model" not in detail["trials"][0]
+    url = f"/v2/llm/comparisons/{out['id']}"
+    assert authed_client.put(f"{url}/ratings/{t1}", json={"score": 4}).json()["blind"] is True
+    revealed = authed_client.post(f"{url}/reveal").json()
+    assert {m["model"] for m in revealed["models"]} == {"gemma3:4b", "qwen3:8b"}
+    assert authed_client.put(f"{url}/ratings/{t2}", json={"score": 2}).json()["blind"] is False
+    rated = [m for m in authed_client.get(url).json()["models"] if m["ratings"]]
+    assert sum(m["ratings"] for m in rated) == 2
+
+    csv_text = authed_client.get(f"{url}/csv").text
+    lines = csv_text.strip().splitlines()
+    assert lines[0].startswith("comparison,code,setup,model") and len(lines) == 1 + 12
+    assert "qwen3:8b" in csv_text
+    assert [c["id"] for c in authed_client.get("/v2/llm/comparisons").json()] == [out["id"]]
+
+    # Researchers only.
+    tok = client.post(
+        "/auth/register",
+        json={
+            "email": "coachy-cmp@alion.test",
+            "password": "ValidPass123",
+            "name": "Coachy",
+            "role": "coach",
+            "accept_terms": True,
+            "terms_version": __import__("api.services.terms", fromlist=["x"]).TERMS_VERSION,
+        },
+    ).json()["access_token"]
+    assert (
+        client.get("/v2/llm/comparisons", headers={"Authorization": f"Bearer {tok}"}).status_code
+        == 403
+    )

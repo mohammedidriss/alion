@@ -290,6 +290,66 @@ export interface MyGym {
   rules_pending?: boolean; // the gym's rules changed since they accepted them
 }
 
+/** A saved language-model comparison (ADR-058): models under blind codes until revealed. */
+export interface LlmComparisonModel {
+  code: string;
+  trials: number;
+  answered: number;
+  avg_seconds: number | null;
+  median_seconds: number | null;
+  slowest_seconds: number | null;
+  in_time: number;
+  written: number;
+  passed: number;
+  slots: number;
+  top_gate: string | null;
+  errors: number;
+  consistent: number | null; // of rounds run more than once, the share that passed the same every time
+  rating: number | null;
+  blind_rating: number | null;
+  ratings: number;
+  // once revealed:
+  choice?: "local" | "remote";
+  model?: string;
+  label?: string;
+  in_use?: boolean;
+}
+export interface LlmComparisonTrial {
+  id: number;
+  code: string;
+  model?: string;
+  session_id: string;
+  after_round: number;
+  repeat: number;
+  seconds: number | null;
+  answered: boolean;
+  in_time: boolean;
+  written: number;
+  passed: number;
+  detail: {
+    cards?: RestCard[];
+    verdicts?: { slot: string | null; ok: boolean; gate: string | null }[];
+    blocked_terms?: string[];
+    facts?: number;
+    error?: string;
+  };
+  my_score: number | null;
+}
+export interface LlmComparison {
+  id: string;
+  created_at: string;
+  finished_at: string | null;
+  status: "running" | "done" | "stopped" | "failed";
+  step: string | null;
+  done: number;
+  total: number;
+  repeats: number;
+  sessions: { id: string; rounds: number; started_at?: string }[];
+  revealed: boolean;
+  models: LlmComparisonModel[];
+  trials?: LlmComparisonTrial[];
+}
+
 /** What joining a gym asks (ADR-055). */
 export type JoiningInput = {
   accept_rules?: boolean;
@@ -2549,6 +2609,45 @@ export const api = {
       headers: { "content-type": "application/json" },
       body: JSON.stringify({ choice, model }),
     }),
+  llmComparisons: () => req<LlmComparison[]>("/v2/llm/comparisons"),
+  llmComparison: (id: string) => req<LlmComparison>(`/v2/llm/comparisons/${id}`),
+  startLlmComparison: (body: {
+    models: { choice: "local" | "remote"; model: string }[];
+    session_ids: string[];
+    repeats: number;
+  }) =>
+    req<LlmComparison>("/v2/llm/comparisons", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify(body),
+    }),
+  stopLlmComparison: (id: string) => req<LlmComparison>(`/v2/llm/comparisons/${id}/stop`, { method: "POST" }),
+  revealLlmComparison: (id: string) =>
+    req<LlmComparison>(`/v2/llm/comparisons/${id}/reveal`, { method: "POST" }),
+  rateLlmTrial: (id: string, trialId: number, score: number) =>
+    req<{ score: number; blind: boolean }>(`/v2/llm/comparisons/${id}/ratings/${trialId}`, {
+      method: "PUT",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ score }),
+    }),
+  /** The comparison as a CSV file (auth), saved by the browser. */
+  downloadLlmComparisonCsv: async (id: string): Promise<void> => {
+    const token =
+      (typeof window !== "undefined" &&
+        (localStorage.getItem("alion.token") ?? sessionStorage.getItem("alion.token"))) ||
+      "";
+    const r = await fetch(`${BASE}/v2/llm/comparisons/${id}/csv`, {
+      headers: token ? { Authorization: `Bearer ${token}` } : {},
+    });
+    if (!r.ok) throw new Error(`CSV failed (${r.status})`);
+    const name = /filename="([^"]+)"/.exec(r.headers.get("content-disposition") ?? "")?.[1] ?? "llm-comparison.csv";
+    const url = URL.createObjectURL(await r.blob());
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = name;
+    a.click();
+    URL.revokeObjectURL(url);
+  },
   llmTrial: (body: { choice: "local" | "remote"; model: string; session_id: string; after_round: number }) =>
     req<LlmTrial>("/v2/llm/trial", {
       method: "POST",

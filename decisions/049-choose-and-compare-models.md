@@ -41,6 +41,7 @@ remote laptop has several models installed (gemma3, qwen), and the owner asked
 
 - Tests: `test_llm_switch.py` (picking an installed model), `test_rest_cards.py`
   (a trial: timed, verified, not recorded, access).
-- Trials aren't saved; a comparison lives on the page until it is left.
+- Since ADR-058 comparisons are saved, run on the server, span several sessions
+  and repeats, and are rated blind.
 - One session's rounds are a small sample, and the model's output varies run
   to run: compare on several sessions before choosing.

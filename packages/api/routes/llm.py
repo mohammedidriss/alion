@@ -21,7 +21,7 @@ from pydantic import BaseModel, Field
 from sqlmodel import Session as DBSession
 
 from api import access
-from api.deps import db_session, punch_event_repo, session_repo
+from api.deps import db_session
 from coach.llm_client import installed_models, llm_config, ping
 from common import llm_setups
 from store import PunchEventRepo, SessionRepo
@@ -139,43 +139,34 @@ async def test_llm(
     return await ping(setup.url, setup.api_key, body.model or setup.model)
 
 
-@router.post("/trial", response_model=dict)
-async def trial(
-    body: TrialIn,
-    viewer: access.Viewer = Depends(require_researcher_or_admin),
-    sessions: SessionRepo = Depends(session_repo),
-    events: PunchEventRepo = Depends(punch_event_repo),
-    db: DBSession = Depends(db_session),
+async def run_trial(
+    db: DBSession, setup: llm_setups.LlmSetup, model: str, session_id: UUID, after_round: int
 ) -> dict[str, Any]:
     """One model phrases one round's rest cards, exactly as in the rest minute (same
-    facts, prompt and verifier), but with no time limit to speak of: how long it
-    took, how many cards it wrote, which passed every gate and why the others
-    didn't. For comparing models (ADR-049) — never shown to a coach, never recorded
-    as advice."""
+    facts, prompt and verifier), with no time limit to speak of. The caller checks
+    the session may be read; the coach-only study condition is refused here."""
     from api.routes import rest_cards as rc
     from api.services import advice_gate, rest_cards
     from coach import find_blocked
 
-    setup = _setup(body.choice, body.model)
-    row = rc._gate(db, body.session_id)  # 404, and the coach-only study condition
-    viewer.require(row.fighter_id, access.Level.TRAINING)
-    ex, facts = rc._ledger(body.session_id, body.after_round, False, sessions, events, db)
+    rc._gate(db, session_id)  # 404, and the coach-only study condition
+    ex, facts = rc._ledger(session_id, after_round, False, SessionRepo(db), PunchEventRepo(db), db)
     t = time.perf_counter()
     _, output, verdicts, shown, _ = await rc.phrase(
         ex,
-        body.after_round,
+        after_round,
         facts,
-        target=(setup.url, setup.api_key, body.model),
+        target=(setup.url, setup.api_key, model),
         timeout_s=TRIAL_TIMEOUT_S,
     )
     seconds = round(time.perf_counter() - t, 1)
     blocked = find_blocked(*advice_gate._texts(output)) if output else []
     written = output.get("cards") if isinstance(output, dict) else None
     return {
-        "choice": body.choice,
+        "choice": setup.name,
         "label": setup.label,
-        "model": body.model,
-        "after_round": body.after_round,
+        "model": model,
+        "after_round": after_round,
         "round_count": ex.round_count,
         "facts": len(facts),
         "seconds": seconds,
@@ -188,3 +179,20 @@ async def trial(
         "verdicts": verdicts,
         "cards": [c.model_dump() for c in (rest_cards.template_cards(facts) if blocked else shown)],
     }
+
+
+@router.post("/trial", response_model=dict)
+async def trial(
+    body: TrialIn,
+    viewer: access.Viewer = Depends(require_researcher_or_admin),
+    db: DBSession = Depends(db_session),
+) -> dict[str, Any]:
+    """One model phrases one round's rest cards: how long it took, how many cards it
+    wrote, which passed every gate and why the others didn't. For comparing models
+    (ADR-049) — never shown to a coach, never recorded as advice."""
+    from api.routes import rest_cards as rc
+
+    setup = _setup(body.choice, body.model)
+    row = rc._gate(db, body.session_id)
+    viewer.require(row.fighter_id, access.Level.TRAINING)
+    return await run_trial(db, setup, body.model, body.session_id, body.after_round)

@@ -36,6 +36,7 @@ from api.routes import (
     imu_ble,
     live,
     llm,
+    llm_compare,
     physicians,
     pose,
     privacy,
@@ -240,6 +241,7 @@ app.include_router(gym_invitations.join)  # asks to join with a code (ADR-055)
 app.include_router(gym_staff.router)  # a gym's staff (ADR-052)
 app.include_router(gym_staff.mine)
 app.include_router(squads.router)  # squads within a gym (ADR-053)
+app.include_router(llm_compare.router)  # saved language-model comparisons (ADR-058)
 app.include_router(rest_cards.router)  # the minute between rounds (ADR-041)
 app.include_router(physicians.router)  # a physician's fighters (ADR-046)
 app.include_router(round_plans.router)

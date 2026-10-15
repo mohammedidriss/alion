@@ -1965,3 +1965,62 @@ class AdviceRecord(SQLModel, table=True):
     platform_version: str = Field(default="", max_length=20)
     user_id: UUID | None = None  # who asked for it
     locked: bool = False  # frozen as a study stimulus: never regenerated or replaced
+
+
+# ----------------------------------------------------------------------
+# Comparing language models on recorded sessions (ADR-049, ADR-058)
+# ----------------------------------------------------------------------
+
+
+class LlmComparison(SQLModel, table=True):
+    """A saved comparison of language models on rest cards (ADR-058): which models
+    (each under a blind code), which sessions, how many repeats; run on the server."""
+
+    __tablename__ = "llm_comparison"
+    id: UUID = Field(default_factory=uuid4, primary_key=True)
+    created_by: UUID | None = None
+    created_at: datetime = Field(default_factory=lambda: datetime.now(UTC))
+    finished_at: datetime | None = None
+    status: str = Field(default="running", max_length=12)  # running | done | stopped | failed
+    # JSON [{"code": "A", "choice": "remote", "model": "qwen:latest", "label": "…"}]
+    models: str
+    session_ids: str  # JSON [session id, …]
+    repeats: int = 1
+    total: int = 0  # trials planned
+    step: str | None = Field(default=None, max_length=200)  # what it's doing now
+    revealed_at: datetime | None = None  # model names shown: later ratings aren't blind
+
+
+class LlmTrialResult(SQLModel, table=True):
+    """One model phrasing one round's rest cards, in a comparison."""
+
+    __tablename__ = "llm_trial_result"
+    id: int | None = Field(default=None, primary_key=True)
+    comparison_id: UUID = Field(foreign_key="llm_comparison.id", index=True)
+    code: str = Field(max_length=4)  # the model's blind code in this comparison
+    choice: str = Field(max_length=12)
+    model: str = Field(max_length=120)
+    session_id: UUID
+    after_round: int
+    repeat: int = 1
+    seconds: float | None = None
+    answered: bool = False
+    in_time: bool = False
+    written: int = 0
+    passed: int = 0
+    detail: str = "{}"  # JSON: verdicts, cards, blocked_terms, error
+    created_at: datetime = Field(default_factory=lambda: datetime.now(UTC))
+
+
+class LlmRating(SQLModel, table=True):
+    """A researcher's rating of one trial's cards: how useful to a coach, 1–5, given
+    while the model's name was hidden (blind) or after it was shown."""
+
+    __tablename__ = "llm_rating"
+    id: int | None = Field(default=None, primary_key=True)
+    comparison_id: UUID = Field(foreign_key="llm_comparison.id", index=True)
+    trial_id: int = Field(foreign_key="llm_trial_result.id", index=True)
+    rater_id: UUID
+    score: int = Field(ge=1, le=5)
+    blind: bool = True
+    created_at: datetime = Field(default_factory=lambda: datetime.now(UTC))

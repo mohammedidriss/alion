@@ -327,7 +327,7 @@ function LanguageModel() {
         Check again
       </button>
 
-      {st && st.setups.some((s) => s.models.length > 0) && <ModelCompare setups={st.setups} />}
+      {st && st.setups.some((s) => s.models.length > 0) && <ModelCompare setups={st.setups} onChosen={() => void load()} />}
     </div>
   );
 }
