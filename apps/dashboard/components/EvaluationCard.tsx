@@ -187,7 +187,7 @@ export function EvaluationCard({ sessionId }: { sessionId: string }) {
           <div className="mt-3 flex gap-2 text-xs">
             <a
               href={`data:application/json;charset=utf-8,${encodeURIComponent(JSON.stringify(labels ?? [], null, 2))}`}
-              download={`alion-${sessionId}-labels.json`}
+              download={`ringsideiq-${sessionId}-labels.json`}
               className="rounded-lg border border-white/5 bg-white/[0.03] px-2.5 py-1 hover:bg-white/[0.07]"
             >
               Download labels

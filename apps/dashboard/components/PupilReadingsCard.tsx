@@ -3,7 +3,7 @@
 /**
  * Pupil readings (ADR-044): a pupillometer's values, entered as the device showed
  * them — eye, NPi or size, when, how bright the room was, and when in the session.
- * Alion adds no thresholds and no interpretation: what a reading means is for the
+ * RingsideIQ adds no thresholds and no interpretation: what a reading means is for the
  * medical staff. Health data, like the rest of this page.
  */
 
@@ -69,7 +69,7 @@ export function PupilReadingsCard({ fighterId }: { fighterId: string }) {
         <div>
           <h2 className="text-base font-semibold">Pupil readings</h2>
           <p className="text-xs text-neutral-400">
-            As the pupillometer showed them. Alion adds no thresholds and no interpretation — the
+            As the pupillometer showed them. RingsideIQ adds no thresholds and no interpretation — the
             medical staff read them.
           </p>
         </div>

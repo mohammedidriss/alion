@@ -1242,7 +1242,7 @@ function SessionPageContent({ params }: { params: { id: string } }) {
             <h2 className="font-medium">Export</h2>
             <a
               href={api.eventsCsvUrl(id)}
-              download={`alion-${id}-events.csv`}
+              download={`ringsideiq-${id}-events.csv`}
               className="rounded bg-neutral-800 px-3 py-1.5 text-sm hover:bg-neutral-700"
             >
               Download events CSV

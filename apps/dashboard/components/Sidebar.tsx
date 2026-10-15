@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
-import { AlionWordmark } from "@/components/AlionLogo";
+import { RingsideWordmark } from "@/components/RingsideLogo";
 import { ProfileAvatar } from "@/components/ProfileAvatar";
 import { useAuth } from "@/lib/auth";
 import { api } from "@/lib/api";
@@ -55,7 +55,7 @@ export function Sidebar({ onNavigate }: { onNavigate?: () => void } = {}) {
       {/* Logo */}
       <div className="px-4 pt-5 pb-4">
         <Link href="/">
-          <AlionWordmark size={28} />
+          <RingsideWordmark size={28} />
         </Link>
       </div>
 

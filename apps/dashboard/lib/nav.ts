@@ -78,7 +78,7 @@ export function navSections(user: AuthUser | null | undefined): NavSection[] {
   if (!researcher && (user.is_reviewer || user.is_rq1_rater)) {
     mine.push({ label: "Study", href: "/study", icon: "◎", hint: "The study you take part in" });
   }
-  mine.push({ label: "Privacy & consent", href: "/privacy", icon: "◐", hint: "What Alion keeps about you, who can see it, and your requests" });
+  mine.push({ label: "Privacy & consent", href: "/privacy", icon: "◐", hint: "What RingsideIQ keeps about you, who can see it, and your requests" });
   sections.push({ title: null, items: mine });
 
   if (researcher) {

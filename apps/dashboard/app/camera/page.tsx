@@ -200,7 +200,7 @@ function Shell({ children }: { children: React.ReactNode }) {
   return (
     <div className="mx-auto max-w-md p-6">
       <div className="rounded-2xl border border-white/10 bg-neutral-950 p-5">
-        <div className="mb-2 text-base font-semibold">Alion camera</div>
+        <div className="mb-2 text-base font-semibold">RingsideIQ camera</div>
         {children}
       </div>
     </div>

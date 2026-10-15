@@ -119,7 +119,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
       <main className="mobile-shell-main flex-1 overflow-y-auto">
         {/* Permanent notice (ADR-018): an early version, it can be wrong, a person decides. */}
         <div className="border-b border-white/5 bg-amber-950/20 px-4 py-1 text-center text-[11px] text-amber-200/80">
-          Alion is an early version still in development and can make mistakes — a person makes
+          RingsideIQ is an early version still in development and can make mistakes — a person makes
           every decision.
         </div>
         {children}

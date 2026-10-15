@@ -76,7 +76,7 @@ export function BrowserCapture({ sessionId, stance, onDone }: Props) {
       // contexts or before iOS grants camera permission.
       if (!navigator.mediaDevices?.getUserMedia) {
         throw new Error(
-          "Camera not accessible. On iPhone, make sure you opened the app natively (not via Safari) and granted camera permission in Settings → Alion."
+          "Camera not accessible. On iPhone, make sure you opened the app natively (not via Safari) and granted camera permission in Settings → RingsideIQ."
         );
       }
       const stream = await navigator.mediaDevices.getUserMedia({

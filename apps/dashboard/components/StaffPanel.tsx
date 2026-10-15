@@ -44,7 +44,7 @@ export function StaffPanel({ gymId }: { gymId: string }) {
       const r = await api.inviteStaff(gymId, v.includes("@") ? { email: v, role } : { system_id: v, role });
       setMsg(
         r.status === "invited"
-          ? `Invited ${r.name} as ${LABEL[r.role].toLowerCase()}. They accept it on their Alion home or profile page.`
+          ? `Invited ${r.name} as ${LABEL[r.role].toLowerCase()}. They accept it on their RingsideIQ home or profile page.`
           : `${r.name} is on the staff as ${LABEL[r.role].toLowerCase()}.`,
       );
       setWho("");

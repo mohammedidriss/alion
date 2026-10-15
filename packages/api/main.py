@@ -166,9 +166,9 @@ class PhotoFiles(StaticFiles):
 
 
 app = FastAPI(
-    title="Alion API",
+    title="RingsideIQ API",
     version="0.1.0",
-    description="Alion — multi-modal AI coaching platform for combat sports (DBA dissertation, GGU).",
+    description="RingsideIQ (formerly Alion) — multi-modal AI coaching platform for combat sports (DBA dissertation, GGU).",
     lifespan=lifespan,
     # Record-level access control on every route (ADR-017): whose data a route
     # addresses is read from its path, so no route can be left unguarded.

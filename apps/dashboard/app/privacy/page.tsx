@@ -1,7 +1,7 @@
 "use client";
 
 /**
- * Privacy and consent (ADR-033): where your data lives, what Alion keeps about
+ * Privacy and consent (ADR-033): where your data lives, what RingsideIQ keeps about
  * you, who can see it, what you agreed to — and asking for a copy, a deletion,
  * or to leave the research datasets.
  */
@@ -16,7 +16,7 @@ const REQUESTS: { kind: DataRequestKind; title: string; text: string }[] = [
   {
     kind: "export",
     title: "Get a copy of my data",
-    text: "Everything Alion keeps about you, sent to you once it's been checked.",
+    text: "Everything RingsideIQ keeps about you, sent to you once it's been checked.",
   },
   {
     kind: "withdraw",
@@ -87,7 +87,7 @@ export default function PrivacyPage() {
       <header className="space-y-1">
         <h1 className="text-2xl font-semibold">Privacy &amp; consent</h1>
         <p className="text-sm text-neutral-300">
-          What Alion keeps about you, who can see it, what you agreed to — and how to ask for a
+          What RingsideIQ keeps about you, who can see it, what you agreed to — and how to ask for a
           copy, a deletion, or to leave the research.
         </p>
       </header>
@@ -96,7 +96,7 @@ export default function PrivacyPage() {
       <section className="card space-y-2 text-sm text-neutral-200">
         <h2 className="text-base font-semibold">Where your data lives</h2>
         <ul className="list-disc space-y-1 pl-5">
-          <li>On this computer — in Alion&apos;s own database and folders, not in a cloud service.</li>
+          <li>On this computer — in RingsideIQ&apos;s own database and folders, not in a cloud service.</li>
           <li>
             The AI training advice is written on this computer or another one on the same network;
             nothing is sent to an outside AI service.
@@ -111,7 +111,7 @@ export default function PrivacyPage() {
           )}
           {me?.disk_encrypted === "off" && (
             <li className="text-amber-200">
-              This computer&apos;s disk isn&apos;t encrypted. Whoever runs Alion should turn on FileVault in
+              This computer&apos;s disk isn&apos;t encrypted. Whoever runs RingsideIQ should turn on FileVault in
               System Settings → Privacy &amp; Security.
             </li>
           )}
@@ -120,7 +120,7 @@ export default function PrivacyPage() {
 
       {me && (
         <section className="card space-y-2">
-          <h2 className="text-base font-semibold">What Alion keeps about you</h2>
+          <h2 className="text-base font-semibold">What RingsideIQ keeps about you</h2>
           <ul className="divide-y divide-white/5 text-sm">
             {me.holdings.map((h) => (
               <li key={h.what} className="flex justify-between gap-3 py-1.5">

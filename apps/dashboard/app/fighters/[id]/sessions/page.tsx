@@ -256,7 +256,7 @@ function SessionsTabContent({ params }: { params: { id: string } }) {
                   {punches > 0 && (
                     <a
                       href={api.eventsCsvUrl(s.id)}
-                      download={`alion-${s.id}-events.csv`}
+                      download={`ringsideiq-${s.id}-events.csv`}
                       className="rounded-lg border border-white/5 bg-white/[0.03] px-2.5 py-1 hover:bg-white/[0.07]"
                     >
                       Events CSV

@@ -114,7 +114,7 @@ export default function MedicalTab({ params }: { params: { id: string } }) {
           look after this fighter. Confidential — local-only storage.
         </p>
         <p className="text-sm text-neutral-300">
-          Alion doesn&apos;t use these notes in any score, advice or decision. They don&apos;t
+          RingsideIQ doesn&apos;t use these notes in any score, advice or decision. They don&apos;t
           replace a doctor&apos;s assessment or a ringside physician.
         </p>
         <SafetyBoundary />

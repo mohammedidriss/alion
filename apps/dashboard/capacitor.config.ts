@@ -1,7 +1,7 @@
 import type { CapacitorConfig } from '@capacitor/cli';
 
 /**
- * Capacitor config — mobile shell for the Alion dashboard.
+ * Capacitor config — mobile shell for the RingsideIQ dashboard.
  *
  * Architecture: the mobile app is a WebView that loads the deployed Next.js
  * app directly from the server.  This avoids static-export limitations and
@@ -20,7 +20,7 @@ const DEV_SERVER = process.env.CAPACITOR_SERVER_URL;
 
 const config: CapacitorConfig = {
   appId: 'ai.alion.app',
-  appName: 'Alion',
+  appName: 'RingsideIQ',
 
   // webDir is still needed for the initial bundle (shown while the live URL
   // loads, and as a fallback when offline).

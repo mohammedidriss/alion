@@ -1,4 +1,4 @@
-# Alion — Prototype Demo Script & Storyboard
+# RingsideIQ — Prototype Demo Script & Storyboard
 
 **Purpose:** a screen-recorded walkthrough of the initial prototype — how the system
 captures a boxing session, detects and classifies punches, and where it's heading.
@@ -28,11 +28,11 @@ captures a boxing session, detects and classifies punches, and where it's headin
 Each scene: **[SHOW]** = what's on screen / what you click · **[SAY]** = your talking points.
 
 ### Scene 1 — The problem (≈30s) · *talking-head or title slide*
-- **[SHOW]** Title: "Alion — objective, multi-modal boxing analytics." Or just talk over the dashboard home.
+- **[SHOW]** Title: "RingsideIQ — objective, multi-modal boxing analytics." Or just talk over the dashboard home.
 - **[SAY]**
   - "Coaches judge punches by eye. The wearables that exist — Hykso, StrikeTec — are closed:
     they give you a number in *their* app, not the raw data, and some are already discontinued."
-  - "Alion is a research platform that captures a boxing session from **multiple sensors**,
+  - "RingsideIQ is a research platform that captures a boxing session from **multiple sensors**,
     keeps the **raw data**, and fuses it into objective feedback — built for a dissertation, so
     every number has to be defensible."
 
@@ -101,7 +101,7 @@ Each scene: **[SHOW]** = what's on screen / what you click · **[SAY]** = your t
 ## Talking-point cheat-sheet (grab-bag, for questions)
 
 - **Why not a phone app / existing tracker?** Closed data, not research-grade, and consumer
-  trackers are consolidating/disappearing (Hykso → FightCamp). Alion keeps raw signals.
+  trackers are consolidating/disappearing (Hykso → FightCamp). RingsideIQ keeps raw signals.
 - **What's a "world landmark"?** MediaPipe gives 33 body points in real-world 3D metres
   (hip-centred), so velocities are physical, not pixel-based.
 - **Why three gates?** One heuristic can't catch a hook (wide), a jab into the lens (no lateral

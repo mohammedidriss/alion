@@ -1,4 +1,6 @@
-# Alion — Project Overview
+# RingsideIQ — Project Overview
+
+*Formerly Alion (renamed 15 Oct 2026, ADR-061).*
 
 Multi-modal AI coaching platform for combat sports. Validation artifact for a
 DBA dissertation at Golden Gate University. Boxing is the validation domain.
@@ -647,7 +649,7 @@ Additional features:
 
 | Component | Purpose |
 |---|---|
-| `AlionLogo` / `AlionWordmark` | Hexagonal shield + "ALION" wordmark |
+| `RingsideLogo` / `RingsideWordmark` | Ring posts and ropes with a heartbeat on the middle rope + "RingsideIQ" wordmark (ADR-061) |
 | `FighterSidebar` | Per-fighter sidebar with 7 tab links |
 | `FighterBackLink` | "← Back to fighter" link for session/comparison pages |
 | `ProfileAvatar` | Shows photo when present, falls back to gradient initial-letter circle |

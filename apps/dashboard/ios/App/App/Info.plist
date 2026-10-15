@@ -7,7 +7,7 @@
 	<key>CFBundleDevelopmentRegion</key>
 	<string>en</string>
 	<key>CFBundleDisplayName</key>
-        <string>Alion</string>
+        <string>RingsideIQ</string>
 	<key>CFBundleExecutable</key>
 	<string>$(EXECUTABLE_NAME)</string>
 	<key>CFBundleIdentifier</key>
@@ -48,6 +48,6 @@
 	<key>UIViewControllerBasedStatusBarAppearance</key>
 	<true/>
 	<key>NSCameraUsageDescription</key>
-	<string>Alion uses your camera to analyse boxing technique and detect punches in real time.</string>
+	<string>RingsideIQ uses your camera to analyse boxing technique and detect punches in real time.</string>
 </dict>
 </plist>

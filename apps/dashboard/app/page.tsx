@@ -2,7 +2,7 @@
 
 import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
-import { AlionWordmark } from "@/components/AlionLogo";
+import { RingsideWordmark } from "@/components/RingsideLogo";
 import { useAuth } from "@/lib/auth";
 import { api, type AuthUser, type TermsInfo, type UserRole } from "@/lib/api";
 
@@ -98,7 +98,7 @@ export default function Home() {
       <div className="w-full max-w-md space-y-8">
         {/* Logo */}
         <div className="text-center">
-          <AlionWordmark size={48} />
+          <RingsideWordmark size={48} />
           <p className="mt-3 text-sm text-neutral-400">
             Multi-modal AI coaching for combat sports
           </p>
@@ -177,7 +177,7 @@ export default function Home() {
                     />
                     <p className="mt-1 text-[11px] text-neutral-400">
                       Signing up creates this gym, and you manage it. To manage a gym that&apos;s
-                      already on Alion, ask an administrator.
+                      already on RingsideIQ, ask an administrator.
                     </p>
                   </div>
                 )}

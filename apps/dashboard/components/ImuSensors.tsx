@@ -118,7 +118,7 @@ export function ImuSensorsPanel({
     return (
       <div className="card space-y-2 text-sm text-neutral-300">
         <p className="font-medium text-neutral-100">The wrist sensors aren&apos;t set up on this computer yet</p>
-        <p>Ask whoever set up Alion here to pair the two sensors, then reload this page.</p>
+        <p>Ask whoever set up RingsideIQ here to pair the two sensors, then reload this page.</p>
         <details className="text-xs text-neutral-400">
           <summary className="cursor-pointer">Technical details</summary>
           <p className="mt-2">Pair the two WT901 units from a terminal:</p>

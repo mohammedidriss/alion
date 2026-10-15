@@ -11,7 +11,7 @@ export const viewport: Viewport = {
 };
 
 export const metadata: Metadata = {
-  title: "Alion",
+  title: "RingsideIQ",
   description: "Multi-modal AI coaching dashboard",
 };
 

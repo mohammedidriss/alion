@@ -8,7 +8,7 @@
 
 ## 1. Who runs this platform
 
-Alion is operated by the researcher, Mohamad Idriss, Golden Gate University,
+RingsideIQ (formerly Alion) is operated by the researcher, Mohamad Idriss, Golden Gate University,
 Doctorate of Business Administration in Emerging Technologies, for the research
 study "Advisory by Design: Expert Trust and Reliance on a Verified Multimodal AI
 Platform for Combat Sport Decisions" (IRB reference [number]). Contact:
@@ -16,9 +16,9 @@ Mohammed.idriss@hotmail.com.
 
 ## 2. Who can take part
 
-Only people taking part in this study use Alion: accepting these terms is your
+Only people taking part in this study use RingsideIQ: accepting these terms is your
 agreement to take part, and nobody can sign in without it. You must be **18 or
-older**; Alion is not for anyone under 18.
+older**; RingsideIQ is not for anyone under 18.
 
 ## 3. Your account
 
@@ -50,7 +50,7 @@ All data on the platform — training sessions (video, wrist-sensor and heart-ra
 data, and the punches detected from them), labels and notes, health notes, and
 research datasets — is used by the research team to develop, train and evaluate
 the platform's AI models and to improve the platform. This is part of taking
-part in the study, so there is no separate choice about it while you use Alion;
+part in the study, so there is no separate choice about it while you use RingsideIQ;
 to stop, withdraw (section 9).
 
 ## 7. Research datasets

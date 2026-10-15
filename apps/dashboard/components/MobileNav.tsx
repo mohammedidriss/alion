@@ -11,7 +11,7 @@ function extractFighterId(p: string) {
 }
 
 function pageTitle(p: string): string {
-  if (p === "/") return "Alion";
+  if (p === "/") return "RingsideIQ";
   if (/\/admin\/users/.test(p)) return "Users";
   if (/\/admin\/fighters/.test(p)) return "Fighters";
   if (/\/admin\/coaches/.test(p)) return "Coaches";
@@ -33,7 +33,7 @@ function pageTitle(p: string): string {
   if (/\/coaches\//.test(p)) return "Coach";
   if (/\/profile/.test(p)) return "Profile";
   if (/\/compare/.test(p)) return "Compare";
-  return "Alion";
+  return "RingsideIQ";
 }
 
 export function MobileTopBar({

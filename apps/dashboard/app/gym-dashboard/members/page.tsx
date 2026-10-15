@@ -433,10 +433,10 @@ export default function MembersPage() {
                   setImportSuccess(
                     result.member_type === "coach"
                       ? result.status === "invited"
-                        ? `${result.member_name} is invited to your staff as a coach — they accept it on their Alion home page. See the Staff page.`
+                        ? `${result.member_name} is invited to your staff as a coach — they accept it on their RingsideIQ home page. See the Staff page.`
                         : `${result.member_name} is on your staff as a coach. See the Staff page.`
                       : result.status === "invited"
-                      ? `Invitation sent to ${result.member_name || "the fighter"}. They accept it on their Alion home page — you'll see their training once they do.`
+                      ? `Invitation sent to ${result.member_name || "the fighter"}. They accept it on their RingsideIQ home page — you'll see their training once they do.`
                       : `Successfully added ${result.member_name || "member"} (${result.member_type}) to your gym!`,
                   );
                   setImportId("");
@@ -806,7 +806,7 @@ export default function MembersPage() {
         <div className="card space-y-2">
           <h3 className="text-sm font-semibold text-neutral-300 uppercase tracking-wider">Waiting for the fighter</h3>
           <p className="text-xs text-neutral-500">
-            Invited fighters accept on their own Alion page. Until then you don&apos;t see their training.
+            Invited fighters accept on their own RingsideIQ page. Until then you don&apos;t see their training.
           </p>
           <ul className="divide-y divide-white/5 text-sm">
             {pending.map((m) => (
