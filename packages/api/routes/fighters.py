@@ -99,6 +99,9 @@ class FighterUpdate(BaseModel):
     notes: str | None = None
     bio: str | None = None
     career_history: str | None = None
+    emergency_contact_name: str | None = Field(default=None, max_length=120)
+    emergency_contact_phone: str | None = Field(default=None, max_length=40)
+    emergency_contact_relation: str | None = Field(default=None, max_length=60)
 
 
 @router.get("/options", tags=["fighters"])

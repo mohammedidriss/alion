@@ -7,6 +7,7 @@ accepts (`/v2/gym-invitations`). Accounts a gym makes itself join at once.
 
 from __future__ import annotations
 
+from datetime import date
 from uuid import UUID
 
 from fastapi import APIRouter, Depends, HTTPException, status
@@ -23,6 +24,7 @@ from store import (
     CoachRepo,
     Fighter,
     FighterRepo,
+    Gym,
     GymRepo,
     GymStaff,
     GymStaffRole,
@@ -42,8 +44,15 @@ from store.models import (
     MembershipStatus,
 )
 
-# A fighter's membership the gym can't move on its own: only the fighter accepts.
-_FIGHTERS_CALL = {MembershipStatus.INVITED, MembershipStatus.DECLINED, MembershipStatus.LEFT}
+# A fighter's membership the gym can't move on its own: only the fighter accepts —
+# or, for one who asked to join, the gym approves (ADR-055).
+_FIGHTERS_CALL = {
+    MembershipStatus.INVITED,
+    MembershipStatus.DECLINED,
+    MembershipStatus.LEFT,
+    MembershipStatus.APPLIED,
+}
+_CODE_CHARS = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789"  # no 0/O, 1/I
 
 router = APIRouter(
     prefix="/gyms",
@@ -61,6 +70,7 @@ class GymUpdate(BaseModel):
     email: str | None = None
     specialties: str | None = None
     notes: str | None = None
+    rules: str | None = None  # the gym's rules; changing them asks members again (ADR-055)
 
 
 class AddMemberBody(BaseModel):
@@ -117,6 +127,11 @@ def _invite_fighter(session: DBSession, gym_id: UUID, fighter: Fighter, by: User
             )
         ).all()
     )
+    if any(r.status == MembershipStatus.APPLIED for r in rows):
+        raise HTTPException(
+            status_code=409,
+            detail=f"{fighter.name} asked to join — approve their request on the Members page",
+        )
     if any(r.status == MembershipStatus.INVITED for r in rows):
         raise HTTPException(
             status_code=409,
@@ -181,7 +196,15 @@ def update_gym(
     data: GymUpdate,
     repo: GymRepo = Depends(gym_repo),
 ) -> GymRead:
-    row = repo.update(gym_id, data.model_dump(exclude_unset=True))
+    patch = data.model_dump(exclude_unset=True)
+    current = repo.get(gym_id)
+    if current is None:
+        raise HTTPException(status_code=404, detail="gym not found")
+    if "rules" in patch:
+        patch["rules"] = (patch["rules"] or "").strip() or None
+        if patch["rules"] != current.rules:
+            patch["rules_version"] = (current.rules_version or 0) + 1
+    row = repo.update(gym_id, patch)
     if row is None:
         raise HTTPException(status_code=404, detail="gym not found")
     return GymRead.model_validate(row, from_attributes=True)
@@ -203,25 +226,23 @@ def list_members(
     gym_id: UUID,
     include_left: bool = False,
     repo: GymRepo = Depends(gym_repo),
+    session: DBSession = Depends(db_session),
 ) -> list[GymMembershipRead]:
     if repo.get(gym_id) is None:
         raise HTTPException(status_code=404, detail="gym not found")
+    gym = repo.get(gym_id)
     rows = repo.list_members(gym_id, include_left=include_left)
-    return [
-        GymMembershipRead(
-            id=m.id,
-            gym_id=m.gym_id,
-            member_id=m.member_id,
-            member_type=m.member_type,
-            member_name=name,
-            status=m.status,
-            joined_on=m.joined_on,
-            left_on=m.left_on,
-            status_note=m.status_note,
-            created_at=m.created_at,
-        )
-        for m, name in rows
-    ]
+    out = []
+    for m, name in rows:
+        r = _read(m, name)
+        if m.member_type == "fighter":
+            f = session.get(Fighter, m.member_id)
+            r.has_emergency_contact = bool(
+                f and f.emergency_contact_name and f.emergency_contact_phone
+            )
+            r.rules_current = not (gym and gym.rules) or m.rules_version == gym.rules_version
+        out.append(r)
+    return out
 
 
 def _staff_reply(row: GymStaff, name: str) -> GymMembershipRead:
@@ -672,3 +693,126 @@ def list_todays_checkins(
         )
         for ci, name in rows
     ]
+
+
+# ------------------------------------------------------------------
+# Joining with a code (ADR-055): the fighter asks, the gym approves
+# ------------------------------------------------------------------
+
+
+class JoinCodeOut(BaseModel):
+    join_code: str | None
+
+
+class ApproveBody(BaseModel):
+    status: str = "trial"  # "trial" or "active"
+
+
+def _manages(viewer: access.Viewer, gym_id: UUID) -> None:
+    if not (viewer.admin or gym_id in viewer.managed_gyms):
+        raise HTTPException(status_code=403, detail="Only this gym's owners and managers")
+
+
+@router.get("/{gym_id}/join-code", response_model=JoinCodeOut)
+def get_join_code(
+    gym_id: UUID,
+    repo: GymRepo = Depends(gym_repo),
+    viewer: access.Viewer = Depends(access.require_viewer),
+) -> JoinCodeOut:
+    gym = repo.get(gym_id)
+    if gym is None:
+        raise HTTPException(status_code=404, detail="gym not found")
+    _manages(viewer, gym_id)
+    return JoinCodeOut(join_code=gym.join_code)
+
+
+@router.post("/{gym_id}/join-code", response_model=JoinCodeOut)
+def new_join_code(
+    gym_id: UUID,
+    session: DBSession = Depends(db_session),
+    viewer: access.Viewer = Depends(access.require_viewer),
+) -> JoinCodeOut:
+    """A new code — the old one stops working."""
+    import secrets
+
+    gym = session.get(Gym, gym_id)
+    if gym is None:
+        raise HTTPException(status_code=404, detail="gym not found")
+    _manages(viewer, gym_id)
+    while True:
+        code = "".join(secrets.choice(_CODE_CHARS) for _ in range(8))
+        if session.exec(select(Gym.id).where(Gym.join_code == code)).first() is None:
+            break
+    gym.join_code = code
+    session.add(gym)
+    session.commit()
+    return JoinCodeOut(join_code=code)
+
+
+@router.delete("/{gym_id}/join-code", response_model=JoinCodeOut)
+def stop_join_code(
+    gym_id: UUID,
+    session: DBSession = Depends(db_session),
+    viewer: access.Viewer = Depends(access.require_viewer),
+) -> JoinCodeOut:
+    gym = session.get(Gym, gym_id)
+    if gym is None:
+        raise HTTPException(status_code=404, detail="gym not found")
+    _manages(viewer, gym_id)
+    gym.join_code = None
+    session.add(gym)
+    session.commit()
+    return JoinCodeOut(join_code=None)
+
+
+def _request(session: DBSession, gym_id: UUID, membership_id: int) -> GymMembership:
+    row = session.get(GymMembership, membership_id)
+    if row is None or row.gym_id != gym_id or row.status != MembershipStatus.APPLIED:
+        raise HTTPException(status_code=404, detail="No request to join with that id")
+    return row
+
+
+@router.post("/{gym_id}/members/{membership_id}/approve", response_model=GymMembershipRead)
+def approve_request(
+    gym_id: UUID,
+    membership_id: int,
+    body: ApproveBody,
+    session: DBSession = Depends(db_session),
+    viewer: access.Viewer = Depends(access.require_viewer),
+) -> GymMembershipRead:
+    """Take a fighter who asked to join — on trial, or straight in. They agreed when
+    they asked, so the gym's managers see their training from now on."""
+    _manages(viewer, gym_id)
+    if body.status not in ("trial", "active"):
+        raise HTTPException(status_code=422, detail="Approve as 'trial' or 'active'")
+    row = _request(session, gym_id, membership_id)
+    row.status = MembershipStatus(body.status)
+    row.status_note = f"Approved by {viewer.user.name}"[:300]
+    row.joined_on = date.today()
+    session.add(row)
+    fighter = session.get(Fighter, row.member_id)
+    gym = session.get(Gym, gym_id)
+    if fighter is not None and gym is not None and fighter.gym_id is None:
+        fighter.gym_id, fighter.gym = gym.id, gym.name
+        session.add(fighter)
+    session.commit()
+    session.refresh(row)
+    return _read(row, fighter.name if fighter else "")
+
+
+@router.post("/{gym_id}/members/{membership_id}/reject", response_model=GymMembershipRead)
+def reject_request(
+    gym_id: UUID,
+    membership_id: int,
+    session: DBSession = Depends(db_session),
+    viewer: access.Viewer = Depends(access.require_viewer),
+) -> GymMembershipRead:
+    _manages(viewer, gym_id)
+    row = _request(session, gym_id, membership_id)
+    row.status = MembershipStatus.DECLINED
+    row.status_note = f"Not approved by {viewer.user.name}"[:300]
+    session.add(row)
+    session.commit()
+    session.refresh(row)
+    fighter = session.get(Fighter, row.member_id)
+    return _read(row, fighter.name if fighter else "")

@@ -86,6 +86,10 @@ export default function ProfilePage() {
   const [fBoxrecId, setFBoxrecId] = useState("");
   const [fUsaBoxingId, setFUsaBoxingId] = useState("");
   const [fBio, setFBio] = useState("");
+  const [fEcName, setFEcName] = useState("");
+  const [fEcPhone, setFEcPhone] = useState("");
+  const [fEcRelation, setFEcRelation] = useState("");
+  const [joinCode, setJoinCode] = useState("");
   const [fNotes, setFNotes] = useState("");
 
   // --- Titles ---
@@ -163,6 +167,9 @@ export default function ProfilePage() {
           setFBoxrecId(f.boxrec_id ?? "");
           setFUsaBoxingId(f.usa_boxing_id ?? "");
           setFBio(f.bio ?? "");
+          setFEcName(f.emergency_contact_name ?? "");
+          setFEcPhone(f.emergency_contact_phone ?? "");
+          setFEcRelation(f.emergency_contact_relation ?? "");
           setFNotes(f.notes ?? "");
         })
         .catch(() => {})
@@ -261,6 +268,9 @@ export default function ProfilePage() {
       if (fBoxrecId !== (fighter.boxrec_id ?? "")) fighterPatch.boxrec_id = s(fBoxrecId);
       if (fUsaBoxingId !== (fighter.usa_boxing_id ?? "")) fighterPatch.usa_boxing_id = s(fUsaBoxingId);
       if (fBio !== (fighter.bio ?? "")) fighterPatch.bio = s(fBio);
+      if (fEcName !== (fighter.emergency_contact_name ?? "")) fighterPatch.emergency_contact_name = s(fEcName);
+      if (fEcPhone !== (fighter.emergency_contact_phone ?? "")) fighterPatch.emergency_contact_phone = s(fEcPhone);
+      if (fEcRelation !== (fighter.emergency_contact_relation ?? "")) fighterPatch.emergency_contact_relation = s(fEcRelation);
       if (fNotes !== (fighter.notes ?? "")) fighterPatch.notes = s(fNotes);
     }
 
@@ -354,6 +364,25 @@ export default function ProfilePage() {
       {/* Your gym: invitations to answer, the gyms you're in, leaving one (ADR-035, ADR-050). */}
       {user.role === "fighter" && <GymInvitationsCard />}
       {user.role === "fighter" && <MyGymsCard />}
+      {user.role === "fighter" && (
+        <div className="card flex flex-wrap items-center gap-2">
+          <span className="text-sm text-neutral-300">Join a gym with its code</span>
+          <input
+            value={joinCode}
+            onChange={(e) => setJoinCode(e.target.value.toUpperCase())}
+            placeholder="e.g. K7M2QX9A"
+            className="w-36 rounded-xl border border-white/10 bg-white/[0.03] px-3 py-1.5 font-mono text-sm tracking-widest text-neutral-200 focus:border-emerald-500/40 focus:outline-none"
+          />
+          <button
+            type="button"
+            disabled={!joinCode.trim()}
+            onClick={() => router.push(`/join/${encodeURIComponent(joinCode.trim())}`)}
+            className="rounded-xl border border-white/10 px-3 py-1.5 text-sm text-neutral-200 hover:bg-white/5 disabled:opacity-40"
+          >
+            Continue
+          </button>
+        </div>
+      )}
       {/* Header */}
       <header className="flex items-center gap-4">
         <ProfileAvatar name={user.name} photo_path={user.photo_path} size={64} />
@@ -644,6 +673,17 @@ export default function ProfilePage() {
                   <label className={labelCls}>USA Boxing ID</label>
                   <input type="text" value={fUsaBoxingId} onChange={(e) => setFUsaBoxingId(e.target.value)} placeholder="USA Boxing number" className={inputCls} />
                 </div>
+              </div>
+            </fieldset>
+
+            {/* Emergency contact (ADR-055) */}
+            <fieldset className={sectionCls}>
+              <legend className={legendCls}>Emergency contact</legend>
+              <p className="text-xs text-neutral-500">Your coaches, your gym&apos;s staff and your physicians see it.</p>
+              <div className="grid grid-cols-1 gap-3 sm:grid-cols-3">
+                <input type="text" value={fEcName} onChange={(e) => setFEcName(e.target.value)} placeholder="Name" className={inputCls} />
+                <input type="tel" value={fEcPhone} onChange={(e) => setFEcPhone(e.target.value)} placeholder="Phone" className={inputCls} />
+                <input type="text" value={fEcRelation} onChange={(e) => setFEcRelation(e.target.value)} placeholder="Relation" className={inputCls} />
               </div>
             </fieldset>
 

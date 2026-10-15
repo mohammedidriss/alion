@@ -17,6 +17,7 @@ import {
   type Stance,
 } from "@/lib/api";
 import { useAuth } from "@/lib/auth";
+import { JoinCodePanel } from "@/components/JoinCodePanel";
 import { managesGym } from "@/lib/nav";
 
 const STANCES: Stance[] = ["orthodox", "southpaw", "switch"];
@@ -272,6 +273,18 @@ export default function MembersPage() {
   const pending = memberships.filter(
     (m) => m.member_type === "fighter" && (m.status === "invited" || m.status === "declined"),
   );
+  // Fighters who asked to join with the gym's code (ADR-055).
+  const requests = memberships.filter((m) => m.member_type === "fighter" && m.status === "applied");
+  const decide = async (m: GymMembership, how: "trial" | "active" | "reject") => {
+    if (!gymId) return;
+    try {
+      if (how === "reject") await api.rejectJoinRequest(gymId, m.id);
+      else await api.approveJoinRequest(gymId, m.id, how);
+      load();
+    } catch (e) {
+      alert(e instanceof Error ? e.message : String(e));
+    }
+  };
 
   const isCheckedInToday = (memberId: string) =>
     todaysCheckins.some((ci) => ci.member_id === memberId && !ci.checked_out_at);
@@ -285,6 +298,7 @@ export default function MembersPage() {
       left: "bg-neutral-500/15 text-neutral-400",
       invited: "bg-amber-500/15 text-amber-300",
       declined: "bg-neutral-500/15 text-neutral-400",
+      applied: "bg-violet-500/15 text-violet-300",
     };
     return (
       <span className={`rounded-full px-2 py-0.5 text-[10px] font-medium ${styles[status] ?? styles.active}`}>
@@ -754,6 +768,39 @@ export default function MembersPage() {
         <span className="text-xs text-neutral-500">{filtered.length} of {fighters.length}</span>
       </div>
 
+      {gymId && <JoinCodePanel gymId={gymId} />}
+
+      {/* ─── Requests to join (ADR-055) ──────────────────────────── */}
+      {requests.length > 0 && (
+        <div className="card space-y-2 border border-violet-500/30">
+          <h3 className="text-sm font-semibold text-violet-200 uppercase tracking-wider">Asked to join</h3>
+          <p className="text-xs text-neutral-500">
+            They agreed to your rules when they asked. Approve them on trial or straight in — you see their training from then on.
+          </p>
+          <ul className="divide-y divide-white/5 text-sm">
+            {requests.map((m) => (
+              <li key={m.id} className="flex flex-wrap items-center justify-between gap-2 py-2">
+                <span className="flex items-center gap-2">
+                  <span className="font-medium">{m.member_name}</span>
+                  {m.has_emergency_contact === false && <span className="text-[11px] text-amber-300">no emergency contact</span>}
+                </span>
+                <span className="flex gap-1">
+                  <button onClick={() => void decide(m, "trial")} className="rounded-lg bg-emerald-500 px-2.5 py-1 text-[11px] font-semibold text-black hover:bg-emerald-400">
+                    Approve on trial
+                  </button>
+                  <button onClick={() => void decide(m, "active")} className="rounded-lg border border-white/10 px-2.5 py-1 text-[11px] text-neutral-200 hover:bg-white/5">
+                    Approve as member
+                  </button>
+                  <button onClick={() => void decide(m, "reject")} className="rounded-lg px-2.5 py-1 text-[11px] text-red-400/70 hover:bg-red-500/10">
+                    Reject
+                  </button>
+                </span>
+              </li>
+            ))}
+          </ul>
+        </div>
+      )}
+
       {/* ─── Invitations waiting for the fighter (ADR-035) ───────── */}
       {pending.length > 0 && (
         <div className="card space-y-2">
@@ -837,6 +884,12 @@ export default function MembersPage() {
                   <td className="py-3 pr-4">
                     <div className="flex flex-col gap-1">
                       {statusBadge((ms?.status ?? "active") as MembershipStatus)}
+                      {ms?.has_emergency_contact === false && (
+                        <span className="ml-1 text-[10px] text-amber-300" title="Their profile names no emergency contact">no emergency contact</span>
+                      )}
+                      {ms?.rules_current === false && (
+                        <span className="ml-1 text-[10px] text-amber-300" title="They haven't accepted the gym's current rules">rules not accepted</span>
+                      )}
                       {ms?.status_note && (
                         <span className="text-[10px] text-neutral-500 max-w-[120px] truncate" title={ms.status_note}>
                           {ms.status_note}

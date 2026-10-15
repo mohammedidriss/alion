@@ -75,6 +75,10 @@ export interface Fighter {
   bio: string | null;
   career_history: string | null;
   created_at: string;
+  // Who to call (ADR-055): asked when joining a gym; seen by those who see the profile.
+  emergency_contact_name?: string | null;
+  emergency_contact_phone?: string | null;
+  emergency_contact_relation?: string | null;
 }
 
 export type FighterPatch = Partial<Omit<Fighter, "id" | "created_at">>;
@@ -158,6 +162,9 @@ export interface Squad {
   staff?: { id: number; coach_id: string; name: string; role: "head_coach" | "coach"; started_on: string; ended_on: string | null }[] | null;
   member_id?: number | null; // on a fighter's list: their place on it
   is_main?: boolean | null;
+  bout_id?: string | null; // a camp's fight (ADR-055)
+  bout_label?: string | null;
+  checked_in_7d?: number | null; // its fighters who checked in at the gym this week
 }
 export type SquadInput = {
   name: string;
@@ -166,6 +173,7 @@ export type SquadInput = {
   description?: string | null;
   starts_on?: string | null;
   ends_on?: string | null;
+  bout_id?: string | null;
 };
 
 /** A role at a gym (ADR-052): owner, manager, head coach or coach. */
@@ -251,15 +259,17 @@ export interface Gym {
   specialties: string | null;
   notes: string | null;
   created_at: string;
+  rules?: string | null; // accepted when joining; changing them asks members again (ADR-055)
+  rules_version?: number;
 }
 
-export type GymPatch = Partial<Omit<Gym, "id" | "created_at">>;
+export type GymPatch = Partial<Omit<Gym, "id" | "created_at" | "rules_version">>;
 
-/** invited / declined: a fighter the gym added, until they accept (ADR-035). */
-export type MembershipStatus = "active" | "frozen" | "suspended" | "trial" | "left" | "invited" | "declined";
+/** invited / declined: a fighter the gym added, until they accept (ADR-035);
+ * applied: a fighter who asked with the gym's code, until it approves (ADR-055). */
+export type MembershipStatus = "active" | "frozen" | "suspended" | "trial" | "left" | "invited" | "declined" | "applied";
 
-/** A gym asking the signed-in fighter to join it (ADR-035). */
-/** A gym the signed-in fighter is in (GET /v2/my-gyms, ADR-050). */
+/** A gym the signed-in fighter is in, or asked to join (GET /v2/my-gyms, ADR-050). */
 export interface MyGym {
   id: number; // the membership
   gym_id: string;
@@ -267,8 +277,29 @@ export interface MyGym {
   gym_city: string | null;
   status: string;
   joined_on: string | null;
+  rules?: string | null;
+  rules_pending?: boolean; // the gym's rules changed since they accepted them
 }
 
+/** What joining a gym asks (ADR-055). */
+export type JoiningInput = {
+  accept_rules?: boolean;
+  emergency_contact_name?: string;
+  emergency_contact_phone?: string;
+  emergency_contact_relation?: string;
+};
+
+/** A gym a join code is for (GET /v2/join/{code}). */
+export interface JoinPreview {
+  gym_id: string;
+  gym_name: string;
+  gym_city: string | null;
+  rules: string | null;
+  leaders: string[];
+  status: string | null; // your membership there already
+}
+
+/** A gym asking the signed-in fighter to join it (ADR-035). */
 export interface GymInvitation {
   id: number;
   gym_id: string;
@@ -277,6 +308,7 @@ export interface GymInvitation {
   managers: string[]; // who'll see your training data once you accept
   invited_by: string | null;
   invited_at: string;
+  rules?: string | null; // accepted with the invitation (ADR-055)
 }
 
 export interface GymMembership {
@@ -290,6 +322,8 @@ export interface GymMembership {
   left_on: string | null;
   status_note: string | null;
   created_at: string;
+  has_emergency_contact?: boolean | null; // a fighter's profile names one (ADR-055)
+  rules_current?: boolean | null; // they accepted the gym's current rules
 }
 
 export interface CheckIn {
@@ -2135,8 +2169,33 @@ export const api = {
   // ---- Privacy and consent (ADR-033) ----
   privacyMe: () => req<PrivacyMe>("/v2/privacy/me"),
   gymInvitations: () => req<GymInvitation[]>("/v2/gym-invitations"),
-  answerGymInvitation: (id: number, answer: "accept" | "decline") =>
-    req<{ status: string }>(`/v2/gym-invitations/${id}/${answer}`, { method: "POST" }),
+  answerGymInvitation: (id: number, answer: "accept" | "decline", body?: JoiningInput) =>
+    req<{ status: string }>(`/v2/gym-invitations/${id}/${answer}`, {
+      method: "POST",
+      ...(body ? { headers: { "content-type": "application/json" }, body: JSON.stringify(body) } : {}),
+    }),
+  joinPreview: (code: string) => req<JoinPreview>(`/v2/join/${encodeURIComponent(code)}`),
+  askToJoin: (code: string, body: JoiningInput) =>
+    req<{ status: string }>(`/v2/join/${encodeURIComponent(code)}`, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify(body),
+    }),
+  acceptGymRules: (membershipId: number) =>
+    req<{ rules_version: number }>(`/v2/my-gyms/${membershipId}/accept-rules`, { method: "POST" }),
+  gymJoinCode: (gymId: string) => req<{ join_code: string | null }>(`/gyms/${gymId}/join-code`),
+  newGymJoinCode: (gymId: string) =>
+    req<{ join_code: string | null }>(`/gyms/${gymId}/join-code`, { method: "POST" }),
+  stopGymJoinCode: (gymId: string) =>
+    req<{ join_code: string | null }>(`/gyms/${gymId}/join-code`, { method: "DELETE" }),
+  approveJoinRequest: (gymId: string, membershipId: number, status: "trial" | "active") =>
+    req<GymMembership>(`/gyms/${gymId}/members/${membershipId}/approve`, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ status }),
+    }),
+  rejectJoinRequest: (gymId: string, membershipId: number) =>
+    req<GymMembership>(`/gyms/${gymId}/members/${membershipId}/reject`, { method: "POST" }),
   myGyms: () => req<MyGym[]>("/v2/my-gyms"),
   gymStaff: (gymId: string) => req<GymStaff[]>(`/gyms/${gymId}/staff`),
   inviteStaff: (gymId: string, body: { email?: string; system_id?: string; role: GymStaffRole }) =>

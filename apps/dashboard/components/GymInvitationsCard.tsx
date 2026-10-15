@@ -12,6 +12,7 @@ export function GymInvitationsCard({ onAnswered }: { onAnswered?: () => void }) 
   const [invites, setInvites] = useState<GymInvitation[]>([]);
   const [busy, setBusy] = useState<number | null>(null);
   const [err, setErr] = useState<string | null>(null);
+  const [rulesOk, setRulesOk] = useState<Record<number, boolean>>({});
 
   const load = useCallback(() => {
     api
@@ -25,7 +26,7 @@ export function GymInvitationsCard({ onAnswered }: { onAnswered?: () => void }) 
     setBusy(id);
     setErr(null);
     try {
-      await api.answerGymInvitation(id, a);
+      await api.answerGymInvitation(id, a, a === "accept" ? { accept_rules: !!rulesOk[id] } : undefined);
       load();
       onAnswered?.();
     } catch (e) {
@@ -54,10 +55,19 @@ export function GymInvitationsCard({ onAnswered }: { onAnswered?: () => void }) 
             {i.managers.length > 0 && <> ({i.managers.join(", ")})</>} see your training sessions, punches,
             heart rate and wrist data — never your health notes. You can leave the gym later.
           </p>
+          {i.rules && (
+            <div className="space-y-1">
+              <div className="max-h-32 overflow-y-auto whitespace-pre-wrap rounded-lg border border-white/10 bg-black/30 p-2 text-xs text-neutral-300">{i.rules}</div>
+              <label className="flex items-center gap-2 text-xs text-neutral-300">
+                <input type="checkbox" checked={!!rulesOk[i.id]} onChange={(e) => setRulesOk((r) => ({ ...r, [i.id]: e.target.checked }))} />
+                I accept the gym&apos;s rules
+              </label>
+            </div>
+          )}
           <div className="flex gap-2">
             <button
               onClick={() => void answer(i.id, "accept")}
-              disabled={busy !== null}
+              disabled={busy !== null || (!!i.rules && !rulesOk[i.id])}
               className="rounded-lg bg-emerald-500 px-3 py-1.5 text-sm font-semibold text-black hover:bg-emerald-400 disabled:opacity-40"
             >
               Accept

@@ -21,6 +21,7 @@ import { useAuth } from "@/lib/auth";
 import { managesGym } from "@/lib/nav";
 import { StaffInvitationsCard } from "@/components/StaffInvitationsCard";
 import { GymSquadsWeekCard } from "@/components/SquadCards";
+import { GymRulesCard } from "@/components/GymRulesCard";
 
 export default function GymDashboardPage() {
   const router = useRouter();
@@ -183,6 +184,7 @@ export default function GymDashboardPage() {
       </header>
 
       {gym && <GymSquadsWeekCard gymId={gym.id} />}
+      {gym && <GymRulesCard gym={gym} onSaved={setGym} />}
 
       {!loading && fighters.length === 0 && coaches.length === 0 && (
         <NextStep

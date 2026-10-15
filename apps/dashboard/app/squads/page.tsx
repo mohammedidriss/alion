@@ -9,7 +9,7 @@
 
 import Link from "next/link";
 import { useCallback, useEffect, useMemo, useState } from "react";
-import { api, type GymMembership, type GymStaff, type Squad, type SquadKind } from "@/lib/api";
+import { api, type Bout, type GymMembership, type GymStaff, type Squad, type SquadKind } from "@/lib/api";
 import { useAuth } from "@/lib/auth";
 import { leadsGym } from "@/lib/nav";
 
@@ -51,6 +51,8 @@ export default function SquadsPage() {
   const [kind, setKind] = useState<SquadKind>("competition");
   const [level, setLevel] = useState("");
   const [endsOn, setEndsOn] = useState("");
+  const [boutId, setBoutId] = useState("");
+  const [bouts, setBouts] = useState<Bout[]>([]);
   // adding to the selected squad
   const [addFighter, setAddFighter] = useState("");
   const [addMain, setAddMain] = useState(false);
@@ -75,6 +77,13 @@ export default function SquadsPage() {
         .catch((e) => setErr(errText(e)));
     }
   }, [user]);
+
+  useEffect(() => {
+    api
+      .listBouts()
+      .then((b) => setBouts(b.slice().sort((x, y) => x.scheduled_at.localeCompare(y.scheduled_at))))
+      .catch(() => setBouts([]));
+  }, []);
 
   const load = useCallback(() => {
     if (!gymId) return;
@@ -108,11 +117,13 @@ export default function SquadsPage() {
         kind,
         level: level.trim() || null,
         ends_on: endsOn || null,
+        bout_id: kind === "camp" && boutId ? boutId : null,
       }),
     );
     setName("");
     setLevel("");
     setEndsOn("");
+    setBoutId("");
   };
 
   const open = async (s: Squad) => {
@@ -182,7 +193,21 @@ export default function SquadsPage() {
         >
           Create
         </button>
-        {kind === "camp" && <p className="text-xs text-neutral-500">A camp&apos;s coaches stop seeing its fighters after its last day.</p>}
+        {kind === "camp" && (
+          <div className="flex flex-wrap items-center gap-2">
+            <select value={boutId} onChange={(e) => setBoutId(e.target.value)} className={inputCls}>
+              <option value="">For a bout (optional)…</option>
+              {bouts.map((b) => (
+                <option key={b.id} value={b.id}>
+                  {(b.label || "Bout") + " — " + new Date(b.scheduled_at).toLocaleDateString()}
+                </option>
+              ))}
+            </select>
+            <p className="text-xs text-neutral-500">
+              A camp ends on its bout&apos;s day unless you give a last day; its coaches stop seeing its fighters after it.
+            </p>
+          </div>
+        )}
       </section>
 
       <div className="grid gap-4 lg:grid-cols-2">
@@ -203,10 +228,12 @@ export default function SquadsPage() {
                 {s.fighters} fighter{s.fighters === 1 ? "" : "s"}
                 {s.coaches.length > 0 && ` · ${s.coaches.join(", ")}`}
                 {s.ends_on && ` · until ${new Date(s.ends_on).toLocaleDateString()}`}
+                {s.bout_label && ` · for ${s.bout_label}`}
               </div>
               {s.trained_7d !== null && (
                 <div className="mt-1 text-xs text-neutral-500">
-                  This week: {s.trained_7d} of {s.fighters} trained · {s.sessions_7d} session{s.sessions_7d === 1 ? "" : "s"} with the squad
+                  This week: {s.trained_7d} of {s.fighters} trained · {s.checked_in_7d ?? 0} checked in · {s.sessions_7d} session
+                  {s.sessions_7d === 1 ? "" : "s"} with the squad
                 </div>
               )}
             </button>
@@ -226,6 +253,7 @@ export default function SquadsPage() {
                 <p className="text-xs text-neutral-500">
                   {KIND_LABEL[selected.kind]}
                   {selected.ends_on && ` · until ${new Date(selected.ends_on).toLocaleDateString()}`}
+                  {selected.bout_label && ` · for ${selected.bout_label}`}
                   {!selected.open && " · closed"}
                 </p>
               </div>

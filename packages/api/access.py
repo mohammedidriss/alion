@@ -314,17 +314,10 @@ def gym_fighters(db: DBSession, gym_id: UUID) -> set[UUID]:
             GymMembership.gym_id == gym_id, GymMembership.member_type == "fighter"
         )
     ).all()
-    joined = {
-        m.member_id
-        for m in rows
-        if m.status not in ("left", "invited", "declined") and m.left_on is None
-    }
-    # Left, or invited back and not yet accepted: out, whatever their profile says.
-    out = {
-        m.member_id
-        for m in rows
-        if m.status in ("left", "invited", "declined") or m.left_on is not None
-    } - joined
+    waiting = ("left", "invited", "declined", "applied")  # applied: until the gym approves
+    joined = {m.member_id for m in rows if m.status not in waiting and m.left_on is None}
+    # Left, or invited back (or asked) and not yet in: out, whatever their profile says.
+    out = {m.member_id for m in rows if m.status in waiting or m.left_on is not None} - joined
     return (by_profile - out) | joined
 
 

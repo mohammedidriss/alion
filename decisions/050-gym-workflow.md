@@ -1,6 +1,6 @@
 # 050. The gym workflow: organisation, staff, support teams, squads
 
-- **Status**: Accepted — step 1 built; steps 2–4 planned
+- **Status**: Accepted — all four steps built (step 1 here; ADR-052, ADR-053, ADR-055)
 - **Date**: 2026-10-14
 - **Phase**: 6
 

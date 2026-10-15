@@ -262,6 +262,12 @@ class Gym(SQLModel, table=True):
     )
     notes: str | None = None
     created_at: datetime = Field(default_factory=lambda: datetime.now(UTC))
+    # The gym's rules a fighter accepts when joining (ADR-055); the version goes up
+    # when they change, and members are asked to accept the new ones.
+    rules: str | None = None
+    rules_version: int = 0
+    # A code a fighter joins with — they ask, the gym approves (ADR-055). None: off.
+    join_code: str | None = Field(default=None, max_length=16, unique=True, index=True)
 
 
 class GymCreate(SQLModel):
@@ -286,6 +292,8 @@ class GymRead(SQLModel):
     specialties: str | None = None
     notes: str | None = None
     created_at: UtcDatetime
+    rules: str | None = None
+    rules_version: int = 0
 
 
 class MembershipStatus(StrEnum):
@@ -300,6 +308,9 @@ class MembershipStatus(StrEnum):
     # sees nothing of their training until then.
     INVITED = "invited"
     DECLINED = "declined"
+    # A fighter who asked to join with the gym's code (ADR-055), until the gym
+    # approves: it sees nothing of their training until then.
+    APPLIED = "applied"
 
 
 class GymMembership(SQLModel, table=True):
@@ -322,6 +333,9 @@ class GymMembership(SQLModel, table=True):
         description="Reason for freeze/suspension/departure",
     )
     created_at: datetime = Field(default_factory=lambda: datetime.now(UTC))
+    # The version of the gym's rules the fighter accepted, and when (ADR-055).
+    rules_version: int | None = None
+    rules_accepted_at: datetime | None = None
 
 
 class GymMembershipRead(SQLModel):
@@ -335,6 +349,10 @@ class GymMembershipRead(SQLModel):
     left_on: date | None = None
     status_note: str | None = None
     created_at: UtcDatetime
+    # For a fighter (ADR-055): whether their profile names an emergency contact, and
+    # whether they've accepted the gym's current rules.
+    has_emergency_contact: bool | None = None
+    rules_current: bool | None = None
 
 
 # ----------------------------------------------------------------------
@@ -460,6 +478,7 @@ class Squad(SQLModel, table=True):
     description: str | None = Field(default=None, max_length=500)
     starts_on: date | None = None
     ends_on: date | None = None  # a camp's last day: its coaches' access ends after it
+    bout_id: UUID | None = Field(default=None, foreign_key="bout.id")  # the camp's fight (ADR-055)
     created_by: UUID | None = None
     created_at: datetime = Field(default_factory=lambda: datetime.now(UTC))
     archived_at: datetime | None = None  # closed: no access through it any more
@@ -553,6 +572,11 @@ class Fighter(SQLModel, table=True):
     bio: str | None = None  # Short paragraph for the Team tab header
     career_history: str | None = None  # Long-form free text — career arc
     created_at: datetime = Field(default_factory=lambda: datetime.now(UTC))
+    # Who to call (ADR-055): asked when joining a gym; seen by those who see the
+    # fighter's profile — their coaches, their gym's staff, their physicians.
+    emergency_contact_name: str | None = Field(default=None, max_length=120)
+    emergency_contact_phone: str | None = Field(default=None, max_length=40)
+    emergency_contact_relation: str | None = Field(default=None, max_length=60)
 
 
 class FighterCreate(SQLModel):
@@ -594,6 +618,9 @@ class FighterRead(SQLModel):
     bio: str | None = None
     career_history: str | None = None
     created_at: UtcDatetime
+    emergency_contact_name: str | None = None
+    emergency_contact_phone: str | None = None
+    emergency_contact_relation: str | None = None
 
 
 class WeighIn(SQLModel, table=True):

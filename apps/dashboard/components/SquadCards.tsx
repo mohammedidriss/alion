@@ -121,6 +121,7 @@ export function GymSquadsWeekCard({ gymId }: { gymId: string }) {
             <tr>
               <th className="py-1.5 pr-3 font-medium">Squad</th>
               <th className="py-1.5 pr-3 font-medium">Trained</th>
+              <th className="py-1.5 pr-3 font-medium">Checked in</th>
               <th className="py-1.5 font-medium">Sessions with the squad</th>
             </tr>
           </thead>
@@ -131,6 +132,7 @@ export function GymSquadsWeekCard({ gymId }: { gymId: string }) {
                 <td className={`py-1.5 pr-3 ${s.trained_7d !== null && s.trained_7d < s.fighters ? "text-amber-300" : ""}`}>
                   {s.trained_7d ?? "—"} of {s.fighters}
                 </td>
+                <td className="py-1.5 pr-3">{s.checked_in_7d ?? "—"}</td>
                 <td className="py-1.5">{s.sessions_7d ?? "—"}</td>
               </tr>
             ))}

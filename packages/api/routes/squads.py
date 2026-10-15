@@ -35,7 +35,7 @@ from sqlmodel import col, select
 from api import access
 from api.deps import db_session
 from api.routes.auth import require_current_user
-from store import Coach, Fighter, Gym, Squad, SquadKind, SquadMember, SquadStaff
+from store import Bout, CheckIn, Coach, Fighter, Gym, Squad, SquadKind, SquadMember, SquadStaff
 from store import Session as SessionRow
 
 router = APIRouter(tags=["squads"], dependencies=[Depends(require_current_user)])
@@ -48,6 +48,7 @@ class SquadIn(BaseModel):
     description: str | None = Field(default=None, max_length=500)
     starts_on: dt.date | None = None
     ends_on: dt.date | None = None
+    bout_id: UUID | None = None  # a camp's fight: its last day, unless given (ADR-055)
 
 
 class SquadPatch(BaseModel):
@@ -57,6 +58,7 @@ class SquadPatch(BaseModel):
     description: str | None = None
     starts_on: dt.date | None = None
     ends_on: dt.date | None = None
+    bout_id: UUID | None = None
 
 
 class MemberIn(BaseModel):
@@ -105,9 +107,12 @@ class SquadOut(BaseModel):
     archived_at: dt.datetime | None
     fighters: int
     coaches: list[str]
+    bout_id: UUID | None = None  # a camp's fight
+    bout_label: str | None = None
     # This week, for those who may see the fighters' training (None otherwise):
     sessions_7d: int | None = None  # sessions trained with this squad
     trained_7d: int | None = None  # its fighters who trained at all
+    checked_in_7d: int | None = None  # its fighters who checked in at the gym (ADR-055)
     members: list[SquadMemberOut] | None = None  # on the detail
     staff: list[SquadStaffOut] | None = None
     # On a fighter's list: their place on it.
@@ -156,6 +161,8 @@ def _out(db: DBSession, s: Squad, viewer: access.Viewer, *, detail: bool = False
         archived_at=s.archived_at,
         fighters=len(members),
         coaches=sorted(_name(db, Coach, c.coach_id) for c in staff),
+        bout_id=s.bout_id,
+        bout_label=_bout_label(db, s.bout_id),
     )
     fighter_ids = {m.fighter_id for m in members}
     if fighter_ids and all(viewer.can(f, access.Level.TRAINING) for f in fighter_ids):
@@ -167,6 +174,15 @@ def _out(db: DBSession, s: Squad, viewer: access.Viewer, *, detail: bool = False
         ).all()
         out.sessions_7d = sum(1 for r in recent if r.squad_id == s.id)
         out.trained_7d = len({r.fighter_id for r in recent})
+        came = db.exec(
+            select(CheckIn.member_id).where(
+                CheckIn.gym_id == s.gym_id,
+                CheckIn.member_type == "fighter",
+                col(CheckIn.member_id).in_(fighter_ids),
+                CheckIn.checked_in_at >= since,
+            )
+        ).all()
+        out.checked_in_7d = len(set(came))
     if detail:
         out.members = [
             SquadMemberOut(
@@ -191,6 +207,25 @@ def _out(db: DBSession, s: Squad, viewer: access.Viewer, *, detail: bool = False
             for c in sorted(staff, key=lambda c: (c.role != "head_coach", c.started_on))
         ]
     return out
+
+
+def _bout_label(db: DBSession, bout_id: UUID | None) -> str | None:
+    bout = db.get(Bout, bout_id) if bout_id else None
+    if bout is None:
+        return None
+    when = bout.scheduled_at.date().isoformat()
+    return f"{bout.label} ({when})" if bout.label else f"Bout on {when}"
+
+
+def _camp_dates(db: DBSession, s: Squad) -> None:
+    """A camp named for a bout ends on the bout's day, unless a last day is given."""
+    if s.bout_id is None:
+        return
+    bout = db.get(Bout, s.bout_id)
+    if bout is None:
+        raise HTTPException(status_code=404, detail="bout not found")
+    if s.ends_on is None:
+        s.ends_on = bout.scheduled_at.date()
 
 
 def _squad(db: DBSession, squad_id: UUID) -> Squad:
@@ -246,6 +281,7 @@ def create_squad(
     if body.starts_on and body.ends_on and body.ends_on < body.starts_on:
         raise HTTPException(status_code=422, detail="It ends before it starts")
     s = Squad(gym_id=gym_id, created_by=viewer.user.id, **body.model_dump())
+    _camp_dates(db, s)
     db.add(s)
     db.commit()
     db.refresh(s)
@@ -274,6 +310,7 @@ def update_squad(
     _runs(viewer, s.gym_id)
     for k, v in body.model_dump(exclude_unset=True).items():
         setattr(s, k, v)
+    _camp_dates(db, s)
     if s.starts_on and s.ends_on and s.ends_on < s.starts_on:
         raise HTTPException(status_code=422, detail="It ends before it starts")
     db.add(s)

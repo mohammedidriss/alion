@@ -24,8 +24,10 @@ export function MyGymsCard({ onChanged }: { onChanged?: () => void }) {
 
   const leave = async (g: MyGym) => {
     const ok = confirm(
-      `Leave ${g.gym_name}? Its managers stop seeing your training, and its coaches stop coaching you ` +
-        `through the gym. Your sessions stay yours. To come back, the gym invites you again.`,
+      g.status === "applied"
+        ? `Withdraw your request to join ${g.gym_name}?`
+        : `Leave ${g.gym_name}? Its managers stop seeing your training, and its coaches stop coaching you ` +
+            `through the gym. Your sessions stay yours. To come back, ask with the gym's code or let it invite you.`,
     );
     if (!ok) return;
     setBusy(g.id);
@@ -48,20 +50,36 @@ export function MyGymsCard({ onChanged }: { onChanged?: () => void }) {
       {err && <p className="text-sm text-red-300">{err}</p>}
       {gyms.map((g) => (
         <div key={g.id} className="flex flex-wrap items-center justify-between gap-2 rounded-xl border border-white/10 p-3 text-sm">
-          <div>
+          <div className="min-w-0 flex-1">
             <b className="text-neutral-100">{g.gym_name}</b>
             {g.gym_city && <span className="text-neutral-400"> · {g.gym_city}</span>}
             <div className="text-xs text-neutral-500">
-              {g.status}
-              {g.joined_on && ` since ${new Date(g.joined_on).toLocaleDateString()}`}
+              {g.status === "applied"
+                ? "you asked to join — waiting for the gym to approve"
+                : `${g.status}${g.joined_on ? ` since ${new Date(g.joined_on).toLocaleDateString()}` : ""}`}
             </div>
+            {g.rules_pending && g.rules && (
+              <div className="mt-2 space-y-1">
+                <div className="text-xs text-amber-200">The gym&apos;s rules have changed:</div>
+                <div className="max-h-32 overflow-y-auto whitespace-pre-wrap rounded-lg border border-white/10 bg-black/30 p-2 text-xs text-neutral-300">{g.rules}</div>
+                <button
+                  onClick={async () => {
+                    await api.acceptGymRules(g.id).catch(() => undefined);
+                    load();
+                  }}
+                  className="rounded-lg bg-emerald-500 px-2.5 py-1 text-xs font-semibold text-black hover:bg-emerald-400"
+                >
+                  Accept the new rules
+                </button>
+              </div>
+            )}
           </div>
           <button
             onClick={() => void leave(g)}
             disabled={busy !== null}
             className="rounded-lg border border-white/15 px-3 py-1.5 text-sm text-neutral-200 hover:bg-white/5 disabled:opacity-40"
           >
-            {busy === g.id ? "Leaving…" : "Leave"}
+            {busy === g.id ? "…" : g.status === "applied" ? "Withdraw" : "Leave"}
           </button>
         </div>
       ))}

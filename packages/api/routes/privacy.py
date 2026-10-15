@@ -137,6 +137,10 @@ def my_privacy(
             s.id for s in db.exec(select(SessionRow).where(SessionRow.fighter_id == fid)).all()
         ]
         ids = sessions or [UUID(int=0)]
+        me = db.get(Fighter, fid)
+        if me is not None and me.emergency_contact_name:
+            # Seen by those who see your profile: coaches, your gym's staff, physicians.
+            holdings.append(Holding(what="Your emergency contact (name, phone)", count=1))
         holdings += [
             Holding(what="Training sessions (video clips, pose, punches)", count=len(sessions)),
             Holding(
