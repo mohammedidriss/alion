@@ -577,6 +577,10 @@ class Fighter(SQLModel, table=True):
     emergency_contact_name: str | None = Field(default=None, max_length=120)
     emergency_contact_phone: str | None = Field(default=None, max_length=40)
     emergency_contact_relation: str | None = Field(default=None, max_length=60)
+    # Deleted profile (ADR-056): hidden from everyone but researchers (and admins,
+    # who can restore it). Its recordings are never deleted.
+    removed_at: datetime | None = None
+    removed_by: UUID | None = None
 
 
 class FighterCreate(SQLModel):
@@ -621,6 +625,7 @@ class FighterRead(SQLModel):
     emergency_contact_name: str | None = None
     emergency_contact_phone: str | None = None
     emergency_contact_relation: str | None = None
+    removed_at: UtcDatetime | None = None  # a deleted profile, kept with its recordings
 
 
 class WeighIn(SQLModel, table=True):
@@ -715,6 +720,10 @@ class Session(SQLModel, table=True):
     # The gym and squad it was trained with (ADR-053): None for a session on one's own.
     gym_id: UUID | None = Field(default=None, index=True)
     squad_id: UUID | None = Field(default=None, index=True)
+    # Deleted session (ADR-056): hidden from everyone but researchers; the recording
+    # — video, pose, heart rate, wrist sensors — is kept.
+    removed_at: datetime | None = None
+    removed_by: UUID | None = None
 
 
 class SessionCreate(SQLModel):
@@ -732,6 +741,7 @@ class SessionRead(SQLModel):
     fighter_id: UUID
     gym_id: UUID | None = None
     squad_id: UUID | None = None
+    removed_at: UtcDatetime | None = None
     source: SessionSourceEnum
     status: SessionStatus
     started_at: UtcDatetime

@@ -18,7 +18,7 @@ import {
 } from "@/lib/api";
 import { useAuth } from "@/lib/auth";
 import { StaffInvitationsCard } from "@/components/StaffInvitationsCard";
-import { ConfirmModal } from "@/components/ConfirmModal";
+import { DeleteProfileDialog } from "@/components/DeleteProfileDialog";
 import { GymInvitationsCard } from "@/components/GymInvitationsCard";
 import { MyGymsCard } from "@/components/MyGymsCard";
 
@@ -54,7 +54,7 @@ const legendCls = "px-2 text-xs uppercase tracking-wider text-neutral-500";
 
 export default function ProfilePage() {
   const router = useRouter();
-  const { user, refreshUser } = useAuth();
+  const { user, refreshUser, logout } = useAuth();
   const [confirmDelete, setConfirmDelete] = useState(false);
 
   // --- Account fields ---
@@ -864,13 +864,13 @@ export default function ProfilePage() {
         </div>
       </form>
 
-      {/* Deleting the fighter profile — moved here from the dashboard, for the same
-          people as before: a researcher on their own profile. */}
-      {user.role === "fighter" && user.is_researcher && user.profile_id && fighter && (
+      {/* Deleting your profile, or only your login — recordings are never deleted (ADR-056). */}
+      {user.role === "fighter" && user.profile_id && fighter && (
         <section className="rounded-xl border border-red-500/20 p-5 space-y-2">
           <h2 className="text-sm font-semibold text-red-300">Delete profile</h2>
           <p className="text-xs text-neutral-400">
-            Deletes the fighter profile with all its sessions, pose data, videos, weigh-ins and punches. It can&apos;t be undone.
+            Delete your profile, or only your login. Your recordings — sessions, heart rate and wrist-sensor data — are
+            always kept.
           </p>
           <button
             type="button"
@@ -882,19 +882,14 @@ export default function ProfilePage() {
         </section>
       )}
       {confirmDelete && fighter && user.profile_id && (
-        <ConfirmModal
-          title="Delete your fighter profile?"
-          body={`This also deletes all of ${fighter.name}'s sessions, captured pose data, uploaded videos, weigh-ins, and detected events. Cannot be undone.`}
-          requireTyped={fighter.name}
+        <DeleteProfileDialog
+          fighterId={user.profile_id}
+          fighterName={fighter.name}
           onCancel={() => setConfirmDelete(false)}
-          onConfirm={async () => {
-            try {
-              await api.deleteFighter(user.profile_id as string);
-              router.push("/");
-            } catch (e) {
-              setError(e instanceof Error ? e.message : String(e));
-              setConfirmDelete(false);
-            }
+          onDone={() => {
+            // Either way your login is gone: sign out.
+            logout();
+            router.push("/");
           }}
         />
       )}

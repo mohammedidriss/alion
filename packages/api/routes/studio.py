@@ -170,8 +170,9 @@ def set_active(
             viewer.require(row.fighter_id, access.Level.TRAINING_WRITE)
     else:
         access.require_researcher(viewer)
+    picked = sessions.get(body.id) if body.kind == "session" else None
     exists = (
-        sessions.get(body.id) is not None
+        picked is not None and picked.removed_at is None  # a deleted session isn't offered
         if body.kind == "session"
         else dataset_store.take_dir(body.id) is not None
     )
@@ -230,8 +231,9 @@ def station_state(
     if not a:
         return StationState(active=None)
     cid = UUID(a["id"])
+    row = sessions.get(cid) if a["kind"] == "session" else None
     exists = (
-        sessions.get(cid) is not None
+        row is not None and row.removed_at is None
         if a["kind"] == "session"
         else dataset_store.take_dir(cid) is not None
     )

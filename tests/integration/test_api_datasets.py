@@ -465,7 +465,7 @@ def test_a_new_take_takes_the_wrist_sensors_over_and_discard_releases_them(
     assert not imu_runner.any_running()
 
 
-def test_deleting_a_take_mid_recording_removes_it_and_frees_the_sensors(
+def test_deleting_a_take_mid_recording_keeps_it_and_frees_the_sensors(
     authed_client: TestClient,
     stores: dict[str, Path],
     tmp_path: Path,
@@ -497,15 +497,16 @@ def test_deleting_a_take_mid_recording_removes_it_and_frees_the_sensors(
     authed_client.post(f"/takes/{tid}/multicam/start")
     assert authed_client.post(f"/v2/takes/{tid}/imu/ble/start").json()["running"]
 
+    # Recordings are never deleted (ADR-056): the take leaves the dataset, its folder stays.
     assert authed_client.delete(f"/v2/takes/{tid}").status_code == 204
-    assert authed_client.get(f"/v2/takes/{tid}").status_code == 404
-    assert not (stores["datasets"] / did / "takes" / tid).exists()
+    assert authed_client.get(f"/v2/takes/{tid}").json()["status"] == "discarded"
+    assert (stores["datasets"] / did / "takes" / tid).exists()
     assert not imu_runner.any_running()
-    # the phones are told to drop their clip, not upload it
+    # the phones are told to stop and upload their clip, not drop it
     hb = authed_client.post(
         f"/takes/{tid}/multicam/heartbeat", json={"token": token, "device_id": dev}
     ).json()
-    assert hb["command"] == "discard"
+    assert hb["command"] == "stop"
 
 
 STREAMING_RECORDER = """

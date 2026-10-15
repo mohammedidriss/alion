@@ -14,7 +14,6 @@ session's, under `/takes/{id}` instead of `/sessions/{id}`:
 from __future__ import annotations
 
 import json
-import shutil
 import time
 from datetime import UTC, datetime
 from typing import Any, Literal
@@ -441,17 +440,19 @@ def get_take(
 
 @router.delete("/takes/{take_id}", status_code=204)
 def delete_take(take_id: UUID, repo: DatasetRepo = Depends(dataset_repo)) -> None:
-    """Delete a take for good — the coach's "Delete" on a recording that went wrong:
-    the cameras drop their clips, the sensors stop, and the row and folder go —
-    with its face-blurred copies and its copy in the export."""
+    """Take a recording that went wrong out of the dataset — the coach's "Delete".
+    Recordings are never deleted (ADR-056): anything still recording into it stops
+    as Stop does (the cameras upload their clips, the sensors save), the take is
+    discarded and leaves the dataset's export, and its folder stays. Its
+    face-blurred copies go — they're made again from the original if needed."""
     take = _get_take(take_id, repo)
-    _release_capture(take_id, discard=True)
+    _release_capture(take_id, cameras=True)
+    repo.finish_take(take.id, TakeStatusEnum.DISCARDED)
     folder = dataset_store.take_dir(take_id)
     if folder is not None:
+        dataset_store.update_take_json(folder, status="discarded")
         video_blur.delete_take(folder)
-        shutil.rmtree(folder, ignore_errors=True)
     dataset_export.drop_takes(take.dataset_id, {str(take_id)})
-    repo.delete_take(take.id)
 
 
 @router.post("/takes/{take_id}/discard", response_model=TakeOut)

@@ -129,9 +129,8 @@ def test_a_camera_renamed_on_the_phone_is_renamed_for_the_coach(
     assert [d["label"] for d in roster] == ["SM-S918B"]
 
 
-def test_deleting_a_session_removes_its_clips(
-    authed_client: TestClient, capture_dirs: Path
-) -> None:
+def test_deleting_a_session_keeps_its_clips(authed_client: TestClient, capture_dirs: Path) -> None:
+    """Recordings are never deleted (ADR-056): the session is hidden, its clips stay."""
     sid = _session(authed_client)
     clips = capture_dirs / "clips"
     clips.mkdir(parents=True)
@@ -139,4 +138,8 @@ def test_deleting_a_session_removes_its_clips(
     (clips / f"{sid}.a1b2c3d4.json").write_text('{"start_offset_ms": 12}')
     (clips / "someone-else.a1b2c3d4.webm").write_bytes(b"keep")
     assert authed_client.delete(f"/sessions/{sid}").status_code == 204
-    assert sorted(p.name for p in clips.iterdir()) == ["someone-else.a1b2c3d4.webm"]
+    assert len(list(clips.iterdir())) == 3
+    assert sid not in {s["id"] for s in authed_client.get("/sessions").json()}
+    listed = authed_client.get("/sessions", params={"include_removed": True}).json()
+    assert any(s["id"] == sid and s["removed_at"] for s in listed)  # a researcher sees it
+    assert authed_client.post(f"/sessions/{sid}/restore").json()["removed_at"] is None

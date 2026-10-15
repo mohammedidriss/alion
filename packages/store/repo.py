@@ -50,6 +50,7 @@ from store.models import (
     PunchEventRow,
     Referee,
     RefereeCreate,
+    RestHRSampleRow,
     Session,
     SessionCreate,
     SessionStatus,
@@ -147,6 +148,14 @@ class SessionRepo:
 
     def list_all(self) -> list[Session]:
         return list(self._session.exec(select(Session)).all())
+
+    def ids_with_sensor_data(self) -> set[UUID]:
+        """Sessions holding any heart-rate, wrist-sensor or punch data — a recording,
+        even with no camera frames (ADR-056: recordings are never deleted)."""
+        out: set[UUID] = set()
+        for model in (HRSampleRow, IMUSampleRow, PunchEventRow, RestHRSampleRow):
+            out |= set(self._session.exec(select(model.session_id).distinct()).all())
+        return out
 
     def update_status(
         self,

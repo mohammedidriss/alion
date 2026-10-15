@@ -560,7 +560,7 @@ export default function FighterPage({ params }: { params: { id: string } }) {
       {confirmDeleteSession && (
         <ConfirmModal
           title="Delete this session?"
-          body="Removes the session row, detected punch events, captured pose data, and any uploaded video. Cannot be undone."
+          body="It disappears from the lists. The recording — video, pose, heart rate and wrist-sensor data — is kept for the study; a researcher can restore it."
           onCancel={() => setConfirmDeleteSession(null)}
           onConfirm={() => deleteSession(confirmDeleteSession)}
         />

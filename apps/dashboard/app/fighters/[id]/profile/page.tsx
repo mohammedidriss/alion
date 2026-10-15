@@ -8,7 +8,7 @@
 
 import { useRouter } from "next/navigation";
 import { useCallback, useEffect, useState } from "react";
-import { ConfirmModal } from "@/components/ConfirmModal";
+import { DeleteProfileDialog } from "@/components/DeleteProfileDialog";
 import { FighterEditModal } from "@/components/FighterEditModal";
 import { api, type Fighter, type FighterOptions } from "@/lib/api";
 import { useAuth } from "@/lib/auth";
@@ -115,19 +115,14 @@ export default function FighterProfileTab({ params }: { params: { id: string } }
         />
       )}
       {deleting && (
-        <ConfirmModal
-          title="Delete this fighter?"
-          body={`This also deletes all of ${fighter.name}'s sessions, captured pose data, uploaded videos, weigh-ins, and detected events. Cannot be undone.`}
-          requireTyped={fighter.name}
+        <DeleteProfileDialog
+          fighterId={id}
+          fighterName={fighter.name}
           onCancel={() => setDeleting(false)}
-          onConfirm={async () => {
-            try {
-              await api.deleteFighter(id);
-              router.push("/");
-            } catch (e) {
-              setErr(String(e instanceof Error ? e.message : e));
-              setDeleting(false);
-            }
+          onDone={(choice) => {
+            setDeleting(false);
+            if (choice === "profile") router.push("/");
+            else void load();
           }}
         />
       )}

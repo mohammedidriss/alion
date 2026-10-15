@@ -11,7 +11,7 @@ from uuid import UUID
 from fastapi import APIRouter, Depends, File, HTTPException, UploadFile, status
 from pydantic import BaseModel, Field
 from sqlmodel import Session as DBSession
-from sqlmodel import select
+from sqlmodel import col, select
 
 from analyze import compute_readiness, compute_score, compute_swc
 from analyze.readiness import MIN_HISTORY
@@ -28,7 +28,7 @@ from api.deps import (
 )
 from api.routes.auth import get_current_user, require_current_user
 from api.services import advice_gate, session_metrics
-from api.services.photos import delete_photos_for, save_photo
+from api.services.photos import save_photo
 from store import (
     WEIGHT_CLASSES,
     AllergyCreate,
@@ -148,6 +148,7 @@ def create_fighter(
 @router.get("", response_model=list[FighterRead])
 def list_fighters(
     gym_id: UUID | None = None,
+    include_removed: bool = False,  # deleted profiles too — researchers, admins (ADR-056)
     repo: FighterRepo = Depends(fighter_repo),
     current_user: User | None = Depends(get_current_user),
     session: DBSession = Depends(db_session),
@@ -163,6 +164,8 @@ def list_fighters(
         if current_user
         else set()
     )
+    if not include_removed:
+        rows = [f for f in rows if f.removed_at is None]
     return [
         FighterRead.model_validate(f, from_attributes=True)
         for f in rows
@@ -171,9 +174,15 @@ def list_fighters(
 
 
 @router.get("/{fighter_id}", response_model=FighterRead)
-def get_fighter(fighter_id: UUID, repo: FighterRepo = Depends(fighter_repo)) -> FighterRead:
+def get_fighter(
+    fighter_id: UUID,
+    include_removed: bool = False,  # a deleted profile, for researchers and admins (ADR-056)
+    repo: FighterRepo = Depends(fighter_repo),
+) -> FighterRead:
     fighter = repo.get(fighter_id)
-    if fighter is None:
+    # A deleted profile answers as gone (the v1 contract) unless asked for; the guard
+    # has already kept it from everyone but researchers and admins.
+    if fighter is None or (fighter.removed_at is not None and not include_removed):
         raise HTTPException(status_code=404, detail="fighter not found")
     return FighterRead.model_validate(fighter, from_attributes=True)
 
@@ -192,11 +201,182 @@ def update_fighter(
     return FighterRead.model_validate(fighter, from_attributes=True)
 
 
-@router.delete("/{fighter_id}", status_code=status.HTTP_204_NO_CONTENT)
-def delete_fighter(fighter_id: UUID, repo: FighterRepo = Depends(fighter_repo)) -> None:
-    if not repo.delete(fighter_id):
+# ---- deleting a profile: recordings are never deleted (ADR-056) ----
+
+
+class RemovalOut(BaseModel):
+    """What this viewer may do to delete a fighter's profile or login."""
+
+    has_account: bool
+    can_delete_profile: bool  # the profile (and its login): recordings kept
+    can_delete_account: bool  # the login only: profile and recordings stay
+    note: str | None = None  # why not, when not
+
+
+def _account(db: DBSession, fighter_id: UUID) -> Any:
+    from store import User, UserRole
+
+    return db.exec(
+        select(User).where(
+            User.profile_id == fighter_id,
+            User.role == UserRole.FIGHTER,
+            col(User.removed_at).is_(None),
+        )
+    ).first()
+
+
+def _removal(viewer: access.Viewer, db: DBSession, fighter_id: UUID) -> RemovalOut:
+    account = _account(db, fighter_id)
+    own = viewer.own_fighter == fighter_id
+    if account is None:
+        # A profile nobody signs in to: whoever may change it (the guard checked).
+        return RemovalOut(has_account=False, can_delete_profile=True, can_delete_account=False)
+    if own and viewer.researcher:
+        note = "A researcher's own account is deleted by another researcher, so you're never locked out."
+        return RemovalOut(
+            has_account=True, can_delete_profile=False, can_delete_account=False, note=note
+        )
+    if own or viewer.admin:
+        return RemovalOut(has_account=True, can_delete_profile=True, can_delete_account=True)
+    note = "Only the fighter or an administrator deletes a profile someone signs in to — you can end your link on the Team page."
+    return RemovalOut(
+        has_account=True, can_delete_profile=False, can_delete_account=False, note=note
+    )
+
+
+@router.get("/{fighter_id}/removal", response_model=RemovalOut)
+def removal_options(
+    fighter_id: UUID,
+    db: DBSession = Depends(db_session),
+    viewer: access.Viewer = Depends(access.require_viewer),
+) -> RemovalOut:
+    from store import Fighter
+
+    if db.get(Fighter, fighter_id) is None:
         raise HTTPException(status_code=404, detail="fighter not found")
-    delete_photos_for("fighter", fighter_id)
+    return _removal(viewer, db, fighter_id)
+
+
+def _end_everything(db: DBSession, fighter_id: UUID) -> None:
+    """A deleted profile's ties end, history kept: its gyms (and so their links and
+    squad places), its coaches and physicians, any other squad place."""
+    import datetime as _dt
+
+    from store import (
+        CoachAssignment,
+        GymMembership,
+        GymRepo,
+        PhysicianAssignmentRow,
+        SquadMember,
+    )
+
+    for m in db.exec(
+        select(GymMembership).where(
+            GymMembership.member_id == fighter_id,
+            GymMembership.member_type == "fighter",
+            col(GymMembership.status).not_in(("left", "declined")),
+        )
+    ).all():
+        GymRepo(db).update_membership_status(m.gym_id, m.id or 0, "left", "The profile was deleted")
+    today, now = _dt.date.today(), _dt.datetime.now(_dt.UTC)
+    for a in db.exec(
+        select(CoachAssignment).where(
+            CoachAssignment.fighter_id == fighter_id, col(CoachAssignment.ended_on).is_(None)
+        )
+    ).all():
+        a.ended_on = today
+        db.add(a)
+    for p in db.exec(
+        select(PhysicianAssignmentRow).where(
+            PhysicianAssignmentRow.fighter_id == fighter_id,
+            col(PhysicianAssignmentRow.ended_at).is_(None),
+        )
+    ).all():
+        p.ended_at = now
+        db.add(p)
+    for sm in db.exec(
+        select(SquadMember).where(
+            SquadMember.fighter_id == fighter_id, col(SquadMember.left_on).is_(None)
+        )
+    ).all():
+        sm.left_on, sm.is_main = today, False
+        db.add(sm)
+
+
+@router.delete("/{fighter_id}", status_code=status.HTTP_204_NO_CONTENT)
+def delete_fighter(
+    fighter_id: UUID,
+    repo: FighterRepo = Depends(fighter_repo),
+    db: DBSession = Depends(db_session),
+    viewer: access.Viewer = Depends(access.require_viewer),
+) -> None:
+    """Delete the profile — and its login, if it has one — and keep the recordings:
+    every session, its video, pose, heart rate and wrist data stay, hidden from all
+    but researchers, and keep teaching the models (ADR-051). Its ties end. An
+    administrator can restore it."""
+    import datetime as _dt
+
+    fighter = repo.get(fighter_id)
+    if fighter is None or fighter.removed_at is not None:
+        raise HTTPException(status_code=404, detail="fighter not found")
+    allowed = _removal(viewer, db, fighter_id)
+    if not allowed.can_delete_profile:
+        raise HTTPException(status_code=403, detail=allowed.note or "Not yours to delete")
+    account = _account(db, fighter_id)
+    if account is not None:
+        from api.routes.auth import remove_account
+
+        remove_account(db, account, viewer.user)
+    _end_everything(db, fighter_id)
+    fighter.removed_at = _dt.datetime.now(_dt.UTC)
+    fighter.removed_by = viewer.user.id
+    db.add(fighter)
+    db.commit()
+
+
+@router.post("/{fighter_id}/remove-account", response_model=dict)
+def delete_fighter_account(
+    fighter_id: UUID,
+    db: DBSession = Depends(db_session),
+    viewer: access.Viewer = Depends(access.require_viewer),
+) -> dict[str, str]:
+    """Delete the login only: no more signing in, the email freed; the profile and
+    its recordings stay where they are (ADR-048, ADR-056)."""
+    from api.routes.auth import remove_account
+
+    allowed = _removal(viewer, db, fighter_id)
+    account = _account(db, fighter_id)
+    if account is None:
+        raise HTTPException(status_code=404, detail="This profile has no login account")
+    if not allowed.can_delete_account:
+        raise HTTPException(status_code=403, detail=allowed.note or "Not yours to delete")
+    email = remove_account(db, account, viewer.user)
+    return {
+        "status": "ok",
+        "message": f"Deleted the login {email} — the profile and recordings stay",
+    }
+
+
+@router.post("/{fighter_id}/restore", response_model=FighterRead)
+def restore_fighter(
+    fighter_id: UUID,
+    repo: FighterRepo = Depends(fighter_repo),
+    db: DBSession = Depends(db_session),
+    viewer: access.Viewer = Depends(access.require_viewer),
+) -> FighterRead:
+    """Bring a deleted profile back (administrators and researchers). Its login, if
+    it had one, is restored on the People page; its ties are added again by hand."""
+    if not viewer.admin:
+        raise HTTPException(status_code=403, detail="Only an administrator restores a profile")
+    fighter = repo.get(fighter_id)
+    if fighter is None:
+        raise HTTPException(status_code=404, detail="fighter not found")
+    fighter.removed_at = None
+    fighter.removed_by = None
+    db.add(fighter)
+    db.commit()
+    db.refresh(fighter)
+    return FighterRead.model_validate(fighter, from_attributes=True)
 
 
 # ---- weigh-ins ----

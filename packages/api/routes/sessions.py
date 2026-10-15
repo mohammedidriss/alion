@@ -128,14 +128,18 @@ def create_session(
 
 
 def _purge_stale_pending(repo: SessionRepo) -> int:
-    """Delete pending sessions with 0 frames that are older than 10 minutes."""
+    """Delete pending sessions older than 10 minutes that recorded nothing at all: no
+    camera frames, no video, no sensor data."""
     cutoff = datetime.datetime.utcnow() - datetime.timedelta(minutes=10)
     all_sessions = repo.list_all()
     deleted = 0
     with_video = capture_coord.session_ids_with_video()
+    with_data = repo.ids_with_sensor_data()
     for s in all_sessions:
         if str(s.id) in with_video:
             continue  # multi-cam sessions stay "pending" with 0 frames but HAVE video
+        if s.id in with_data:
+            continue  # heart rate or wrist sensors recorded without a camera: kept
         if capture_coord.is_active(s.id):
             continue  # recording now (its clips only upload at Stop) or cameras still around
         if s.status == SessionStatus.PENDING and s.frame_count == 0 and s.started_at < cutoff:
@@ -171,6 +175,7 @@ def delete_stale_pending(repo: SessionRepo = Depends(session_repo)) -> dict[str,
 def list_sessions(
     fighter_id: UUID | None = None,
     recorded: bool = False,
+    include_removed: bool = False,  # deleted sessions too — for researchers (ADR-056)
     repo: SessionRepo = Depends(session_repo),
     current_user: User | None = Depends(get_current_user),
     session: DBSession = Depends(db_session),
@@ -186,7 +191,7 @@ def list_sessions(
             gym_fighters = frepo.list_for_gym(scoped_gym)
             gym_fighter_ids = {f.id for f in gym_fighters}
             all_rows = repo.list_for_fighter(fighter_id) if fighter_id else repo.list_all()
-            rows = [s for s in all_rows if s.fighter_id in gym_fighter_ids]
+            rows = [s for s in all_rows if s.fighter_id in gym_fighter_ids and s.removed_at is None]
             if recorded:
                 rows = _recorded(rows)
             return [SessionRead.model_validate(s, from_attributes=True) for s in rows]
@@ -199,6 +204,9 @@ def list_sessions(
         else set()
     )
     rows = [r for r in rows if visible is None or r.fighter_id in visible]
+    researcher = current_user is not None and access.Viewer(current_user, session).researcher
+    if not (include_removed and researcher):
+        rows = [r for r in rows if r.removed_at is None]
     if recorded:
         rows = _recorded(rows)
     return [SessionRead.model_validate(s, from_attributes=True) for s in rows]
@@ -213,27 +221,46 @@ def get_session_route(session_id: UUID, repo: SessionRepo = Depends(session_repo
 
 
 @router.delete("/{session_id}", status_code=status.HTTP_204_NO_CONTENT)
-def delete_session_route(session_id: UUID, repo: SessionRepo = Depends(session_repo)) -> None:
+def delete_session_route(
+    session_id: UUID,
+    repo: SessionRepo = Depends(session_repo),
+    viewer: access.Viewer = Depends(access.require_viewer),
+) -> None:
+    """Delete a session from view (ADR-056): recordings are never deleted. A capture
+    still recording into it stops as Stop does — the cameras upload their clips, the
+    sensors save — and the session, its video, pose, heart rate and wrist data stay,
+    hidden from everyone but researchers, who can restore it."""
     row = repo.get(session_id)
     if row is None:
         raise HTTPException(status_code=404, detail="session not found")
     if capture_runner.is_running(session_id):
         raise HTTPException(status_code=409, detail="capture is running — stop it first")
-    # Multi-cam recording into it ("Delete" mid-recording): cameras drop their clips,
-    # the sensors stop, and any clips already uploaded go with the session.
-    capture_coord.discard_capture(session_id)
+    if capture_coord.is_active(session_id):
+        capture_coord.stop_capture(session_id)
     imu_runner.stop(session_id)
     hrv_runner.request_stop(session_id)
-    capture_coord.delete_session_clips(session_id)
-    # Best-effort artifact cleanup. We don't fail the delete if a file is gone.
-    for path_str in (row.video_path, row.pose_parquet_path):
-        if path_str:
-            try:
-                Path(path_str).unlink(missing_ok=True)
-            except OSError:
-                pass
-    if not repo.delete(session_id):
+    row.removed_at = datetime.datetime.now(datetime.UTC)
+    row.removed_by = viewer.user.id
+    viewer.db.add(row)
+    viewer.db.commit()
+
+
+@router.post("/{session_id}/restore", response_model=SessionRead)
+def restore_session(
+    session_id: UUID,
+    repo: SessionRepo = Depends(session_repo),
+    viewer: access.Viewer = Depends(access.require_viewer),
+) -> SessionRead:
+    """Bring a deleted session back into view (researchers; the guard checks)."""
+    row = repo.get(session_id)
+    if row is None:
         raise HTTPException(status_code=404, detail="session not found")
+    row.removed_at = None
+    row.removed_by = None
+    viewer.db.add(row)
+    viewer.db.commit()
+    viewer.db.refresh(row)
+    return SessionRead.model_validate(row, from_attributes=True)
 
 
 @router.post("/{session_id}/upload", response_model=SessionRead)

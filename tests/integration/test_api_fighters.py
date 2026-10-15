@@ -29,5 +29,8 @@ def test_fighter_crud_flow(authed_client: TestClient) -> None:
     r = authed_client.delete(f"/fighters/{fid}")
     assert r.status_code == 204
 
-    r = authed_client.get(f"/fighters/{fid}")
-    assert r.status_code == 404
+    # Deleted, not erased (ADR-056): gone from view; a researcher can still open it.
+    assert fid not in {f["id"] for f in authed_client.get("/fighters").json()}
+    assert authed_client.get(f"/fighters/{fid}").status_code == 404
+    kept = authed_client.get(f"/fighters/{fid}", params={"include_removed": True}).json()
+    assert kept["removed_at"] is not None

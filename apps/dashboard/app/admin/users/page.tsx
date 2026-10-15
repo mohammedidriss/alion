@@ -74,11 +74,16 @@ export default function AdminUsersPage() {
   const removedCount = users.filter((u) => u.removed).length;
 
   const handleRestore = async (u: UnifiedPerson) => {
-    if (!u.user_id) return;
     setActionErr(null);
     try {
-      const res = await api.adminRestoreUser(u.user_id);
-      setActionMsg(`${res.message}. Add their coaches and physicians again from their Team page.`);
+      // A deleted fighter profile (ADR-056), and/or its deleted login (ADR-048).
+      const done: string[] = [];
+      if (u.profile_removed) {
+        await api.restoreFighter(u.id);
+        done.push(`Restored ${u.name}'s profile`);
+      }
+      if (u.account_removed && u.user_id) done.push((await api.adminRestoreUser(u.user_id)).message);
+      setActionMsg(`${done.join(". ")}. Add their coaches and physicians again from their Team page.`);
       load();
     } catch (e) {
       setActionErr(e instanceof Error ? e.message : "Restore failed");
@@ -488,7 +493,7 @@ export default function AdminUsersPage() {
                         onClick={() => {
                           const text = u.user_id
                             ? `Remove ${u.email ?? u.name}'s account? They can't sign in any more and the email is free for a new account. Their profile, sessions and records are kept, and you can restore the account later.`
-                            : `Delete the profile ${u.name}? It has no login. This cannot be undone.`;
+                            : `Delete the profile ${u.name}? It has no login. Its recordings are kept, and you can restore it.`;
                           if (confirm(text)) handleDelete(u);
                         }}
                         disabled={u.user_id === me?.id}

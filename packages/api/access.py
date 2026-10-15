@@ -210,9 +210,18 @@ class Viewer:
         """Fighters at the gyms this person leads (owner, manager, head coach)."""
         return set().union(*(gym_fighters(self.db, g) for g in self.led_gyms))
 
+    @cached_property
+    def removed_fighters(self) -> set[UUID]:
+        """Deleted profiles (ADR-056): kept, with their recordings, out of sight."""
+        q = select(Fighter.id).where(col(Fighter.removed_at).is_not(None))
+        return set(self.db.exec(q).all())
+
     def can(self, fighter_id: UUID, level: Level) -> bool:
         if self.researcher:
             return True  # everything, for the study (ADR-046); health-note reads are logged
+        if fighter_id in self.removed_fighters:
+            # A deleted profile: an admin may see and restore it; nobody else sees it.
+            return self.admin and level in (Level.PROFILE, Level.PROFILE_WRITE)
         is_self = fighter_id == self.own_fighter
         if level == Level.MEDICAL:
             return is_self or fighter_id in self.coached_health or fighter_id in self.physician_of
@@ -371,7 +380,9 @@ _MEDICAL = re.compile(
     r"^/fighters/\{fighter_id\}/(medical|allergies|medications|conditions|pupil-readings)\b"
 )
 _PROFILE = re.compile(
-    r"^/fighters/\{fighter_id\}(/(photo|titles|sponsors|coach-assignments)(/.*)?)?$"
+    # …and deleting or restoring the profile (ADR-056): the route decides who may.
+    r"^/fighters/\{fighter_id\}"
+    r"(/(photo|titles|sponsors|coach-assignments|removal|remove-account|restore)(/.*)?)?$"
 )
 _RESEARCH = re.compile(r"^/(v2/)?(takes|datasets)(/|$)|^/studies/rq1/ratings$")
 
@@ -415,6 +426,9 @@ async def guard(
     if session_id is not None:
         row = db.get(SessionRow, session_id)
         if row is not None:
+            if row.removed_at is not None and not viewer.researcher:
+                # A deleted session (ADR-056): kept for the study, gone for everyone else.
+                raise HTTPException(status_code=404, detail="session not found")
             viewer.require(row.fighter_id, Level.TRAINING_WRITE if write else Level.TRAINING)
         return
     if fighter_id is not None:
@@ -536,7 +550,7 @@ def visible_fighters(viewer: Viewer, level: Level) -> set[UUID] | None:
         out |= viewer.physician_of
     if level == Level.PROFILE:
         out |= viewer.coach_gym_fighters
-    return out
+    return out - viewer.removed_fighters
 
 
 def take_fighter(db: DBSession, take_id: UUID) -> UUID | None:

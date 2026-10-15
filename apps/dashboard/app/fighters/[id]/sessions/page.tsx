@@ -59,10 +59,12 @@ function SessionsTabContent({ params }: { params: { id: string } }) {
 
   const [err, setErr] = useState<string | null>(null);
   const [filter, setFilter] = useState<"all" | SessionStatus>("all");
+  // Deleted sessions keep their recordings (ADR-056); researchers can list them.
+  const [showDeleted, setShowDeleted] = useState(false);
 
   useEffect(() => {
     api
-      .listSessions(params.id, { recorded: true })
+      .listSessions(params.id, { recorded: true, includeRemoved: showDeleted })
       .then(async (sList) => {
         const enriched = await Promise.all(
           sList.map(async (s) => {
@@ -77,7 +79,7 @@ function SessionsTabContent({ params }: { params: { id: string } }) {
         setRows(enriched);
       })
       .catch((e) => setErr(String(e)));
-  }, [params.id]);
+  }, [params.id, showDeleted]);
 
   const filtered = useMemo(
     () => (filter === "all" ? rows : rows.filter((r) => r.session.status === filter)),
@@ -176,6 +178,12 @@ function SessionsTabContent({ params }: { params: { id: string } }) {
       </section>
 
       <div className="flex flex-wrap gap-2">
+        {user?.is_researcher && (
+          <label className="flex items-center gap-1.5 rounded-full bg-white/[0.03] px-3 py-1 text-xs text-neutral-400">
+            <input type="checkbox" checked={showDeleted} onChange={(e) => setShowDeleted(e.target.checked)} />
+            deleted too
+          </label>
+        )}
         {(["all", "completed", "capturing", "pending", "failed"] as const).map(
           (k) => (
             <button
@@ -208,6 +216,7 @@ function SessionsTabContent({ params }: { params: { id: string } }) {
                     {new Date(s.started_at).toLocaleString()}
                   </Link>
                   <span className={`pill ${STATUS_TINT[s.status]}`}>{s.status}</span>
+                  {s.removed_at && <span className="pill bg-red-500/15 text-red-300">deleted — recording kept</span>}
                   <span className="pill bg-white/[0.04] text-neutral-300">
                     {SOURCE_LABEL[s.source] ?? s.source}
                   </span>

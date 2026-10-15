@@ -592,7 +592,9 @@ class UnifiedPerson(BaseModel):
     has_account: bool
     is_active: bool
     photo_path: str | None = None
-    removed: bool = False  # removed by an administrator (ADR-048); email is the one it had
+    removed: bool = False  # the login or the profile was deleted; email is the one it had
+    account_removed: bool = False  # the login was deleted (ADR-048)
+    profile_removed: bool = False  # the fighter profile was deleted, recordings kept (ADR-056)
 
 
 @router.get("/admin/everyone", response_model=list[UnifiedPerson])
@@ -632,7 +634,9 @@ def admin_list_everyone(
                     has_account=user is not None,
                     is_active=user.is_active if user else True,
                     photo_path=getattr(p, "photo_path", None),
-                    removed=bool(user and user.removed_at),
+                    removed=bool(user and user.removed_at) or bool(getattr(p, "removed_at", None)),
+                    account_removed=bool(user and user.removed_at),
+                    profile_removed=bool(getattr(p, "removed_at", None)),
                 )
             )
 
@@ -655,6 +659,7 @@ def admin_list_everyone(
                     is_active=u.is_active,
                     photo_path=u.photo_path,
                     removed=u.removed_at is not None,
+                    account_removed=u.removed_at is not None,
                 )
             )
 
@@ -788,6 +793,26 @@ def _end_ties(db: DBSession, user: User, when: datetime) -> None:
         db.add(row)
 
 
+def remove_account(db: DBSession, target: User, by: User) -> str:
+    """Remove an account (ADR-048): no more signing in, the email freed, its current
+    coach and physician ties ended; the profile and recordings stay. Returns the
+    email it had. Only a researcher removes a researcher's account."""
+    if target.removed_at is not None:
+        raise HTTPException(status_code=409, detail="This account was already removed")
+    if researchers.is_researcher(target) and not researchers.is_researcher(by):
+        raise HTTPException(status_code=403, detail="Only a researcher removes a researcher")
+    email, now = target.email, datetime.now(UTC)
+    _end_ties(db, target, now)
+    target.removed_email = email
+    target.email = _removed_address(target.id)
+    target.is_active = False
+    target.removed_at = now
+    target.removed_by = by.id
+    db.add(target)
+    db.commit()
+    return email
+
+
 @router.delete("/admin/users/{user_id}")
 def admin_remove_user(
     user_id: UUID,
@@ -804,22 +829,7 @@ def admin_remove_user(
     target = repo.get(user_id)
     if target is None:
         raise HTTPException(status_code=404, detail="User not found")
-    if target.removed_at is not None:
-        raise HTTPException(status_code=409, detail="This account was already removed")
-    if researchers.is_researcher(target) and not researchers.is_researcher(admin):
-        raise HTTPException(status_code=403, detail="Only a researcher removes a researcher")
-    email, now = target.email, datetime.now(UTC)
-    _end_ties(session, target, now)
-    repo.update(
-        user_id,
-        {
-            "removed_email": email,
-            "email": _removed_address(user_id),
-            "is_active": False,
-            "removed_at": now,
-            "removed_by": admin.id,
-        },
-    )
+    email = remove_account(session, target, admin)
     return {
         "status": "ok",
         "message": f"Removed {email} — their sessions and records are kept; the email is free",

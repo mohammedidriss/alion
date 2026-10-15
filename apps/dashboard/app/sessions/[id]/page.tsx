@@ -608,6 +608,21 @@ function SessionPageContent({ params }: { params: { id: string } }) {
 
       {err && <p className="text-sm text-red-400">{err}</p>}
 
+      {session.removed_at && (
+        <div className="flex flex-wrap items-center justify-between gap-2 rounded-xl border border-red-500/30 bg-red-950/20 px-4 py-2.5 text-sm text-red-200">
+          <span>This session was deleted: it&apos;s out of every list, and its recording is kept for the study.</span>
+          <button
+            onClick={async () => {
+              await api.restoreSession(session.id).catch((e) => setErr(String(e)));
+              await refresh();
+            }}
+            className="rounded-lg border border-white/15 px-3 py-1 text-xs text-neutral-100 hover:bg-white/5"
+          >
+            Restore
+          </button>
+        </div>
+      )}
+
       {/* Capture: live reader + round configuration (left) and the cameras panel
           (right). Only while the session can still capture — hidden once completed. */}
       {(session.status === "pending" || session.status === "capturing") && (
@@ -621,8 +636,8 @@ function SessionPageContent({ params }: { params: { id: string } }) {
             defaultLaptop
             onFinished={refresh}
             onDelete={async () => {
-              // Delete for good, then a fresh session for the same fighter with the
-              // same round setup — the linked phones follow it there.
+              // Set it aside (its recording kept, ADR-056), then a fresh session for the
+              // same fighter with the same round setup — the linked phones follow it there.
               await api.deleteSession(session.id);
               const next = await api.createSession(
                 session.fighter_id,
@@ -1330,8 +1345,8 @@ function SessionPageContent({ params }: { params: { id: string } }) {
           <div className="w-full max-w-md rounded-lg border border-neutral-800 bg-neutral-950 p-5 shadow-xl">
             <h3 className="font-medium">Delete this session?</h3>
             <p className="mt-2 text-sm text-neutral-400">
-              This removes the session row, all detected punch events, captured
-              pose data, and any uploaded video file. Cannot be undone.
+              It disappears from the lists. The recording — video, pose, heart rate
+              and wrist-sensor data — is kept for the study; a researcher can restore it.
             </p>
             <div className="mt-4 flex justify-end gap-2">
               <button

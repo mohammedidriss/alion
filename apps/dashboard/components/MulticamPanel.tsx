@@ -330,7 +330,8 @@ export function MulticamPanel({
     if (captureStartMs !== null) void stop();
   }, [stopSignal, captureStartMs, stop]);
 
-  // Delete: a two-step button (it can't be undone); the confirm lapses after 6 s.
+  // Delete: a two-step button; the confirm lapses after 6 s. Recordings are never
+  // deleted (ADR-056): the cameras stop and upload as with Stop, and it's set aside.
   useEffect(() => {
     if (!confirmDelete) return;
     const id = setTimeout(() => setConfirmDelete(false), 6000);
@@ -341,8 +342,8 @@ export function MulticamPanel({
     if (!onDelete || deleting) return;
     setDeleting(true);
     setConfirmDelete(false);
-    setMsg("Deleting the recording…");
-    await api.multicamDiscard(cap).catch(() => {}); // cameras drop their clips
+    setMsg("Setting the recording aside — it's kept…");
+    await api.multicamStop(cap).catch(() => {}); // cameras upload their clips, as with Stop
     void api.stopImuBle(cap).catch(() => {});
     void api.stopHrv(cap).catch(() => {});
     setCaptureStartMs(null);
@@ -452,7 +453,7 @@ export function MulticamPanel({
             {onDelete &&
               (confirmDelete ? (
                 <span className="flex items-center gap-1.5 rounded-xl border border-red-500/40 bg-red-950/40 px-2 py-1 text-xs">
-                  <span className="text-red-200">Delete this recording?</span>
+                  <span className="text-red-200" title="It's kept for the study, out of the lists">Delete this recording? (it&apos;s kept)</span>
                   <button
                     onClick={deleteRecording}
                     className="rounded-lg bg-red-600 px-2.5 py-1 font-semibold text-white hover:bg-red-500"

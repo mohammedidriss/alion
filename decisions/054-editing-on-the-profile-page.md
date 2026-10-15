@@ -26,6 +26,5 @@ show, and that all editing and changes happen on the profile page.
 
 ## Consequences
 
-- Delete profile is unchanged: it deletes the fighter and their sessions for
-  good, which sits uneasily with the study using all data (ADR-051) and with
-  removing accounts while keeping records (ADR-048).
+- Since ADR-056, deleting a profile keeps its recordings, and offers deleting the
+  login only.

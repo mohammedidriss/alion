@@ -542,8 +542,9 @@ function AddParticipant({
   );
 }
 
-/** Delete takes for good: pick them in the list, then confirm. Each one's video,
- *  sensor data and labels are removed from disk (DELETE /v2/takes/{id}). */
+/** Delete takes from the dataset: pick them in the list, then confirm. Recordings are
+ *  never deleted (ADR-056): each is discarded — out of the dataset and its export —
+ *  and its video, sensor data and labels stay on disk (DELETE /v2/takes/{id}). */
 function DeleteTakes({
   takes,
   picked,
@@ -599,16 +600,16 @@ function DeleteTakes({
       {confirm ? (
         <>
           <span className="text-red-200">
-            Delete {n} take{n === 1 ? "" : "s"} for good? Video, sensor data and labels are
-            removed from disk.
-            {live > 0 && ` ${live} still recording — its cameras stop and drop the clip.`}
+            Take {n} take{n === 1 ? "" : "s"} out of the dataset? The recordings — video, sensor data
+            and labels — are kept on disk.
+            {live > 0 && ` ${live} still recording — its cameras stop and upload the clip.`}
           </span>
           <button
             onClick={run}
             disabled={deleting}
             className="rounded-lg bg-red-600 px-3 py-1 font-semibold text-white hover:bg-red-500 disabled:opacity-60"
           >
-            {deleting ? "Deleting…" : "Delete for good"}
+            {deleting ? "Removing…" : "Remove from the dataset"}
           </button>
           <button
             onClick={() => setConfirm(false)}

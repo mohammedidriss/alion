@@ -79,9 +79,18 @@ export interface Fighter {
   emergency_contact_name?: string | null;
   emergency_contact_phone?: string | null;
   emergency_contact_relation?: string | null;
+  removed_at?: string | null; // a deleted profile, kept with its recordings (ADR-056)
 }
 
-export type FighterPatch = Partial<Omit<Fighter, "id" | "created_at">>;
+/** What deleting a fighter's profile or login allows this viewer (ADR-056). */
+export interface FighterRemoval {
+  has_account: boolean;
+  can_delete_profile: boolean; // the profile and its login — the recordings kept
+  can_delete_account: boolean; // the login only — the profile and recordings stay
+  note: string | null;
+}
+
+export type FighterPatch = Partial<Omit<Fighter, "id" | "created_at" | "removed_at">>;
 
 // ---- Team: titles / sponsors / coach assignments ----
 
@@ -719,6 +728,7 @@ export interface Session {
   fighter_id: string;
   gym_id?: string | null; // the gym and squad it was trained with (ADR-053)
   squad_id?: string | null;
+  removed_at?: string | null; // a deleted session, its recording kept (ADR-056)
   source: SessionSource;
   status: SessionStatus;
   started_at: string;
@@ -1316,7 +1326,9 @@ export interface UnifiedPerson {
   has_account: boolean;
   is_active: boolean;
   photo_path: string | null;
-  removed?: boolean; // removed by an administrator (ADR-048); email is the one it had
+  removed?: boolean; // the login or the profile was deleted; email is the one it had
+  account_removed?: boolean; // the login was deleted (ADR-048)
+  profile_removed?: boolean; // the fighter profile was deleted, recordings kept (ADR-056)
 }
 
 export interface AuthResponse {
@@ -1636,8 +1648,13 @@ export const api = {
       headers: { "content-type": "application/json" },
       body: JSON.stringify(patch),
     }),
+  /** Deletes the profile (and its login) — never its recordings (ADR-056). */
   deleteFighter: (id: string) =>
     req<void>(`/fighters/${id}`, { method: "DELETE" }),
+  fighterRemoval: (id: string) => req<FighterRemoval>(`/fighters/${id}/removal`),
+  deleteFighterAccount: (id: string) =>
+    req<{ status: string; message: string }>(`/fighters/${id}/remove-account`, { method: "POST" }),
+  restoreFighter: (id: string) => req<Fighter>(`/fighters/${id}/restore`, { method: "POST" }),
   fighterOptions: () => req<FighterOptions>("/fighters/options"),
   listWeighIns: (id: string) => req<WeighIn[]>(`/fighters/${id}/weigh-ins`),
   createWeighIn: (id: string, weight_kg: number, notes?: string) =>
@@ -1911,10 +1928,11 @@ export const api = {
   takeCrossCheck: (id: string) => req<TakeCrossCheck | null>(`/v2/takes/${id}/cross-check`),
   /** `recorded: true` = the session log: only sessions where the camera recorded
    *  (opened-and-left sessions are hidden, then purged after 10 min). */
-  listSessions: (fighter_id?: string, opts?: { recorded?: boolean }) => {
+  listSessions: (fighter_id?: string, opts?: { recorded?: boolean; includeRemoved?: boolean }) => {
     const q = new URLSearchParams();
     if (fighter_id) q.set("fighter_id", fighter_id);
     if (opts?.recorded) q.set("recorded", "true");
+    if (opts?.includeRemoved) q.set("include_removed", "true");
     const qs = q.toString();
     return req<Session[]>(qs ? `/sessions?${qs}` : "/sessions");
   },
@@ -1956,8 +1974,10 @@ export const api = {
       headers: { "content-type": "application/json" },
       body: JSON.stringify({ winner_corner, result_method }),
     }),
+  /** Hides the session — never deletes its recording (ADR-056). */
   deleteSession: (id: string) =>
     req<void>(`/sessions/${id}`, { method: "DELETE" }),
+  restoreSession: (id: string) => req<Session>(`/sessions/${id}/restore`, { method: "POST" }),
   uploadVideo: async (id: string, file: File) => {
     const fd = new FormData();
     fd.append("file", file);
