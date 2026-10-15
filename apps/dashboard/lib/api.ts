@@ -1340,7 +1340,7 @@ export interface CaptureStatus {
   punch_count: number;
 }
 
-export type UserRole = "fighter" | "coach" | "referee" | "gym_manager" | "admin" | "physician";
+export type UserRole = "fighter" | "coach" | "referee" | "gym_manager" | "admin" | "physician" | "researcher";
 
 export interface AuthUser {
   id: string;

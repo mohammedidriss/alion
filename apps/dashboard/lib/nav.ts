@@ -48,6 +48,7 @@ export function homeHref(user: AuthUser | null | undefined): string {
   if (user.role === "referee" && user.profile_id) return `/referees/${user.profile_id}`;
   if (user.role === "physician") return "/physician";
   if (user.role === "gym_manager") return "/gym-dashboard";
+  if (user.role === "researcher") return "/profile"; // their own page (ADR-062)
   if (user.role === "admin" || user.is_researcher) return "/admin";
   return "/";
 }

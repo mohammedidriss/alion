@@ -6,7 +6,8 @@ import { api, type AuthUser, type Gym, type UnifiedPerson, type UserRole } from 
 import { useAuth } from "@/lib/auth";
 import { isAdmin } from "@/lib/nav";
 
-const ROLES: UserRole[] = ["fighter", "coach", "physician", "referee", "gym_manager", "admin"];
+// A researcher account is open only to an email listed in ALION_RESEARCHERS (ADR-062).
+const ROLES: UserRole[] = ["fighter", "coach", "physician", "referee", "gym_manager", "admin", "researcher"];
 
 export default function AdminUsersPage() {
   const { user: me } = useAuth();
@@ -432,6 +433,7 @@ export default function AdminUsersPage() {
                   <td className="px-4 py-3">
                     <span className={`rounded-full px-2 py-0.5 text-[10px] font-medium ${
                       u.role === "admin" ? "bg-purple-500/15 text-purple-300" :
+                      u.role === "researcher" ? "bg-violet-500/15 text-violet-200" :
                       u.role === "gym_manager" ? "bg-blue-500/15 text-blue-300" :
                       u.role === "coach" ? "bg-amber-500/15 text-amber-300" :
                       u.role === "fighter" ? "bg-emerald-500/15 text-emerald-300" :

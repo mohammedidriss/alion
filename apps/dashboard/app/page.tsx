@@ -14,6 +14,7 @@ function profileUrlFor(u: AuthUser): string | null {
   if (u.role === "referee" && u.profile_id) return `/referees/${u.profile_id}`;
   if (u.role === "physician") return "/physician";
   if (u.role === "gym_manager") return "/gym-dashboard";
+  if (u.role === "researcher") return "/profile"; // their own page (ADR-062)
   if (u.role === "admin" || u.is_researcher) return "/admin";
   // No linked profile — cannot redirect (avoids infinite loop on "/")
   return null;

@@ -1131,7 +1131,7 @@ class UserRepo:
         self._session.refresh(user)
         return user
 
-    def set_profile_id(self, user_id: UUID, profile_id: UUID) -> None:
+    def set_profile_id(self, user_id: UUID, profile_id: UUID | None) -> None:
         row = self.get(user_id)
         if row:
             row.profile_id = profile_id

@@ -710,7 +710,10 @@ def admin_create_user(
     repo: UserRepo = Depends(_user_repo),
     session: DBSession = Depends(db_session),
 ) -> UserRead:
-    """Create a user account (admin only). Auto-creates a linked profile for all roles."""
+    """Create a user account (admin only). Auto-creates a linked profile for all roles
+    that have one (a researcher, a physician and an admin don't)."""
+    if data.role == UserRole.RESEARCHER:
+        _require_listed(data.email)
     if data.role == UserRole.GYM_MANAGER and data.gym_id is None:
         raise HTTPException(status_code=422, detail="gym_id is required when role is gym_manager")
     existing = repo.get_by_email(data.email.lower().strip())
@@ -787,6 +790,9 @@ def admin_update_user(
         _guard_system_admin(db, target, "disabled")
     if data.role is not None and data.role != UserRole.ADMIN:
         _guard_system_admin(db, target, "given another role")
+    becomes_researcher = data.role == UserRole.RESEARCHER and target.role != UserRole.RESEARCHER
+    if data.role == UserRole.RESEARCHER:
+        _require_listed(data.email or target.email)
     if (
         data.email is not None
         and data.email.strip().lower() != target.email
@@ -796,8 +802,34 @@ def admin_update_user(
     fields = {k: v for k, v in data.model_dump().items() if v is not None}
     if not fields:
         raise HTTPException(status_code=400, detail="No fields to update")
+    was_researcher = target.role == UserRole.RESEARCHER
     updated = repo.update(user_id, fields)
+    if updated is not None and becomes_researcher:
+        # A researcher's account is its own (ADR-062): the profile it was linked to —
+        # a fighter's, with their recordings — stays as it is, signed in to by nobody.
+        repo.set_profile_id(user_id, None)
+        updated.profile_id = None
+    elif (
+        updated is not None
+        and was_researcher
+        and updated.role != UserRole.RESEARCHER
+        and updated.profile_id is None
+    ):
+        # Back from researcher to a role with a profile: a new one, as at sign-up.
+        profile_id = _create_profile_for_role(updated, db)
+        if profile_id:
+            repo.set_profile_id(user_id, profile_id)
+            updated.profile_id = profile_id
     return UserRead.model_validate(updated, from_attributes=True)
+
+
+def _require_listed(email: str) -> None:
+    """Only an email listed in ALION_RESEARCHERS may have a researcher account (ADR-062)."""
+    if email.strip().lower() not in researchers.emails():
+        raise HTTPException(
+            status_code=409,
+            detail="Only an account listed as a researcher (ALION_RESEARCHERS) can be a researcher",
+        )
 
 
 def _not_removed(user: User) -> None:

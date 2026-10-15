@@ -1,5 +1,6 @@
 "use client";
 
+import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useEffect, useState } from "react";
 import { ProfileAvatar } from "@/components/ProfileAvatar";
@@ -403,6 +404,8 @@ export default function ProfilePage() {
           </p>
         </div>
       </header>
+
+      {user.role === "researcher" && <ResearcherCard listed={!!user.is_researcher} />}
 
       {profileLoading && (
         <div className="text-sm text-neutral-500 animate-pulse">Loading profile data…</div>
@@ -894,5 +897,48 @@ export default function ProfilePage() {
         />
       )}
     </div>
+  );
+}
+
+const RESEARCH_LINKS: [string, string, string][] = [
+  ["/admin/fighters", "All fighters", "Every fighter and every recording — your own training too"],
+  ["/datasets", "Datasets", "Recordings made to a protocol, with consenting participants"],
+  ["/ai-model", "AI models", "Train, score and choose the punch and coaching models"],
+  ["/study", "Study", "The advisory review study and the RQ1 raters"],
+  ["/admin/users", "People", "Accounts and profiles"],
+];
+
+/** A researcher's own page (ADR-062): the account runs the study and isn't anyone's
+ *  fighter profile — their own training sits on a fighter profile like anyone's. */
+function ResearcherCard({ listed }: { listed: boolean }) {
+  return (
+    <section className="card space-y-3">
+      <div>
+        <h2 className="text-sm font-semibold text-violet-200">Researcher</h2>
+        <p className="mt-1 text-sm text-neutral-400">
+          You run the study: every fighter, session, dataset and model, with every administrator power.
+          This account has no fighter profile — when you train, you&apos;re recorded on a fighter profile like any
+          participant, and you find it under All fighters.
+        </p>
+        {!listed && (
+          <p className="mt-2 text-xs text-amber-300">
+            This email isn&apos;t on the researchers list (ALION_RESEARCHERS) any more, so it has no research access
+            until it&apos;s added back.
+          </p>
+        )}
+      </div>
+      <div className="grid gap-2 sm:grid-cols-2">
+        {RESEARCH_LINKS.map(([href, title, hint]) => (
+          <Link
+            key={href}
+            href={href}
+            className="rounded-xl border border-white/10 px-3 py-2 hover:bg-white/[0.04]"
+          >
+            <div className="text-sm text-neutral-200">{title}</div>
+            <div className="text-xs text-neutral-500">{hint}</div>
+          </Link>
+        ))}
+      </div>
+    </section>
   );
 }

@@ -188,6 +188,9 @@ class UserRole(StrEnum):
     GYM_MANAGER = "gym_manager"
     ADMIN = "admin"
     PHYSICIAN = "physician"  # chosen by a fighter: their health notes and training (ADR-046)
+    # Runs the study (ADR-062): an account of its own, with no fighter profile; only
+    # an email listed in ALION_RESEARCHERS may have it (the list still grants access).
+    RESEARCHER = "researcher"
 
 
 class User(SQLModel, table=True):
