@@ -16,6 +16,7 @@
 import { useCallback, useEffect, useState } from "react";
 import { CameraTypesCard } from "@/components/CameraTypesCard";
 import { TrainingCard } from "@/components/TrainingCard";
+import { WristCounterCard } from "@/components/WristCounterCard";
 import { WristTypesCard } from "@/components/WristTypesCard";
 import { api, type DatasetSummary, type LlmSetup, type LlmStatus, type ProtocolBlockSpec } from "@/lib/api";
 import { ModelCompare } from "@/components/ModelCompare";
@@ -165,6 +166,14 @@ function PunchModels({ initialDataset }: { initialDataset: string | null }) {
         ) : (
           <p className="card text-sm text-neutral-500">Record a protocol dataset first — the counter is scored on its test takes.</p>
         )}
+      </section>
+      <section className="space-y-3">
+        <ModelHeading
+          title="Punch counter — wrist sensors"
+          does="Counts each wrist's punches without knowing their type — live while recording, and in every session's numbers and cross-check. It finds every burst a sensitive setting can, then keeps the ones that are punches: a gentle hook stays, an uppercut's return to guard and a still hand's shake go."
+          learns="every dataset's labelled protocol blocks — the single-punch blocks (labelled with each type's own settings), the no-punch block and whole combos; scored on takes it never trained on, next to the fixed settings it replaces."
+        />
+        <WristCounterCard />
       </section>
       <section className="space-y-3">
         <ModelHeading

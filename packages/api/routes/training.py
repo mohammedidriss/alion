@@ -8,6 +8,8 @@ POST /v2/wrist-types/train        train and score the wrist punch-type model (AD
 GET  /v2/wrist-types              its latest report
 POST /v2/camera-types/train       train and score the cameras' punch-type model (ADR-034)
 GET  /v2/camera-types             its latest report
+POST /v2/wrist-counter/train      train and score the wrists' punch counter (ADR-060)
+GET  /v2/wrist-counter            its latest report
 """
 
 from __future__ import annotations
@@ -20,7 +22,13 @@ from fastapi import APIRouter, Depends, HTTPException
 from api.access import Viewer, require_researcher
 from api.routes.auth import require_current_user
 from api.routes.datasets import dataset_repo
-from api.services import camera_type_model, punch_counter, training, wrist_type_model
+from api.services import (
+    camera_type_model,
+    punch_counter,
+    training,
+    wrist_counter,
+    wrist_type_model,
+)
 from store import DatasetRepo
 
 router = APIRouter(prefix="/v2", tags=["training"], dependencies=[Depends(require_current_user)])
@@ -86,6 +94,26 @@ def train_camera_types(_: Viewer = Depends(require_researcher)) -> dict[str, Any
     try:
         return {"report": camera_type_model.train()}
     except camera_type_model.BusyError as e:
+        raise HTTPException(status_code=409, detail="Already training") from e
+    except ValueError as e:
+        raise HTTPException(status_code=409, detail=str(e)) from e
+
+
+@router.get("/wrist-counter", response_model=dict)
+def wrist_counter_report(_: Viewer = Depends(require_researcher)) -> dict[str, Any]:
+    """The newest wrist punch counter's report (None: never trained — the
+    detector's defaults count)."""
+    return {"report": wrist_counter.latest_report()}
+
+
+@router.post("/wrist-counter/train", response_model=dict)
+def train_wrist_counter(_: Viewer = Depends(require_researcher)) -> dict[str, Any]:
+    """Train on every take's labelled protocol blocks, score on takes held out next
+    to the detector's defaults, and save a new version — it counts every wrist
+    punch from then on."""
+    try:
+        return {"report": wrist_counter.train()}
+    except wrist_counter.BusyError as e:
         raise HTTPException(status_code=409, detail="Already training") from e
     except ValueError as e:
         raise HTTPException(status_code=409, detail=str(e)) from e

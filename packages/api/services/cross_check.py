@@ -34,7 +34,6 @@ from sqlmodel import Session as DBSession
 from sqlmodel import col, func, select
 
 from analyze import punch_model
-from analyze.imu_punches import detect_punches as detect_wrist_punches
 from analyze.imu_punches import peak_rotations
 from analyze.punch_fusion import WristPunch, cross_check, redrift, wrist_gaps
 from analyze.wrist_types import MOTIONS, motion_to_type
@@ -43,6 +42,7 @@ from api.services import (
     dataset_store,
     punch_counter,
     session_analysis,
+    wrist_counter,
     wrist_type_model,
 )
 from capture.cv.writer import read_pose_parquet
@@ -55,7 +55,7 @@ log = get_logger(__name__)
 Kind = Literal["session", "take"]
 Status = Literal["ready", "running", "none"]
 
-VERSION = 5  # bump when the fusion rules change, so old results re-run (5: trained counter)
+VERSION = 6  # bump when the fusion rules change, so old results re-run (6: wrist counter)
 DEBOUNCE_S = 8.0  # the cameras' pose uploads land within seconds of each other
 MIN_CAMERA_SPAN = 0.3  # of the longest camera's pose — less and the camera sits out
 BACKGROUND = True  # tests switch the background runs off and call run_now
@@ -132,6 +132,7 @@ def _inputs(kind: Kind, capture_id: UUID, db: DBSession) -> _Inputs | None:
             wrist_type_model.current_version(),
             camera_type_model.current_version(),
             punch_counter.label(),  # a new trained counter counts again (ADR-059)
+            wrist_counter.label(),  # and a new wrist counter (ADR-060)
         ),
         folder=folder,
     )
@@ -277,9 +278,11 @@ def run_now(
 
     wrist: list[WristPunch] = []
     wrist_p: dict[float, np.ndarray] = {}  # each wrist punch's type probabilities, by time
+    # The wrist counter (ADR-060), or the detector's defaults before one is trained.
+    found_by_hand = wrist_counter.find({h: (a[:, 0], a[:, 1:7]) for h, a in samples.items()})
     for hand, a in samples.items():
         if len(a) >= 20:
-            found = detect_wrist_punches(a[:, 0], a[:, 1], a[:, 2], a[:, 3])
+            found = found_by_hand.get(hand, [])
             at = [e.t_ms for e in found]
             turns = peak_rotations(a[:, 0], a[:, 4], a[:, 5], a[:, 6], at)
             probs = wrist_type_model.probabilities(a[:, 0], a[:, 1:7], at, hand)

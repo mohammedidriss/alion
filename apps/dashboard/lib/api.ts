@@ -1123,6 +1123,29 @@ export interface CounterScore {
 }
 
 /** A training run of the dataset's camera punch counter (services.training). */
+/** One counter's score on takes it never trained on, per kind of block (ADR-060). */
+export interface WristCounterScore {
+  f1: number;
+  precision: number;
+  recall: number;
+  by_block: Record<string, { found: number; labelled: number; f1: number; on_idle_wrist: number }>;
+}
+
+export interface WristCounterReport {
+  version: number;
+  created_at: string;
+  threshold: number;
+  data: {
+    takes: number;
+    participants: number;
+    stretches: number;
+    punches: number;
+    candidates: number;
+    per_block: Record<string, number>;
+  };
+  held_out_takes: { counter: WristCounterScore; detector: WristCounterScore };
+}
+
 export interface TrainingReport {
   version: number;
   created_at: string;
@@ -2390,6 +2413,10 @@ export const api = {
   // ---- Wrist punch types (ADR-029) ----
   wristTypes: () => req<{ report: WristTypesReport | null }>("/v2/wrist-types"),
   trainWristTypes: () => req<{ report: WristTypesReport }>("/v2/wrist-types/train", { method: "POST" }),
+  /** The wrists' punch counter (ADR-060); null: the detector's defaults count. */
+  wristCounter: () => req<{ report: WristCounterReport | null }>("/v2/wrist-counter"),
+  trainWristCounter: () =>
+    req<{ report: WristCounterReport }>("/v2/wrist-counter/train", { method: "POST" }),
   cameraTypes: () => req<{ report: CameraTypesReport | null }>("/v2/camera-types"),
   trainCameraTypes: () => req<{ report: CameraTypesReport }>("/v2/camera-types/train", { method: "POST" }),
 

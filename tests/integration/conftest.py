@@ -32,4 +32,9 @@ def recorded(tmp_path_factory: pytest.TempPathFactory, monkeypatch: pytest.Monke
     from api.services import punch_counter
 
     monkeypatch.setattr(punch_counter, "MODELS_DIR", root / "counters")
+    # …and the wrists' punches with the detector's defaults (ADR-060), not a counter
+    # trained in the checkout's data/ml.
+    from api.services import wrist_counter
+
+    monkeypatch.setattr(wrist_counter, "MODEL_DIR", root / "wrist_counter")
     return root

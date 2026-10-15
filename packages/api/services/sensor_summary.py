@@ -129,12 +129,14 @@ class WristPunch:
 
 
 def wrist_punch_events(samples: Sequence[Any]) -> list[WristPunch]:
-    """Each punch the wrist sensors saw, with whether its reading clipped."""
+    """Each punch the wrist sensors saw, with whether its reading clipped — by the
+    wrist counter (ADR-060), or the detector's defaults before one is trained."""
     import numpy as np
 
-    from analyze.imu_punches import detect_punches, peak_rotations
+    from analyze.imu_punches import peak_rotations
+    from api.services import wrist_counter
 
-    out: list[WristPunch] = []
+    streams = {}
     for hand in ("left", "right"):
         rows = sorted(
             (s for s in samples if str(getattr(s.hand, "value", s.hand)) == hand),
@@ -142,13 +144,21 @@ def wrist_punch_events(samples: Sequence[Any]) -> list[WristPunch]:
         )
         if len(rows) < 20:
             continue
-        t = np.array([r.t_ms for r in rows], dtype=float)
-        ev = detect_punches(
-            t,
-            np.array([r.ax_g for r in rows], dtype=float),
-            np.array([r.ay_g for r in rows], dtype=float),
-            np.array([r.az_g for r in rows], dtype=float),
+        streams[hand] = (
+            np.array([r.t_ms for r in rows], dtype=float),
+            np.array(
+                [
+                    [r.ax_g, r.ay_g, r.az_g, r.gx_dps or 0.0, r.gy_dps or 0.0, r.gz_dps or 0.0]
+                    for r in rows
+                ],
+                dtype=float,
+            ),
+            rows,
         )
+    found = wrist_counter.find({h: (t, imu) for h, (t, imu, _) in streams.items()})
+    out: list[WristPunch] = []
+    for hand, (t, _imu, rows) in streams.items():
+        ev = found.get(hand, [])
         turns = peak_rotations(
             t,
             [r.gx_dps for r in rows],
