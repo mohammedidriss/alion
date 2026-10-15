@@ -15,7 +15,7 @@ from __future__ import annotations
 
 import json
 import time
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 from typing import Any, Literal
 from uuid import UUID
 
@@ -102,12 +102,19 @@ class TakeOut(BaseModel):
     duration_ms: float
     notes: str | None = None
     data: dict[str, Any] = {}  # dataset_store.summary(): clips, imu/hr rows, labels
+    # Still marked recording, but nothing is recording into it any more: finish or
+    # discard it (its files are kept either way, ADR-056).
+    stuck: bool = False
 
 
 class DatasetSummary(DatasetRead):
     participants: int = 0
     takes: int = 0
     completed_takes: int = 0
+    in_progress_takes: int = 0  # recording or uploading now
+    stuck_takes: int = 0  # marked recording, nothing recording into them
+    discarded_takes: int = 0
+    last_recorded_at: datetime | None = None
 
 
 class DatasetOut(DatasetRead):
@@ -138,6 +145,18 @@ class HrStatusOut(BaseModel):
 # --------------------------------------------------------------------------
 # Helpers
 # --------------------------------------------------------------------------
+
+
+STUCK_AFTER = timedelta(hours=1)
+
+
+def _is_stuck(take: DatasetTake) -> bool:
+    """Marked recording for over an hour with no capture running into it."""
+    if take.status != TakeStatusEnum.RECORDING or _is_draft(take):
+        return False
+    started = take.started_at if take.started_at.tzinfo else take.started_at.replace(tzinfo=UTC)
+    old = datetime.now(UTC) - started > STUCK_AFTER
+    return old and not capture_coord.is_active(take.id)
 
 
 def _is_draft(take: DatasetTake) -> bool:
@@ -192,6 +211,7 @@ def _take_out(take: DatasetTake, fighters: FighterRepo, dataset_name: str | None
         duration_ms=take.duration_ms,
         notes=take.notes,
         data=dataset_store.summary(folder) if folder else {},
+        stuck=_is_stuck(take),
     )
 
 
@@ -236,12 +256,18 @@ def list_datasets(repo: DatasetRepo = Depends(dataset_repo)) -> list[DatasetSumm
     out = []
     for d in repo.list_all():
         takes = [t for t in repo.takes(d.id) if not _is_draft(t)]
+        recording = [t for t in takes if t.status == TakeStatusEnum.RECORDING]
+        stuck = [t for t in recording if _is_stuck(t)]
         out.append(
             DatasetSummary(
                 **DatasetRead.model_validate(d, from_attributes=True).model_dump(),
                 participants=len(repo.participants(d.id)),
                 takes=len([t for t in takes if t.status != TakeStatusEnum.DISCARDED]),
                 completed_takes=len([t for t in takes if t.status == TakeStatusEnum.COMPLETED]),
+                in_progress_takes=len(recording) - len(stuck),
+                stuck_takes=len(stuck),
+                discarded_takes=len([t for t in takes if t.status == TakeStatusEnum.DISCARDED]),
+                last_recorded_at=max((t.started_at for t in takes), default=None),
             )
         )
     return out

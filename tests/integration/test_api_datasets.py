@@ -572,3 +572,39 @@ def test_armed_wrists_connect_early_and_store_from_the_cameras_start(
     rows = (stores["datasets"] / did / "takes" / tid / "imu.csv").read_text().splitlines()[1:]
     times = [float(r.split(",", 1)[0]) for r in rows]
     assert len(times) > 50 and min(times) >= 0.0 and min(times) < 50.0  # starts right at t = 0
+
+
+def test_the_list_says_what_is_recording_stuck_or_discarded(
+    authed_client: TestClient, stores: dict[str, Path], session: Session
+) -> None:
+    """ADR-057: a dataset's card shows takes done, recording now, stuck — marked
+    recording for over an hour with nothing recording into it — and discarded."""
+    import datetime as dt
+    from uuid import UUID
+
+    from api.routes import capture_coord
+    from store import DatasetTake
+
+    did = _dataset(authed_client)
+    fid = _fighter(authed_client, "Mohamad")
+    _participant(authed_client, did, fid, "self")
+    ids = []
+    for _ in range(3):  # each started before the next (an unstarted draft is reused)
+        ids.append(_take(authed_client, did, fid))
+        _start_cameras(authed_client, ids[-1])
+    live, old, gone = ids
+    row = session.get(DatasetTake, UUID(old))
+    assert row is not None
+    row.started_at = dt.datetime.now(dt.UTC) - dt.timedelta(hours=3)
+    session.add(row)
+    session.commit()
+    capture_coord.stop_capture(UUID(old))  # nothing recording into it any more
+    with capture_coord._lock:
+        capture_coord._coords.pop(UUID(old), None)  # …and no camera around
+    authed_client.post(f"/v2/takes/{gone}/discard")
+
+    (card,) = [d for d in authed_client.get("/v2/datasets").json() if d["id"] == did]
+    assert (card["in_progress_takes"], card["stuck_takes"], card["discarded_takes"]) == (1, 1, 1)
+    assert card["last_recorded_at"] is not None
+    takes = {t["id"]: t for t in authed_client.get(f"/v2/datasets/{did}").json()["takes"]}
+    assert takes[old]["stuck"] is True and takes[live]["stuck"] is False

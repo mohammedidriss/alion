@@ -16,10 +16,10 @@
  */
 
 import Link from "next/link";
+import { PROTOCOL_PURPOSE } from "@/lib/protocols";
 import { useRouter } from "next/navigation";
 import { useCallback, useEffect, useState } from "react";
 import { BlurPanel } from "@/components/BlurPanel";
-import { TrainingCard } from "@/components/TrainingCard";
 import { categoryLength } from "@/lib/categories";
 import {
   api,
@@ -148,12 +148,29 @@ export default function DatasetPage({ params }: { params: { id: string } }) {
       <Link href="/datasets" className="text-sm text-neutral-400 hover:text-neutral-200">
         ← Datasets
       </Link>
-      <header>
+      <header className="space-y-2">
         <div className="flex flex-wrap items-center gap-3">
           <h1 className="text-2xl font-semibold">{ds.name}</h1>
           {ds.protocol && <span className="pill bg-violet-900/50 text-violet-200">{ds.protocol}</span>}
         </div>
-        {ds.description && <p className="mt-1 text-sm text-neutral-400">{ds.description}</p>}
+        {(ds.description || (ds.protocol && PROTOCOL_PURPOSE[ds.protocol])) && (
+          <p className="max-w-3xl text-sm text-neutral-400">
+            {ds.description || (ds.protocol ? PROTOCOL_PURPOSE[ds.protocol] : "")}
+          </p>
+        )}
+        {/* The work, in order (ADR-057). */}
+        <nav className="flex flex-wrap gap-2 text-xs">
+          {[
+            ["participants", "1 · Participants & consent"],
+            ["record", "2 · Record"],
+            ["check", "3 · Check takes"],
+            ["export", "4 · Export"],
+          ].map(([id, label]) => (
+            <a key={id} href={`#${id}`} className="rounded-full bg-white/[0.05] px-3 py-1 text-neutral-300 hover:bg-white/10">
+              {label}
+            </a>
+          ))}
+        </nav>
       </header>
 
       {err && (
@@ -162,10 +179,10 @@ export default function DatasetPage({ params }: { params: { id: string } }) {
         </p>
       )}
 
-      {/* Participants */}
-      <section className="card space-y-4">
+      {/* 1 · Participants and their consent */}
+      <section id="participants" className="card scroll-mt-4 space-y-4">
         <div className="flex items-baseline justify-between">
-          <h2 className="text-base font-semibold">Participants</h2>
+          <h2 className="text-base font-semibold">1 · Participants &amp; consent</h2>
           <span className="text-xs text-neutral-500">
             Record only with self or IRB consent (ADR-002)
           </span>
@@ -218,47 +235,6 @@ export default function DatasetPage({ params }: { params: { id: string } }) {
                   >
                     Withdraw…
                   </button>
-                )}
-                {!blocked && (
-                  <button
-                    onClick={() => record(p.fighter_id)}
-                    disabled={!p.may_record || busy !== null}
-                    title={p.may_record ? undefined : "Needs self or IRB-signed consent"}
-                    className="rounded-xl bg-red-600 px-3 py-1.5 text-sm font-semibold text-white hover:bg-red-500 disabled:cursor-not-allowed disabled:bg-neutral-700 disabled:text-neutral-400"
-                  >
-                    {busy === p.fighter_id ? "Opening…" : "● Record dataset session"}
-                  </button>
-                )}
-                {blocked && (
-                  <div className="grid w-full gap-2 sm:grid-cols-2 xl:grid-cols-3">
-                    {plan.map((b) => {
-                      const n = p.blocks?.[b.key] ?? 0;
-                      return (
-                        <button
-                          key={b.key}
-                          onClick={() => record(p.fighter_id, b.key)}
-                          disabled={!p.may_record || busy !== null}
-                          title={p.may_record ? b.hint || undefined : "Needs self or IRB-signed consent"}
-                          className="group flex items-center justify-between gap-3 rounded-xl border border-white/10 bg-black/20 px-3 py-2 text-left hover:border-red-500/50 hover:bg-red-950/20 disabled:cursor-not-allowed disabled:opacity-50"
-                        >
-                          <span className="min-w-0">
-                            <span className="block text-sm font-medium text-neutral-100">{b.title}</span>
-                            <span className="block text-[11px] text-neutral-500">{categoryLength(b)}</span>
-                          </span>
-                          <span className="flex shrink-0 items-center gap-2">
-                            <span
-                              className={`text-[11px] tabular-nums ${n ? "text-emerald-300" : "text-neutral-600"}`}
-                            >
-                              {n ? `✓ ${n}` : "none yet"}
-                            </span>
-                            <span className="rounded-lg bg-red-600 px-2 py-1 text-xs font-semibold text-white group-hover:bg-red-500">
-                              {busy === p.fighter_id ? "…" : "● Record"}
-                            </span>
-                          </span>
-                        </button>
-                      );
-                    })}
-                  </div>
                 )}
               </div>
             ))}
@@ -319,20 +295,90 @@ export default function DatasetPage({ params }: { params: { id: string } }) {
         />
       </section>
 
-      {/* Takes */}
-      <section className="card space-y-3">
+      {/* 2 · Record: each participant's progress through the protocol */}
+      <section id="record" className="card scroll-mt-4 space-y-4">
+        <div className="flex flex-wrap items-baseline justify-between gap-2">
+          <h2 className="text-base font-semibold">2 · Record</h2>
+          <span className="text-xs text-neutral-500">
+            {blocked ? "One block per take — the count is the takes recorded for it" : "A free recording per take"}
+          </span>
+        </div>
+        {ds.participants.filter((p) => p.consent !== "withdrawn").length === 0 && (
+          <p className="text-sm text-neutral-500">Add a participant with consent first (step 1).</p>
+        )}
+        <div className="divide-y divide-white/5">
+          {ds.participants
+            .filter((p) => p.consent !== "withdrawn")
+            .map((p) => (
+              <div key={p.fighter_id} className="flex flex-wrap items-center gap-3 py-2.5">
+                <div className="min-w-[10rem] flex-1 text-sm">
+                  <span className="font-medium text-neutral-100">{p.name}</span>
+                  {p.code && <span className="ml-2 font-mono text-xs text-neutral-500">{p.code}</span>}
+                  {blocked && (
+                    <span className="ml-2 text-xs text-neutral-500">
+                      {plan.filter((b) => (p.blocks?.[b.key] ?? 0) > 0).length} of {plan.length} blocks recorded
+                    </span>
+                  )}
+                  {!p.may_record && <span className="ml-2 text-xs text-amber-300">needs self or IRB-signed consent</span>}
+                </div>
+                {!blocked && (
+                  <button
+                    onClick={() => record(p.fighter_id)}
+                    disabled={!p.may_record || busy !== null}
+                    title={p.may_record ? undefined : "Needs self or IRB-signed consent"}
+                    className="rounded-xl bg-red-600 px-3 py-1.5 text-sm font-semibold text-white hover:bg-red-500 disabled:cursor-not-allowed disabled:bg-neutral-700 disabled:text-neutral-400"
+                  >
+                    {busy === p.fighter_id ? "Opening…" : "● Record dataset session"}
+                  </button>
+                )}
+                {blocked && (
+                  <div className="grid w-full gap-2 sm:grid-cols-2 xl:grid-cols-3">
+                    {plan.map((b) => {
+                      const n = p.blocks?.[b.key] ?? 0;
+                      return (
+                        <button
+                          key={b.key}
+                          onClick={() => record(p.fighter_id, b.key)}
+                          disabled={!p.may_record || busy !== null}
+                          title={p.may_record ? b.hint || undefined : "Needs self or IRB-signed consent"}
+                          className="group flex items-center justify-between gap-3 rounded-xl border border-white/10 bg-black/20 px-3 py-2 text-left hover:border-red-500/50 hover:bg-red-950/20 disabled:cursor-not-allowed disabled:opacity-50"
+                        >
+                          <span className="min-w-0">
+                            <span className="block text-sm font-medium text-neutral-100">{b.title}</span>
+                            <span className="block text-[11px] text-neutral-500">{categoryLength(b)}</span>
+                          </span>
+                          <span className="flex shrink-0 items-center gap-2">
+                            <span
+                              className={`text-[11px] tabular-nums ${n ? "text-emerald-300" : "text-neutral-600"}`}
+                            >
+                              {n ? `✓ ${n}` : "none yet"}
+                            </span>
+                            <span className="rounded-lg bg-red-600 px-2 py-1 text-xs font-semibold text-white group-hover:bg-red-500">
+                              {busy === p.fighter_id ? "…" : "● Record"}
+                            </span>
+                          </span>
+                        </button>
+                      );
+                    })}
+                  </div>
+                )}
+              </div>
+            ))}
+        </div>
+      </section>
+
+      {/* 3 · Check takes: what was recorded, what's stuck, what's discarded */}
+      <section id="check" className="card scroll-mt-4 space-y-3">
         <div className="flex flex-wrap items-start justify-between gap-2">
           <div className="flex items-baseline gap-3">
-            <h2 className="text-base font-semibold">Takes</h2>
+            <h2 className="text-base font-semibold">3 · Check takes</h2>
             <span className="text-xs text-neutral-500">
               {kept.filter((t) => t.status === "completed").length} completed
+              {takes.some((t) => t.status === "discarded") &&
+                ` · ${takes.filter((t) => t.status === "discarded").length} discarded (files kept)`}
             </span>
           </div>
           <div className="flex flex-wrap items-start gap-2">
-            <ExportButton
-              datasetId={ds.id}
-              disabled={!kept.some((t) => t.status === "completed")}
-            />
             <DeleteTakes
               takes={takes}
               picked={picked}
@@ -344,6 +390,26 @@ export default function DatasetPage({ params }: { params: { id: string } }) {
             />
           </div>
         </div>
+        {takes.some((t) => t.stuck) && (
+          <div className="rounded-xl border border-amber-500/30 bg-amber-950/20 p-3 text-sm text-amber-200">
+            <p>
+              {takes.filter((t) => t.stuck).length} take{takes.filter((t) => t.stuck).length === 1 ? " is" : "s are"} still
+              marked recording, but nothing is recording into {takes.filter((t) => t.stuck).length === 1 ? "it" : "them"}.
+              Open each to finish it, or discard it — its files are kept either way.
+            </p>
+            <ul className="mt-1 space-y-0.5 text-xs">
+              {takes
+                .filter((t) => t.stuck)
+                .map((t) => (
+                  <li key={t.id}>
+                    <Link href={`/datasets/${ds.id}/takes/${t.id}`} className="underline hover:text-amber-100">
+                      {t.fighter_name} — {new Date(t.started_at).toLocaleString()}
+                    </Link>
+                  </li>
+                ))}
+            </ul>
+          </div>
+        )}
         {takes.length === 0 ? (
           <p className="text-sm text-neutral-500">No takes recorded yet.</p>
         ) : (
@@ -405,14 +471,21 @@ export default function DatasetPage({ params }: { params: { id: string } }) {
         )}
       </section>
 
-      {/* Train the camera punch counter on the takes, and test it. */}
-      {blocked && (
-        <TrainingCard
-          datasetId={ds.id}
-          plan={plan}
-          canTrain={kept.some((t) => t.status === "completed")}
-        />
-      )}
+      {/* 4 · Export: the de-identified copy the models train on, faces blurred */}
+      <section id="export" className="card scroll-mt-4 space-y-3">
+        <div>
+          <h2 className="text-base font-semibold">4 · Export</h2>
+          <p className="text-xs text-neutral-500">
+            A de-identified copy of the completed takes — participants by code, faces blurred, split into training and
+            test — that the models train on. The models themselves are on the{" "}
+            <Link href={`/ai-model?dataset=${ds.id}`} className="text-emerald-300 underline hover:text-emerald-200">
+              AI models
+            </Link>{" "}
+            page.
+          </p>
+        </div>
+        <ExportButton datasetId={ds.id} disabled={!kept.some((t) => t.status === "completed")} />
+      </section>
     </div>
   );
 }

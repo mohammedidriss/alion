@@ -1,15 +1,23 @@
 "use client";
 
 /**
- * Which AI writes the coach's advice: the local one (this computer) or the remote
- * one (another computer on your network), and which of the models installed there
- * — switched here, no restart, from the next advice request on (ADR-021, ADR-049).
- * Below, models are compared on a recorded session's rest cards. Researchers and
- * admins only.
+ * AI models (ADR-057): every model in one place, for researchers and admins.
+ *
+ * Punch models — the camera punch counter, and punch types from the cameras and
+ * from the wrist sensors: what each does, what it learns from (the research
+ * datasets and the training sessions recorded with wrists and cameras, ADR-047),
+ * its score on data it never saw, and Train.
+ *
+ * The coach's language model — which computer writes the advice, the local one or
+ * the remote one, and which of the models installed there, switched with no
+ * restart (ADR-021, ADR-049); and comparing them on a recorded session's rest cards.
  */
 
 import { useCallback, useEffect, useState } from "react";
-import { api, type LlmSetup, type LlmStatus } from "@/lib/api";
+import { CameraTypesCard } from "@/components/CameraTypesCard";
+import { TrainingCard } from "@/components/TrainingCard";
+import { WristTypesCard } from "@/components/WristTypesCard";
+import { api, type DatasetSummary, type LlmSetup, type LlmStatus, type ProtocolBlockSpec } from "@/lib/api";
 import { ModelCompare } from "@/components/ModelCompare";
 
 type TestResult = { ok: boolean; seconds: number; reply?: string; error?: string };
@@ -27,7 +35,125 @@ function errText(e: unknown): string {
   return String(e);
 }
 
-export default function AiModelPage() {
+type Tab = "punch" | "language";
+
+export default function AiModelsPage() {
+  const [tab, setTab] = useState<Tab>("punch");
+  const [datasetId, setDatasetId] = useState<string | null>(null);
+  useEffect(() => {
+    const q = new URLSearchParams(window.location.search);
+    if (q.get("tab") === "language") setTab("language");
+    setDatasetId(q.get("dataset"));
+  }, []);
+  return (
+    <div className="mx-auto max-w-4xl space-y-6 px-4 py-5 sm:px-8 sm:py-6">
+      <header>
+        <h1 className="text-2xl font-semibold">AI models</h1>
+        <p className="mt-1 text-sm text-neutral-400">
+          The models that read the recordings, and the language model that writes the coach&apos;s advice. Each
+          punch model learns from your research datasets and from the training sessions recorded with wrists and
+          cameras, and is scored on data it never saw.
+        </p>
+      </header>
+      <nav className="flex gap-2">
+        {(
+          [
+            ["punch", "Punch models"],
+            ["language", "Coach's language model"],
+          ] as [Tab, string][]
+        ).map(([k, label]) => (
+          <button
+            key={k}
+            onClick={() => setTab(k)}
+            className={`rounded-full px-4 py-1.5 text-sm ${
+              tab === k ? "bg-white/10 text-white" : "bg-white/[0.03] text-neutral-400 hover:bg-white/[0.07]"
+            }`}
+          >
+            {label}
+          </button>
+        ))}
+      </nav>
+      {tab === "punch" ? <PunchModels initialDataset={datasetId} /> : <LanguageModel />}
+    </div>
+  );
+}
+
+/** One model's heading: what it does and what it learns from, the same for each. */
+function ModelHeading({ title, does, learns }: { title: string; does: string; learns: string }) {
+  return (
+    <div className="space-y-0.5 px-1">
+      <h2 className="text-lg font-semibold">{title}</h2>
+      <p className="text-sm text-neutral-400">{does}</p>
+      <p className="text-xs text-neutral-500">Learns from: {learns}</p>
+    </div>
+  );
+}
+
+function PunchModels({ initialDataset }: { initialDataset: string | null }) {
+  const [datasets, setDatasets] = useState<DatasetSummary[]>([]);
+  const [plan, setPlan] = useState<ProtocolBlockSpec[]>([]);
+  const [picked, setPicked] = useState<string | null>(null);
+  useEffect(() => {
+    api
+      .listDatasets()
+      .then((d) => {
+        const protocol = d.filter((x) => x.protocol);
+        setDatasets(protocol);
+        setPicked((cur) => cur ?? (initialDataset && protocol.some((x) => x.id === initialDataset) ? initialDataset : protocol[0]?.id ?? null));
+      })
+      .catch(() => setDatasets([]));
+    api.protocolPlan().then(setPlan).catch(() => setPlan([]));
+  }, [initialDataset]);
+  const ds = datasets.find((d) => d.id === picked);
+
+  return (
+    <div className="space-y-8">
+      <section className="space-y-3">
+        <ModelHeading
+          title="Punch counter — cameras"
+          does="Counts punches, and which hand threw them, from the cameras' pose."
+          learns="a protocol dataset's exported takes (the wrist sensors give each punch's time) and every training session recorded with wrists and cameras; scored on the dataset's test takes, next to today's counter."
+        />
+        {datasets.length > 1 && (
+          <select
+            value={picked ?? ""}
+            onChange={(e) => setPicked(e.target.value)}
+            className="rounded-xl border border-white/10 bg-neutral-900 px-3 py-2 text-sm text-neutral-200"
+          >
+            {datasets.map((d) => (
+              <option key={d.id} value={d.id}>
+                {d.name} — {d.completed_takes} takes
+              </option>
+            ))}
+          </select>
+        )}
+        {ds && plan.length > 0 ? (
+          <TrainingCard datasetId={ds.id} plan={plan} canTrain={ds.completed_takes > 0} />
+        ) : (
+          <p className="card text-sm text-neutral-500">Record a protocol dataset first — the counter is scored on its test takes.</p>
+        )}
+      </section>
+      <section className="space-y-3">
+        <ModelHeading
+          title="Punch types — cameras"
+          does="Names each punch — straight, hook or uppercut; jab or cross by stance — from the arm's 3D motion after a session. Two or more cameras that saw it decide together; with one camera the wrist sensor joins in; with none the wrist names it alone."
+          learns="every dataset's labelled takes, and the recorded training sessions someone labelled with punch types."
+        />
+        <CameraTypesCard />
+      </section>
+      <section className="space-y-3">
+        <ModelHeading
+          title="Punch types — wrist sensors"
+          does="Names each punch straight, hook or uppercut from the wrists alone (jab or cross from the hand and the stance) — on every session's per-round breakdown."
+          learns="every dataset's labelled takes, and the recorded training sessions someone labelled with punch types."
+        />
+        <WristTypesCard />
+      </section>
+    </div>
+  );
+}
+
+function LanguageModel() {
   const [st, setSt] = useState<LlmStatus | null>(null);
   const [err, setErr] = useState<string | null>(null);
   const [busy, setBusy] = useState<string | null>(null);
@@ -78,14 +204,13 @@ export default function AiModelPage() {
   };
 
   return (
-    <div className="mx-auto max-w-3xl space-y-6 px-4 py-5 sm:px-8 sm:py-6">
-      <header>
-        <h1 className="text-2xl font-semibold">AI model</h1>
-        <p className="mt-1 text-sm text-neutral-400">
-          Which computer writes the coach&apos;s advice. Switching takes effect on the next advice
-          request — no restart. Every piece of advice records which model wrote it.
-        </p>
-      </header>
+    <div className="space-y-6">
+      <ModelHeading
+        title="The coach's language model"
+        does="Writes the coach's advice — the rest cards' wording — from facts the platform checked; every piece of advice records which model wrote it."
+        learns="nothing here — it's chosen, not trained: pick the computer and the model, and compare them on a recorded session."
+      />
+      <p className="px-1 text-xs text-neutral-500">Switching takes effect on the next advice request — no restart.</p>
 
       {err && (
         <p className="rounded-xl border border-red-500/30 bg-red-950/30 p-3 text-sm text-red-200">{err}</p>

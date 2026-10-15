@@ -86,9 +86,9 @@ export function navSections(user: AuthUser | null | undefined): NavSection[] {
       title: "Research",
       items: [
         { label: "All fighters", href: "/admin/fighters", icon: "⊕", hint: "Every fighter, every tab" },
-        { label: "Research datasets", href: "/datasets", icon: "▤", hint: "Recordings and model training" },
+        { label: "Datasets", href: "/datasets", icon: "▤", hint: "Research recordings with consenting participants, made to a protocol" },
         { label: "Study", href: "/study", icon: "◎", hint: "The advisory review study and RQ1 raters" },
-        { label: "AI model", href: "/ai-model", icon: "✦", hint: "Which computer writes the AI training advice" },
+        { label: "AI models", href: "/ai-model", icon: "✦", hint: "The punch models and the coach's language model: train, score, choose" },
         { label: "Compare backends", href: "/compare", icon: "C", hint: "Pose and detector backends side by side" },
       ],
     });
@@ -105,7 +105,7 @@ export function navSections(user: AuthUser | null | undefined): NavSection[] {
     ];
     if (!researcher) {
       items.splice(2, 0, { label: "Fighters", href: "/admin/fighters", icon: "⊕" });
-      items.push({ label: "AI model", href: "/ai-model", icon: "✦" });
+      items.push({ label: "AI models", href: "/ai-model", icon: "✦" });
     }
     sections.push({ title: "Administration", items });
   }

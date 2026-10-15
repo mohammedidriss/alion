@@ -49,14 +49,7 @@ export function CameraTypesCard() {
   return (
     <div className="card space-y-3">
       <div className="flex flex-wrap items-baseline justify-between gap-2">
-        <div>
-          <h2 className="text-base font-semibold">Punch types from the cameras</h2>
-          <p className="text-xs text-neutral-400">
-            Names each punch from the arm&apos;s 3D motion after a session. Two or more cameras that saw
-            it decide together; with one camera the wrist sensor joins in; with none the wrist names it alone.
-            Live, the camera boxes show counts only.
-          </p>
-        </div>
+        <h3 className="text-xs font-medium uppercase tracking-wider text-neutral-500">Training &amp; score</h3>
         <button
           onClick={train}
           disabled={busy}

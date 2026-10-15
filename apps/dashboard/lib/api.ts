@@ -649,6 +649,10 @@ export interface DatasetSummary {
   participants: number;
   takes: number;
   completed_takes: number;
+  in_progress_takes?: number; // recording or uploading now
+  stuck_takes?: number; // marked recording, nothing recording into them
+  discarded_takes?: number;
+  last_recorded_at?: string | null;
 }
 
 /** One line of a dataset's deletion log — the code, when, and counts; no data. */
@@ -711,6 +715,7 @@ export interface Take {
     labels?: number | null;
     has_protocol?: boolean;
   };
+  stuck?: boolean; // marked recording, nothing recording into it: finish or discard it
 }
 
 export interface DatasetDetail {

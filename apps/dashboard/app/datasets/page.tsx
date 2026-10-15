@@ -1,22 +1,22 @@
 "use client";
 
 /**
- * Datasets (ADR-013) — research recordings, kept entirely apart from training
- * sessions: a take never shows up in a fighter's sessions, stats or trends. This
- * page lists datasets and creates one; each dataset holds its participants (with
- * consent) and their recorded takes.
+ * Datasets (ADR-013, ADR-057) — research recordings, kept apart from training
+ * sessions: each dataset holds its participants (with consent) and their takes,
+ * recorded to a protocol. Only data here: the models trained on it are on the AI
+ * models page.
  */
 
 import Link from "next/link";
 import { useEffect, useState } from "react";
-import { CameraTypesCard } from "@/components/CameraTypesCard";
-import { WristTypesCard } from "@/components/WristTypesCard";
 import { api, type DatasetSummary } from "@/lib/api";
+import { PROTOCOL_PURPOSE } from "@/lib/protocols";
 
 const PROTOCOLS = [
   { key: "rq2-v1", label: "RQ2 punch protocol" },
   { key: "", label: "Free recording (no protocol)" },
 ];
+
 
 export default function DatasetsPage() {
   const [datasets, setDatasets] = useState<DatasetSummary[] | null>(null);
@@ -62,21 +62,23 @@ export default function DatasetsPage() {
     <div className="space-y-6 px-4 py-5 sm:px-8 sm:py-6">
       <header className="flex flex-wrap items-center justify-between gap-4">
         <div>
-          <h1 className="text-2xl font-semibold">Research datasets</h1>
-          <p className="text-sm text-neutral-400">
-            Research recordings for model training, kept separate from training sessions.
+          <h1 className="text-2xl font-semibold">Datasets</h1>
+          <p className="max-w-2xl text-sm text-neutral-400">
+            Research recordings with consenting participants, made to a protocol and kept apart from training
+            sessions. The models trained on them are on the{" "}
+            <Link href="/ai-model" className="text-emerald-300 underline hover:text-emerald-200">
+              AI models
+            </Link>{" "}
+            page.
           </p>
         </div>
         <button
           onClick={() => setShowNew((v) => !v)}
           className="rounded-xl bg-emerald-500 px-4 py-2 text-sm font-semibold text-black hover:bg-emerald-400"
         >
-          + Record dataset session
+          + New dataset
         </button>
       </header>
-
-      <CameraTypesCard />
-      <WristTypesCard />
 
       {showNew && (
         <div className="card space-y-3">
@@ -159,17 +161,36 @@ export default function DatasetsPage() {
                   <span className="pill shrink-0 bg-violet-900/50 text-violet-200">{d.protocol}</span>
                 )}
               </div>
-              {d.description && (
-                <p className="mt-1 line-clamp-2 text-xs text-neutral-400">{d.description}</p>
+              {(d.description || (d.protocol && PROTOCOL_PURPOSE[d.protocol])) && (
+                <p className="mt-1 line-clamp-3 text-xs text-neutral-400">
+                  {d.description || (d.protocol ? PROTOCOL_PURPOSE[d.protocol] : "")}
+                </p>
               )}
-              <div className="mt-4 flex gap-4 text-xs text-neutral-400">
+              <div className="mt-4 flex flex-wrap gap-x-4 gap-y-1 text-xs text-neutral-400">
                 <span>
-                  <strong className="text-neutral-100">{d.participants}</strong> participants
+                  <strong className="text-neutral-100">{d.participants}</strong> participant{d.participants === 1 ? "" : "s"}
                 </span>
                 <span>
-                  <strong className="text-neutral-100">{d.completed_takes}</strong> takes
+                  <strong className="text-neutral-100">{d.completed_takes}</strong> takes done
                 </span>
+                {!!d.in_progress_takes && (
+                  <span>
+                    <strong className="text-neutral-100">{d.in_progress_takes}</strong> recording now
+                  </span>
+                )}
+                {!!d.discarded_takes && <span>{d.discarded_takes} discarded (kept)</span>}
               </div>
+              {d.last_recorded_at && (
+                <p className="mt-1 text-[11px] text-neutral-500">
+                  Last recorded {new Date(d.last_recorded_at).toLocaleDateString()}
+                </p>
+              )}
+              {!!d.stuck_takes && (
+                <p className="mt-2 rounded-lg bg-amber-500/10 px-2 py-1 text-[11px] text-amber-300">
+                  {d.stuck_takes} take{d.stuck_takes === 1 ? " is" : "s are"} still marked recording with nothing
+                  recording — check {d.stuck_takes === 1 ? "it" : "them"}
+                </p>
+              )}
             </Link>
           ))}
         </div>

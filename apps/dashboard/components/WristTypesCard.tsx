@@ -47,13 +47,7 @@ export function WristTypesCard() {
   return (
     <div className="card space-y-3">
       <div className="flex flex-wrap items-baseline justify-between gap-2">
-        <div>
-          <h2 className="text-base font-semibold">Punch types from the wrist sensors</h2>
-          <p className="text-xs text-neutral-400">
-            Names each punch straight, hook or uppercut from the wrists alone (jab or cross from
-            the hand and the stance), shown on every session&apos;s per-round breakdown.
-          </p>
-        </div>
+        <h3 className="text-xs font-medium uppercase tracking-wider text-neutral-500">Training &amp; score</h3>
         <button
           onClick={train}
           disabled={busy}
