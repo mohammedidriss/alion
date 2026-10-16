@@ -381,8 +381,14 @@ export default function AdminUsersPage() {
                   <select
                     value={editRole}
                     onChange={(e) => setEditRole(e.target.value as UserRole)}
-                    disabled={editUser.is_system_admin}
-                    title={editUser.is_system_admin ? "The system administrator stays an administrator" : undefined}
+                    disabled={editUser.is_system_admin || editUser.is_protected}
+                    title={
+                      editUser.is_system_admin
+                        ? "The system administrator stays an administrator"
+                        : editUser.is_protected
+                          ? "A researcher stays a researcher"
+                          : undefined
+                    }
                     className="w-full rounded-xl border border-white/10 bg-white/[0.03] px-4 py-2.5 text-sm text-neutral-200 focus:border-emerald-500/40 focus:outline-none disabled:opacity-50"
                   >
                     {ROLES.map((r) => (
@@ -491,10 +497,14 @@ export default function AdminUsersPage() {
                         <span className="hidden sm:inline">Reset PW</span>
                         <span className="sm:hidden">🔑</span>
                       </button>
-                      {u.is_system_admin ? (
+                      {u.is_system_admin || u.is_protected ? (
                         <span
                           className="rounded-lg p-2 text-xs text-purple-300/80"
-                          title="The system administrator can't be disabled or removed"
+                          title={
+                            u.is_system_admin
+                              ? "The system administrator can't be disabled or removed"
+                              : "A researcher's account can't be disabled or removed"
+                          }
                         >
                           <span className="hidden sm:inline">🔒 Protected</span>
                           <span className="sm:hidden">🔒</span>

@@ -405,7 +405,9 @@ export default function ProfilePage() {
         </div>
       </header>
 
-      {user.role === "researcher" && <ResearcherCard listed={!!user.is_researcher} />}
+      {user.role === "researcher" && (
+        <ResearcherCard listed={!!user.is_researcher} trainingId={user.profile_id ?? null} />
+      )}
 
       {profileLoading && (
         <div className="text-sm text-neutral-500 animate-pulse">Loading profile data…</div>
@@ -910,15 +912,16 @@ const RESEARCH_LINKS: [string, string, string][] = [
 
 /** A researcher's own page (ADR-062): the account runs the study and isn't anyone's
  *  fighter profile — their own training sits on a fighter profile like anyone's. */
-function ResearcherCard({ listed }: { listed: boolean }) {
+function ResearcherCard({ listed, trainingId }: { listed: boolean; trainingId: string | null }) {
   return (
     <section className="card space-y-3">
       <div>
         <h2 className="text-sm font-semibold text-violet-200">Researcher</h2>
         <p className="mt-1 text-sm text-neutral-400">
           You run the study: every fighter, session, dataset and model, with every administrator power.
-          This account has no fighter profile — when you train, you&apos;re recorded on a fighter profile like any
-          participant, and you find it under All fighters.
+          {trainingId
+            ? "Your own training — sessions, heart rate, wrist sensors and the rest — is your Home, with all its tabs."
+            : "This account has no training profile — when you train, you're recorded on a fighter profile like any participant, under All fighters."}
         </p>
         {!listed && (
           <p className="mt-2 text-xs text-amber-300">
@@ -928,6 +931,12 @@ function ResearcherCard({ listed }: { listed: boolean }) {
         )}
       </div>
       <div className="grid gap-2 sm:grid-cols-2">
+        {trainingId && (
+          <Link href={`/fighters/${trainingId}`} className="rounded-xl border border-emerald-500/30 px-3 py-2 hover:bg-white/[0.04]">
+            <div className="text-sm text-emerald-300">Your training</div>
+            <div className="text-xs text-neutral-500">Sessions, heart rate, wrist sensors, observations and health notes</div>
+          </Link>
+        )}
         {RESEARCH_LINKS.map(([href, title, hint]) => (
           <Link
             key={href}

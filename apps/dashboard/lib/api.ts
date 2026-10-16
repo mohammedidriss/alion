@@ -1433,6 +1433,7 @@ export interface UnifiedPerson {
   account_removed?: boolean; // the login was deleted (ADR-048)
   profile_removed?: boolean; // the fighter profile was deleted, recordings kept (ADR-056)
   is_system_admin?: boolean; // the founding admin: can't be removed, disabled or demoted
+  is_protected?: boolean; // a researcher's account: can't be removed, disabled or demoted (ADR-066)
 }
 
 export interface AuthResponse {

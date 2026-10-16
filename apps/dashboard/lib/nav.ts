@@ -48,7 +48,9 @@ export function homeHref(user: AuthUser | null | undefined): string {
   if (user.role === "referee" && user.profile_id) return `/referees/${user.profile_id}`;
   if (user.role === "physician") return "/physician";
   if (user.role === "gym_manager") return "/gym-dashboard";
-  if (user.role === "researcher") return "/profile"; // their own page (ADR-062)
+  // A researcher's home is their own training, with its tabs, when they have it
+  // (ADR-065); their researcher page otherwise.
+  if (user.role === "researcher") return user.profile_id ? `/fighters/${user.profile_id}` : "/profile";
   if (user.role === "admin" || user.is_researcher) return "/admin";
   return "/";
 }
@@ -61,6 +63,9 @@ export function navSections(user: AuthUser | null | undefined): NavSection[] {
   const sections: NavSection[] = [];
 
   const mine: NavItem[] = [{ label: "Home", href: homeHref(user), icon: "H" }];
+  if (role === "researcher" && user.profile_id) {
+    mine.push({ label: "Researcher page", href: "/profile", icon: "◉", hint: "Your account, and the research areas" });
+  }
   if (role === "physician") mine.push({ label: "My fighters", href: "/physician", icon: "✚", hint: "The fighters who chose you as their physician" });
   if (managesGym(user)) {
     if (role !== "gym_manager") mine.push({ label: "My gym", href: "/gym-dashboard", icon: "⌂" });

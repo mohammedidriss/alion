@@ -624,6 +624,18 @@ def _guard_researcher(db: DBSession, actor: User, target: User, action: str) -> 
         )
 
 
+def _guard_protected_researcher(target: User, action: str) -> None:
+    """A researcher's account — one on the researchers list — is protected like the
+    system administrator's (ADR-066): nobody removes it, disables it or gives it
+    another role, not another researcher and not the account itself. To retire a
+    researcher, take them off the list (ALION_RESEARCHERS) on the server first."""
+    if researchers.is_researcher(target):
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail=f"A researcher's account can't be {action} — take it off the researchers list on the server first",
+        )
+
+
 def _guard_system_admin(db: DBSession, target: User, action: str) -> None:
     if target.id == system_admin_id(db):
         raise HTTPException(
@@ -659,6 +671,7 @@ class UnifiedPerson(BaseModel):
     account_removed: bool = False  # the login was deleted (ADR-048)
     profile_removed: bool = False  # the fighter profile was deleted, recordings kept (ADR-056)
     is_system_admin: bool = False  # can't be removed, disabled or demoted
+    is_protected: bool = False  # a researcher's account: can't be removed or disabled (ADR-066)
 
 
 @router.get("/admin/everyone", response_model=list[UnifiedPerson])
@@ -696,7 +709,9 @@ def admin_list_everyone(
                     user_id=user.id if user else None,
                     name=p.name,
                     email=(user.removed_email or user.email) if user else getattr(p, "email", None),
-                    role=role,
+                    # A researcher with their own training profile is listed as a
+                    # researcher (ADR-065).
+                    role=str(user.role) if user and user.role == UserRole.RESEARCHER else role,
                     has_account=user is not None,
                     is_active=user.is_active if user else True,
                     photo_path=getattr(p, "photo_path", None),
@@ -704,6 +719,7 @@ def admin_list_everyone(
                     account_removed=bool(user and user.removed_at),
                     profile_removed=bool(getattr(p, "removed_at", None)),
                     is_system_admin=bool(user and user.id == system_admin),
+                    is_protected=bool(user and researchers.is_researcher(user)),
                 )
             )
 
@@ -728,6 +744,7 @@ def admin_list_everyone(
                     removed=u.removed_at is not None,
                     account_removed=u.removed_at is not None,
                     is_system_admin=u.id == system_admin,
+                    is_protected=researchers.is_researcher(u),
                 )
             )
 
@@ -838,8 +855,11 @@ def admin_update_user(
     _guard_researcher(db, _admin, target, "change")
     if data.is_active is False:
         _guard_system_admin(db, target, "disabled")
+        _guard_protected_researcher(target, "disabled")
     if data.role is not None and data.role != UserRole.ADMIN:
         _guard_system_admin(db, target, "given another role")
+    if data.role is not None and data.role != target.role and target.role == UserRole.RESEARCHER:
+        _guard_protected_researcher(target, "given another role")
     if data.role == UserRole.ADMIN and target.role != UserRole.ADMIN:
         _keep_system_admin(db, target)
     email = data.email.strip().lower() if data.email is not None else None
@@ -867,10 +887,12 @@ def admin_update_user(
     was_researcher = target.role == UserRole.RESEARCHER
     updated = repo.update(user_id, fields)
     if updated is not None and becomes_researcher:
-        # A researcher's account is its own (ADR-062): the profile it was linked to —
-        # a fighter's, with their recordings — stays as it is, signed in to by nobody.
-        repo.set_profile_id(user_id, None)
-        updated.profile_id = None
+        # A researcher's account is its own (ADR-062), and keeps a fighter profile it
+        # had as the researcher's own training (ADR-065): their sessions, heart rate
+        # and wrist tabs stay theirs. Any other kind of profile is let go.
+        if _profile_kind(db, updated.profile_id) != UserRole.FIGHTER:
+            repo.set_profile_id(user_id, None)
+            updated.profile_id = None
     elif (
         updated is not None
         and data.role is not None
@@ -949,7 +971,8 @@ def _end_ties(db: DBSession, user: User, when: datetime) -> None:
     pid = user.profile_id
     if user.role == UserRole.COACH and pid is not None:
         rows: list[Any] = list(db.exec(coach_q.where(CoachAssignment.coach_id == pid)))
-    elif user.role == UserRole.FIGHTER and pid is not None:
+    elif user.role in (UserRole.FIGHTER, UserRole.RESEARCHER) and pid is not None:
+        # A researcher's own training profile is a fighter's (ADR-065).
         rows = list(db.exec(coach_q.where(CoachAssignment.fighter_id == pid)))
         rows += db.exec(phys_q.where(PhysicianAssignmentRow.fighter_id == pid))
     else:
@@ -966,12 +989,11 @@ def _end_ties(db: DBSession, user: User, when: datetime) -> None:
 def remove_account(db: DBSession, target: User, by: User) -> str:
     """Remove an account (ADR-048): no more signing in, the email freed, its current
     coach and physician ties ended; the profile and recordings stay. Returns the
-    email it had. Only a researcher removes a researcher's account."""
+    email it had. A researcher's account is never removed (ADR-066)."""
     if target.removed_at is not None:
         raise HTTPException(status_code=409, detail="This account was already removed")
     _guard_system_admin(db, target, "removed")
-    if researchers.is_researcher(target) and not researchers.is_researcher(by):
-        raise HTTPException(status_code=403, detail="Only a researcher removes a researcher")
+    _guard_protected_researcher(target, "removed")
     email, now = target.email, datetime.now(UTC)
     _end_ties(db, target, now)
     target.removed_email = email
@@ -1055,6 +1077,7 @@ def admin_deactivate_user(
         raise HTTPException(status_code=404, detail="User not found")
     _not_removed(target)
     _guard_system_admin(db, target, "disabled")
+    _guard_protected_researcher(target, "disabled")
     _guard_researcher(db, _admin, target, "disable")
     repo.update(user_id, {"is_active": False})
     return {"status": "ok", "message": f"Deactivated {target.email}"}

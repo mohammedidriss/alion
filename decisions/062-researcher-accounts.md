@@ -3,6 +3,7 @@
 - **Status**: Accepted
 - **Date**: 2026-10-15
 - **Phase**: 6
+- **Amended by**: ADR-065 — a fighter profile the account had stays its own training
 - **Amended by**: ADR-064 — fixes from the full review
 
 ## Context

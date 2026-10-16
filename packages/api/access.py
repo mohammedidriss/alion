@@ -103,7 +103,12 @@ class Viewer:
 
     @property
     def own_fighter(self) -> UUID | None:
-        return self.user.profile_id if self.user.role == UserRole.FIGHTER else None
+        # A researcher's own training profile is a fighter's too (ADR-065).
+        return (
+            self.user.profile_id
+            if self.user.role in (UserRole.FIGHTER, UserRole.RESEARCHER)
+            else None
+        )
 
     @property
     def coach_id(self) -> UUID | None:

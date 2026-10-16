@@ -27,7 +27,7 @@ from api.deps import (
     session_repo,
 )
 from api.routes.auth import get_current_user, require_current_user
-from api.services import advice_gate, session_metrics
+from api.services import advice_gate, researchers, session_metrics
 from api.services.photos import save_photo
 from store import (
     WEIGHT_CLASSES,
@@ -219,7 +219,8 @@ def _account(db: DBSession, fighter_id: UUID) -> Any:
     return db.exec(
         select(User).where(
             User.profile_id == fighter_id,
-            User.role == UserRole.FIGHTER,
+            # …or a researcher whose own training it is (ADR-065)
+            col(User.role).in_([UserRole.FIGHTER, UserRole.RESEARCHER]),
             col(User.removed_at).is_(None),
         )
     ).first()
@@ -231,8 +232,10 @@ def _removal(viewer: access.Viewer, db: DBSession, fighter_id: UUID) -> RemovalO
     if account is None:
         # A profile nobody signs in to: whoever may change it (the guard checked).
         return RemovalOut(has_account=False, can_delete_profile=True, can_delete_account=False)
-    if own and viewer.researcher:
-        note = "A researcher's own account is deleted by another researcher, so you're never locked out."
+    if researchers.is_researcher(account):
+        # A researcher's account, and the training profile that would take it along,
+        # stay — whoever asks (ADR-066).
+        note = "A researcher's account and training profile can't be deleted."
         return RemovalOut(
             has_account=True, can_delete_profile=False, can_delete_account=False, note=note
         )
