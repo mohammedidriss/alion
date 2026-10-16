@@ -26,9 +26,12 @@ end tell
 # Give the backend a moment to bind the port
 sleep 2
 
-# Frontend (Next.js) — logs go to file to avoid polling noise
+# Frontend (Next.js) over HTTPS — the phones' camera pages need it (a phone's
+# browser only opens its camera on a secure page), and their saved links are
+# https://…:3000. Plain `npm run dev` answers http only, so those links get no
+# reply at all. Logs go to file to avoid polling noise.
 cd "$DIR/apps/dashboard"
-npm run dev > "$DIR/.frontend.log" 2>&1 &
+npm run dev:https > "$DIR/.frontend.log" 2>&1 &
 FRONTEND_PID=$!
 
 # Save PIDs (backend PID found dynamically via lsof)
@@ -41,7 +44,9 @@ disown "$FRONTEND_PID"
 echo ""
 echo "RingsideIQ is running:"
 echo "  Backend:  http://localhost:8000  (PID ${BACKEND_PID:-pending})"
-echo "  Frontend: http://localhost:3000  (PID $FRONTEND_PID)"
+LAN_IP=$(ipconfig getifaddr en0 2>/dev/null || true)
+echo "  Frontend: https://localhost:3000  (PID $FRONTEND_PID)"
+[ -n "$LAN_IP" ] && echo "  Phones:   https://$LAN_IP:3000"
 echo ""
 echo "Logs:  Backend logs in the Terminal tab; frontend: tail -f .frontend.log"
 echo "Stop:  ./stop.sh"
