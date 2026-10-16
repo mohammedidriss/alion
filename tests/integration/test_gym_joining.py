@@ -5,6 +5,8 @@ contact; a fight camp names its bout; squads show who checked in."""
 
 from __future__ import annotations
 
+import datetime as dt
+
 from fastapi.testclient import TestClient
 
 from tests.integration.test_access import _session, _signup
@@ -136,9 +138,10 @@ def test_a_camp_ends_with_its_bout_and_squads_show_check_ins(
     )
     assert r.status_code == 201, r.text
     camp = r.json()
-    assert camp["ends_on"] == bout["scheduled_at"][:10] and camp["bout_label"].startswith(
-        "Riyadh card"
-    )
+    # The bout's local day (its time is kept in UTC; the gym's days are local).
+    bout_at = dt.datetime.fromisoformat(bout["scheduled_at"].replace("Z", "+00:00"))
+    bout_day = (bout_at if bout_at.tzinfo else bout_at.replace(tzinfo=dt.UTC)).astimezone().date()
+    assert camp["ends_on"] == bout_day.isoformat() and camp["bout_label"].startswith("Riyadh card")
     client.post(f"/squads/{camp['id']}/members", json={"fighter_id": amir.profile_id}, headers=gina)
     client.post(
         f"/gyms/{gym}/checkins",

@@ -957,7 +957,7 @@ def _end_ties(db: DBSession, user: User, when: datetime) -> None:
     rows += db.exec(phys_q.where(PhysicianAssignmentRow.physician_id == user.id))
     for row in rows:
         if isinstance(row, CoachAssignment):
-            row.ended_on = when.date()
+            row.ended_on = when.astimezone().date()  # the local day, as every check reads it
         else:
             row.ended_at = when
         db.add(row)

@@ -213,7 +213,7 @@ def _bout_label(db: DBSession, bout_id: UUID | None) -> str | None:
     bout = db.get(Bout, bout_id) if bout_id else None
     if bout is None:
         return None
-    when = bout.scheduled_at.date().isoformat()
+    when = _local_day(bout.scheduled_at).isoformat()
     return f"{bout.label} ({when})" if bout.label else f"Bout on {when}"
 
 
@@ -225,7 +225,15 @@ def _camp_dates(db: DBSession, s: Squad) -> None:
     if bout is None:
         raise HTTPException(status_code=404, detail="bout not found")
     if s.ends_on is None:
-        s.ends_on = bout.scheduled_at.date()
+        s.ends_on = _local_day(bout.scheduled_at)
+
+
+def _local_day(ts: dt.datetime) -> dt.date:
+    """The gym's day a moment falls on. Times are kept in UTC, and every other day
+    here is the local one (date.today()) — a bout at 01:00 local is that day's,
+    not the UTC day before (ADR-064)."""
+    aware = ts if ts.tzinfo is not None else ts.replace(tzinfo=dt.UTC)
+    return aware.astimezone().date()
 
 
 def _squad(db: DBSession, squad_id: UUID) -> Squad:

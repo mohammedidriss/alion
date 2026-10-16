@@ -100,6 +100,16 @@ models, a fight with two real fighters, and the researcher account.
   yet is open only to those who set fights up. A corner can be set only for a
   phone the studio has seen.
 
+**Days (found applying this, just after midnight)**
+- Days here are the local ones (`date.today()`), but two places took the UTC day.
+  Between midnight and 3 a.m. at UTC+3 they disagreed (both before these ADRs):
+  - removing an account ended its coach links on the UTC day, so for three hours
+    a night they ended at once, not at the end of the day;
+  - a fight camp ended on its bout's UTC day, so a camp for a bout after midnight
+    local looked over the evening before.
+
+  Both now take the local day.
+
 **The rename (ADR-061)**
 - The events CSV is now named `ringsideiq-….csv` by the API too. Its download
   links never worked: they were plain links, with no login, to an endpoint that
