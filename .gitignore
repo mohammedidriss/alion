@@ -26,6 +26,8 @@ data/ml/punch_counter/
 # The wrist punch-type model (ADR-029) — trained on participants' takes, never pushed.
 data/ml/wrist_types/
 data/ml/camera_types/
+# the wrists' trained punch counter (ADR-060): models are data, not code
+data/ml/wrist_counter/
 # Third-party datasets, downloaded with their licences (data/external/*/README.md).
 data/external/
 data/capture/
