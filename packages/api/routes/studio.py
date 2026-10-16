@@ -11,6 +11,11 @@ The studio token is signed for the coach's user id (`signed`, ADR-017): it
 survives API restarts, works for 30 days, and "Unlink all phones" voids every
 link at once. The active capture is kept on disk in data/capture/. One studio
 per coach.
+
+A fight (ADR-063) is a capture too: its two corners are two sessions, so each
+linked phone has a corner — red, blue or none — set once on the fight page and
+remembered for every fight after. With a fight open, a phone joins its corner's
+session (one the coach may record); a phone without a corner waits.
 """
 
 from __future__ import annotations
@@ -28,11 +33,11 @@ from pydantic import BaseModel
 from sqlmodel import Session as DBSession
 
 from api import access
-from api.deps import db_session, session_repo
+from api.deps import bout_repo, db_session, session_repo
 from api.routes import capture_coord
 from api.routes.auth import require_current_user
 from api.services import dataset_store, signed
-from store import SessionRepo, User
+from store import BoutRepo, SessionRepo, User
 
 router = APIRouter(prefix="/v2/studio", tags=["studio"])  # coach, authenticated
 public = APIRouter(prefix="/studio", tags=["studio"])  # phones, studio token
@@ -114,7 +119,22 @@ def _live_phones(user_id: str) -> list[dict[str, object]]:
         phones = _phones.get(user_id, {})
         for pid in [p for p, info in phones.items() if now - float(info["seen"]) > _PHONE_STALE_S]:  # type: ignore[arg-type]
             phones.pop(pid, None)
-        return [{"phone_id": pid, "label": info["label"]} for pid, info in phones.items()]
+        listed = [(pid, info["label"]) for pid, info in phones.items()]
+    corners = _corners(user_id)
+    return [{"phone_id": pid, "label": label, "corner": corners.get(pid)} for pid, label in listed]
+
+
+Corner = Literal["red", "blue"]
+
+
+def _corners(user_id: str) -> dict[str, str]:
+    """Each linked phone's fight corner (ADR-063), remembered on disk."""
+    raw = _read_state(user_id).get("corners")
+    return (
+        {str(k): str(v) for k, v in raw.items() if v in ("red", "blue")}
+        if isinstance(raw, dict)
+        else {}
+    )
 
 
 # --------------------------------------------------------------------------
@@ -123,7 +143,7 @@ def _live_phones(user_id: str) -> list[dict[str, object]]:
 
 
 class ActiveCapture(BaseModel):
-    kind: Literal["session", "take"]
+    kind: Literal["session", "take", "bout"]
     id: UUID
 
 
@@ -159,21 +179,33 @@ def set_active(
     body: ActiveCapture,
     user: User = Depends(require_current_user),
     sessions: SessionRepo = Depends(session_repo),
+    bouts: BoutRepo = Depends(bout_repo),
     db: DBSession = Depends(db_session),
 ) -> StudioOut:
     """Point the linked phones at this capture (the coach opened it) — a session
-    you may change, or a dataset take as a researcher (ADR-017)."""
+    you may change, a dataset take as a researcher (ADR-017), or a fight with a
+    corner you may record (ADR-063)."""
     viewer = access.Viewer(user, db)
     if body.kind == "session":
         row = sessions.get(body.id)
         if row is not None:
             viewer.require(row.fighter_id, access.Level.TRAINING_WRITE)
+    elif body.kind == "bout":
+        corners = [s for s in bouts.participants(body.id) if s.removed_at is None]
+        if corners and not any(
+            viewer.can(s.fighter_id, access.Level.TRAINING_WRITE) for s in corners
+        ):
+            raise HTTPException(
+                status_code=403, detail="Neither corner of this fight is yours to record"
+            )
     else:
         access.require_researcher(viewer)
     picked = sessions.get(body.id) if body.kind == "session" else None
     exists = (
         picked is not None and picked.removed_at is None  # a deleted session isn't offered
         if body.kind == "session"
+        else bouts.get(body.id) is not None
+        if body.kind == "bout"
         else dataset_store.take_dir(body.id) is not None
     )
     if not exists:
@@ -183,6 +215,26 @@ def set_active(
     with _lock:
         _active[uid] = a
     _write_state(uid, active=a)
+    return _studio_out(uid)
+
+
+class PhoneCorner(BaseModel):
+    corner: Corner | None  # None: this phone sits fights out
+
+
+@router.put("/phones/{phone_id}/corner", response_model=StudioOut)
+def set_phone_corner(
+    phone_id: str, body: PhoneCorner, user: User = Depends(require_current_user)
+) -> StudioOut:
+    """Which corner a linked phone films in a fight — remembered for every fight
+    after, until it's changed (ADR-063)."""
+    uid = str(user.id)
+    corners = _corners(uid)
+    if body.corner is None:
+        corners.pop(phone_id[:40], None)
+    else:
+        corners[phone_id[:40]] = body.corner
+    _write_state(uid, corners=corners)
     return _studio_out(uid)
 
 
@@ -206,10 +258,14 @@ class StationActive(BaseModel):
     kind: Literal["session", "take"]
     id: UUID
     join_token: str
+    # In a fight (ADR-063): the corner this phone films, and the fight.
+    corner: Corner | None = None
+    bout_id: UUID | None = None
 
 
 class StationState(BaseModel):
     active: StationActive | None
+    note: str | None = None  # why a linked phone is waiting, when it can't join
 
 
 @public.get("/state", response_model=StationState)
@@ -218,6 +274,8 @@ def station_state(
     phone_id: str = "",
     label: str = "",
     sessions: SessionRepo = Depends(session_repo),
+    bouts: BoutRepo = Depends(bout_repo),
+    db: DBSession = Depends(db_session),
 ) -> StationState:
     """A linked phone's poll: which capture to join now (and it's seen as linked)."""
     uid = _user_of(token)
@@ -230,6 +288,8 @@ def station_state(
     a = _get_active(uid)
     if not a:
         return StationState(active=None)
+    if a["kind"] == "bout":
+        return _fight_station(uid, UUID(a["id"]), phone_id[:40], bouts, db)
     cid = UUID(a["id"])
     row = sessions.get(cid) if a["kind"] == "session" else None
     exists = (
@@ -244,5 +304,41 @@ def station_state(
             kind=a["kind"],  # type: ignore[arg-type]
             id=cid,
             join_token=_join_token(cid),
+        )
+    )
+
+
+def _fight_station(
+    uid: str, bout_id: UUID, phone_id: str, bouts: BoutRepo, db: DBSession
+) -> StationState:
+    """A linked phone with a fight open: its corner's session, if it has a corner,
+    the fight has that corner, and the coach may record it (ADR-063)."""
+    if bouts.get(bout_id) is None:
+        return StationState(active=None)
+    corner = _corners(uid).get(phone_id)
+    if corner is None:
+        return StationState(active=None, note="Pick this phone's corner on the fight page")
+    row = next(
+        (
+            s
+            for s in bouts.participants(bout_id)
+            if s.removed_at is None and str(getattr(s.corner, "value", s.corner)) == corner
+        ),
+        None,
+    )
+    if row is None:
+        return StationState(active=None, note=f"This fight has no {corner} corner yet")
+    owner = db.get(User, UUID(uid))
+    if owner is None or not access.Viewer(owner, db).can(
+        row.fighter_id, access.Level.TRAINING_WRITE
+    ):
+        return StationState(active=None, note=f"The {corner} corner isn't yours to record")
+    return StationState(
+        active=StationActive(
+            kind="session",
+            id=row.id,
+            join_token=_join_token(row.id),
+            corner=corner,  # type: ignore[arg-type]
+            bout_id=bout_id,
         )
     )

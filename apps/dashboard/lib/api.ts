@@ -675,12 +675,22 @@ export interface BlurStatus {
 export interface Studio {
   join_path: string; // /camera?studio=…
   lan_ip: string;
-  active: { kind: "session" | "take"; id: string } | null;
-  phones: { phone_id: string; label: string }[];
+  active: { kind: "session" | "take" | "bout"; id: string } | null;
+  /** `corner`: the fight corner this phone films, remembered (ADR-063); null: none. */
+  phones: { phone_id: string; label: string; corner?: FightCorner | null }[];
 }
 
+export type FightCorner = "red" | "blue";
+
 export interface StationState {
-  active: { kind: "session" | "take"; id: string; join_token: string } | null;
+  active: {
+    kind: "session" | "take";
+    id: string;
+    join_token: string;
+    corner?: FightCorner | null; // in a fight (ADR-063)
+    bout_id?: string | null;
+  } | null;
+  note?: string | null; // why a linked phone is waiting
 }
 
 /** One poll for the session page's watch-style live reader. */
@@ -1869,11 +1879,18 @@ export const api = {
   },
   // Camera studio — linked phones follow the coach's open capture.
   studio: () => req<Studio>("/v2/studio"),
-  setStudioActive: (kind: "session" | "take", id: string) =>
+  setStudioActive: (kind: "session" | "take" | "bout", id: string) =>
     req<Studio>("/v2/studio/active", {
       method: "PUT",
       headers: { "content-type": "application/json" },
       body: JSON.stringify({ kind, id }),
+    }),
+  /** Which corner a linked phone films in a fight, or null for none (ADR-063). */
+  setStudioPhoneCorner: (phoneId: string, corner: FightCorner | null) =>
+    req<Studio>(`/v2/studio/phones/${encodeURIComponent(phoneId)}/corner`, {
+      method: "PUT",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ corner }),
     }),
   stationState: (token: string, phoneId: string, label: string) =>
     req<StationState>(

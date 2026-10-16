@@ -16,6 +16,7 @@
 
 import { useCallback, useEffect, useRef, useState } from "react";
 import { CameraNode } from "@/components/CameraNode";
+import { FightCameras } from "@/components/FightCameras";
 import { JoinQrCard } from "@/components/JoinQrCard";
 import { PunchDots, PunchOverlay } from "@/components/PunchDots";
 import { RoundTimer } from "@/components/SessionRounds";
@@ -244,6 +245,9 @@ export function BoutCapture({
           </div>
         </div>
       </div>
+
+      {/* Linked phones follow this fight, each to its remembered corner (ADR-063). */}
+      {!fighting && <FightCameras boutId={bout.id} red={redCams.length} blue={blueCams.length} />}
 
       {/* One control for the whole fight */}
       <div className="flex flex-wrap items-center gap-2">
@@ -501,7 +505,9 @@ function CornerPanel({
 
       {token && (
         <details className="text-xs text-neutral-400">
-          <summary className="cursor-pointer select-none">➕ Add a phone camera</summary>
+          <summary className="cursor-pointer select-none">
+            Phone not linked? Scan this corner&apos;s own QR
+          </summary>
           <div className="mt-2">
             <JoinQrCard sessionId={sessionId} />
           </div>

@@ -18,7 +18,7 @@ import { api } from "@/lib/api";
 
 // Big enough for a phone to read straight off a laptop screen (~3.4 px per module
 // for a join link): a 52 px code only decoded at Retina density.
-const QR_PX = 168;
+export const QR_PX = 168;
 
 export function JoinQrCard({
   sessionId,
@@ -72,7 +72,7 @@ export function JoinQrCard({
 
 /** A phone-reachable URL for `path`: the coach's own origin, or the LAN IP when the
  *  coach opened the dashboard on localhost (a phone can't reach that). */
-function phoneUrl(path: string, lanIp: string | null): string {
+export function phoneUrl(path: string, lanIp: string | null): string {
   const loc = window.location;
   const isLocal = loc.hostname === "localhost" || loc.hostname === "127.0.0.1";
   if (isLocal && lanIp) return `${loc.protocol}//${lanIp}${loc.port ? `:${loc.port}` : ""}${path}`;

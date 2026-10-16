@@ -45,6 +45,7 @@ function CameraStation() {
   const [name, setName] = useState("phone");
   const [active, setActive] = useState<Active | null>(null);
   const [linkErr, setLinkErr] = useState<string | null>(null);
+  const [note, setNote] = useState<string | null>(null); // why it waits (a fight corner, say)
   const [online, setOnline] = useState(true);
   const busyRef = useRef(false);
   const pendingRef = useRef<Active | null>(null);
@@ -112,6 +113,7 @@ function CameraStation() {
         if (!alive) return;
         setOnline(true);
         setLinkErr(null);
+        setNote(st.note ?? null);
         adopt(st.active);
       } catch (e) {
         if (!alive) return;
@@ -171,7 +173,13 @@ function CameraStation() {
           {online ? "Linked to the coach" : "Reconnecting…"}
         </span>
         <span className="text-neutral-500">
-          {active ? (active.kind === "take" ? "Dataset take" : "Training session") : "Waiting"}
+          {active
+            ? active.corner
+              ? `Fight — ${active.corner} corner`
+              : active.kind === "take"
+                ? "Dataset take"
+                : "Training session"
+            : "Waiting"}
         </span>
       </div>
       {active ? (
@@ -187,8 +195,8 @@ function CameraStation() {
       ) : (
         <Shell>
           <p className="text-sm text-neutral-300">
-            Linked. This phone joins the next session or take the coach opens — leave this page
-            open.
+            {note ??
+              "Linked. This phone joins the next session, take or fight the coach opens — leave this page open."}
           </p>
         </Shell>
       )}

@@ -82,7 +82,7 @@ def test_linked_phones_follow_the_capture_the_coach_opens(
     st = authed_client.get(f"/studio/state?token={link}&phone_id=p1&label=Samsung").json()
     assert st["active"] is None
     assert authed_client.get("/v2/studio").json()["phones"] == [
-        {"phone_id": "p1", "label": "Samsung"}
+        {"phone_id": "p1", "label": "Samsung", "corner": None}  # no fight corner (ADR-063)
     ]
 
     # the coach opens a session → the phone is told to join it, with a working token
