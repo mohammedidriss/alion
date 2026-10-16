@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Stop Alion backend + frontend.
+# Stop RingsideIQ backend + frontend.
 set -e
 
 DIR="$(cd "$(dirname "$0")" && pwd)"
@@ -10,7 +10,7 @@ if [ ! -f "$PIDFILE" ]; then
   exit 0
 fi
 
-echo "Stopping Alion..."
+echo "Stopping RingsideIQ..."
 while IFS= read -r pid; do
   if kill -0 "$pid" 2>/dev/null; then
     kill "$pid" 2>/dev/null && echo "  Stopped PID $pid"
@@ -20,4 +20,4 @@ while IFS= read -r pid; do
 done < "$PIDFILE"
 
 rm -f "$PIDFILE"
-echo "Alion stopped."
+echo "RingsideIQ stopped."

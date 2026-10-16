@@ -171,8 +171,27 @@ def test_a_broken_model_falls_back_to_the_fixed_settings(takes: Path) -> None:
 
     wrist_counter.MODEL_DIR.mkdir(parents=True)
     (wrist_counter.MODEL_DIR / "v1.joblib").write_bytes(b"not a model")
+    report = {"held_out_takes": {"counter": {"f1": 0.9}, "detector": {"f1": 0.8}}}
+    (wrist_counter.MODEL_DIR / "v1.json").write_text(json.dumps(report))
     found = wrist_counter.find(_streams(takes / "ds" / "takes" / "take0"))
     assert len(found["right"]) == 2 * REPS
+    # …and it isn't named as the counter in use (a cross-check isn't saved under it).
+    assert wrist_counter.label() == "detector" and wrist_counter.current_version() is None
+
+
+def test_a_version_worse_than_the_fixed_settings_is_never_used(takes: Path) -> None:
+    import shutil
+
+    from api.services import wrist_counter
+
+    wrist_counter.train()
+    d = wrist_counter.MODEL_DIR
+    shutil.copy(d / "v1.joblib", d / "v2.joblib")
+    worse = json.loads((d / "v1.json").read_text())
+    worse["version"] = 2
+    worse["held_out_takes"]["counter"]["f1"] = worse["held_out_takes"]["detector"]["f1"] - 0.1
+    (d / "v2.json").write_text(json.dumps(worse))
+    assert wrist_counter.current_version() == 1
 
 
 def test_only_researchers_train_or_read_it(authed_client: TestClient, takes: Path) -> None:

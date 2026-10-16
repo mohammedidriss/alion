@@ -11,7 +11,7 @@
  * they'd be to a coach in the rest minute. Then: download the CSV, or use the model.
  */
 
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   api,
   type LlmComparison,
@@ -62,26 +62,37 @@ export function ModelCompare({ setups, onChosen }: { setups: LlmSetup[]; onChose
     }
   }, []);
 
-  const open = useCallback(async (id: string) => {
-    try {
-      setCurrent(await api.llmComparison(id));
-    } catch (e) {
-      setErr(errText(e));
-    }
-  }, []);
+  // The comparison on screen; a reply for another one (a poll that was already on
+  // its way when another was picked) is dropped.
+  const selected = useRef<string | null>(null);
+  const open = useCallback(
+    async (id: string) => {
+      selected.current = id;
+      try {
+        const c = await api.llmComparison(id);
+        if (selected.current === id) setCurrent(c);
+      } catch (e) {
+        setErr(errText(e));
+      }
+      void loadHistory();
+    },
+    [loadHistory],
+  );
 
   useEffect(() => {
     void loadHistory().then((h) => h[0] && open(h[0].id));
   }, [loadHistory, open]);
 
-  // Follow a running comparison.
-  useEffect(() => {
-    if (current?.status !== "running") return;
-    const t = setInterval(() => void open(current.id).then(() => loadHistory()), 3000);
-    return () => clearInterval(t);
-  }, [current?.status, current?.id, open, loadHistory]);
-
+  // While any comparison runs, follow it: the one on screen, and the history.
   const running = history.some((c) => c.status === "running");
+  useEffect(() => {
+    if (!running && current?.status !== "running") return;
+    const t = setInterval(() => {
+      if (selected.current) void open(selected.current);
+      else void loadHistory();
+    }, 3000);
+    return () => clearInterval(t);
+  }, [running, current?.status, open, loadHistory]);
   return (
     <section className="card space-y-5">
       <header>
@@ -343,7 +354,7 @@ function ComparisonView({
               <th className="py-2 pr-3 font-medium" title="Of rounds run more than once, the share that passed as many cards every time">
                 Consistent
               </th>
-              <th className="py-2 pr-3 font-medium">Your rating</th>
+              <th className="py-2 pr-3 font-medium" title="The mean of everyone's ratings">Rating</th>
               <th className="py-2 font-medium">Failed most on</th>
             </tr>
           </thead>
@@ -500,13 +511,15 @@ function RateCards({
                         {[1, 2, 3, 4, 5].map((n) => (
                           <button
                             key={n}
+                            disabled={c.revealed && !!t.my_blind}
+                            title={c.revealed && t.my_blind ? "Rated blind — kept as it is" : undefined}
                             onClick={() =>
                               void api
                                 .rateLlmTrial(c.id, t.id, n)
                                 .then(onRated)
                                 .catch((e) => onError(errText(e)))
                             }
-                            className={`h-7 w-7 rounded-lg text-xs ${
+                            className={`h-7 w-7 rounded-lg text-xs disabled:cursor-not-allowed ${
                               t.my_score !== null && n <= t.my_score ? "bg-amber-400 text-black" : "bg-white/5 text-neutral-400 hover:bg-white/10"
                             }`}
                           >

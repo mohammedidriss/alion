@@ -25,7 +25,7 @@ export function RingsideLogo({ size = 36 }: { size?: number }) {
       {/* Ropes; the middle one carries the pulse */}
       <g stroke="#0a0a0f" strokeWidth={3.5} strokeLinecap="round" strokeLinejoin="round" fill="none">
         <path d="M17 21H47" />
-        <path d="M17 32H25L28.5 24L33.5 40L37 32H47" />
+        <path d="M17 32H25L28.5 26L33.5 38L37 32H47" />
         <path d="M17 43H47" />
       </g>
     </svg>

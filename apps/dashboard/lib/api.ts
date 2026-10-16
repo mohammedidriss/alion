@@ -334,6 +334,7 @@ export interface LlmComparisonTrial {
     error?: string;
   };
   my_score: number | null;
+  my_blind?: boolean | null; // rated before the names were shown — kept as it is
 }
 export interface LlmComparison {
   id: string;
@@ -2193,7 +2194,26 @@ export const api = {
     req<void>(`/sessions/${id}/attachments/${attachmentId}`, {
       method: "DELETE",
     }),
-  eventsCsvUrl: (id: string) => `${BASE}/sessions/${id}/events.csv`,
+  /** A session's punch events as CSV, fetched with the login (a plain link has
+   *  none, and the API refuses it). */
+  downloadEventsCsv: async (id: string): Promise<void> => {
+    const token =
+      (typeof window !== "undefined" &&
+        (localStorage.getItem("alion.token") ?? sessionStorage.getItem("alion.token"))) ||
+      "";
+    const r = await fetch(`${BASE}/sessions/${id}/events.csv`, {
+      headers: token ? { Authorization: `Bearer ${token}` } : {},
+    });
+    if (!r.ok) throw new Error(`CSV failed (${r.status})`);
+    const name =
+      /filename="([^"]+)"/.exec(r.headers.get("content-disposition") ?? "")?.[1] ?? `ringsideiq-${id}-events.csv`;
+    const url = URL.createObjectURL(await r.blob());
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = name;
+    a.click();
+    URL.revokeObjectURL(url);
+  },
   captureStatus: (id: string) =>
     req<CaptureStatus>(`/sessions/${id}/capture/status`),
   listEvents: (id: string) => req<PunchEvent[]>(`/sessions/${id}/events`),

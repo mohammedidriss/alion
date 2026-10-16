@@ -121,7 +121,10 @@ def detect_punches(
 
     events = []
     for p in kept:
-        window = np.flatnonzero(np.abs(t - t[p]) <= smooth_ms)
+        # The samples within smooth_ms of the hump (t is sorted: a slice, not a scan).
+        lo = int(np.searchsorted(t, t[p] - smooth_ms, side="left"))
+        hi = int(np.searchsorted(t, t[p] + smooth_ms, side="right"))
+        window = np.arange(lo, hi)
         j = int(window[np.argmax(dyn[window])])
         clipped = bool(np.any(np.abs(acc[window]) >= CLIP_G))
         events.append(ImuPunch(t_ms=float(t[j]), peak_g=round(float(dyn[j]), 2), clipped=clipped))

@@ -25,7 +25,7 @@ from typing import Any
 import numpy as np
 
 from analyze import wrist_types as wt
-from analyze.imu_punches import ImuPunch, detect_punches
+from analyze.imu_punches import THRESHOLD_G, ImuPunch, detect_punches
 
 CANDIDATE: dict[str, Any] = {"threshold_g": 0.8, "min_gap_ms": 200.0}
 GAP_MS = 300.0  # two punches on one wrist are at least this far apart
@@ -103,10 +103,12 @@ def find(model: Any, threshold: float, streams: dict[str, Stream]) -> dict[str, 
         other = streams.get("right" if hand == "left" else "left")
         cands = candidates(*stream)
         x, idx = rows(stream, hand, cands, other)
-        probs: dict[int, float] = {}
+        # A candidate with no usable window (a dropout in the sensor's stream) is
+        # judged as the fixed settings would: kept if it's tall enough (ADR-064).
+        probs = {k: (1.0 if c.peak_g >= THRESHOLD_G else 0.0) for k, c in enumerate(cands)}
         if len(idx):
             p = model.predict_proba(x)[:, list(model.classes_).index(1)]
-            probs = {k: float(v) for k, v in zip(idx, p, strict=True)}
+            probs |= {k: float(v) for k, v in zip(idx, p, strict=True)}
         out[hand] = keep(cands, probs, threshold)
     return out
 

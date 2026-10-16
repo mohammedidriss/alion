@@ -41,7 +41,7 @@ import numpy as np
 
 from analyze import classify_punch_type, punch_model
 from analyze.punch_fusion import camera_punches
-from api.services import dataset_export, dataset_store, session_corpus
+from api.services import dataset_export, dataset_store, model_files, session_corpus
 from common import get_logger
 from contracts import Hand, Landmark, PoseFrame, WorldLandmark
 from studies import DetectedPunch, match_events
@@ -435,7 +435,6 @@ def _others_stretches(dataset_id: UUID) -> tuple[list[Stretch], list[dict[str, A
 def run(dataset_id: UUID, include_others: bool = True) -> dict[str, Any]:
     """Train and score; returns (and saves) the report. With `include_others`, the
     other exported datasets' takes join the training stretches (ADR-059)."""
-    import joblib  # type: ignore[import-untyped, import-not-found, unused-ignore]
 
     manifest = json.loads(manifest_path(dataset_id).read_text())
     train = _stretches(dataset_id, manifest, "train")
@@ -498,7 +497,7 @@ def run(dataset_id: UUID, include_others: bool = True) -> dict[str, Any]:
     out_dir.mkdir(parents=True, exist_ok=True)
     version = 1 + max((int(p.stem[1:]) for p in out_dir.glob("v*.json")), default=0)
     model_file = out_dir / f"v{version}.joblib"
-    joblib.dump(
+    model_files.dump(
         {
             "model": model,
             "threshold": threshold,
@@ -564,7 +563,7 @@ def run(dataset_id: UUID, include_others: bool = True) -> dict[str, Any]:
         },
         "warnings": list(manifest.get("warnings") or []),
     }
-    (out_dir / f"v{version}.json").write_text(json.dumps(report, indent=2))
+    model_files.write_json(report, out_dir / f"v{version}.json")  # last: now it's in use
     log.info(
         "training.done",
         extra={

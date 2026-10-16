@@ -64,8 +64,14 @@ def test_each_linked_phone_joins_its_corner(authed_client: TestClient, capture_d
     phones = authed_client.get("/v2/studio").json()["phones"]
     assert phones == [{"phone_id": "front", "label": "front", "corner": None}]
 
+    _poll(authed_client, token, "left")  # the second phone opens its camera page
     authed_client.put("/v2/studio/phones/front/corner", json={"corner": "red"})
     authed_client.put("/v2/studio/phones/left/corner", json={"corner": "blue"})
+    # A phone the studio has never seen can't be given a corner.
+    assert (
+        authed_client.put("/v2/studio/phones/ghost/corner", json={"corner": "red"}).status_code
+        == 404
+    )
     red = _poll(authed_client, token, "front")["active"]
     blue = _poll(authed_client, token, "left")["active"]
     assert (red["kind"], red["id"], red["corner"], red["bout_id"]) == (
@@ -95,6 +101,7 @@ def test_corners_are_remembered_for_the_next_fight_and_for_a_restart(
 
     first, _ = _fight(authed_client)
     authed_client.put("/v2/studio/active", json={"kind": "bout", "id": first})
+    _poll(authed_client, _token(authed_client), "front")
     authed_client.put("/v2/studio/phones/front/corner", json={"corner": "red"})
     second, sessions = _fight(authed_client)
     authed_client.put("/v2/studio/active", json={"kind": "bout", "id": second})
@@ -116,6 +123,7 @@ def test_a_missing_corner_or_someone_elses_fight(
 ) -> None:
     bid, _ = _fight(authed_client, corners=("red",))
     authed_client.put("/v2/studio/active", json={"kind": "bout", "id": bid})
+    _poll(authed_client, _token(authed_client), "left")
     authed_client.put("/v2/studio/phones/left/corner", json={"corner": "blue"})
     assert _poll(authed_client, _token(authed_client), "left")["note"] == (
         "This fight has no blue corner yet"

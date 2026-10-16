@@ -16,7 +16,7 @@ from sklearn.model_selection import train_test_split
 
 
 def main():
-    print("🧠 ALION ML MODEL TRAINING 🧠\n")
+    print("🧠 RINGSIDEIQ ML MODEL TRAINING 🧠\n")
 
     csv_path = Path("data/ml/punches_dataset.csv")
     if not csv_path.exists():

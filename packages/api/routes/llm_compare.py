@@ -24,6 +24,7 @@ import csv
 import io
 import json
 import random
+import re
 import statistics
 import threading
 from collections import Counter, defaultdict
@@ -52,11 +53,13 @@ BACKGROUND = True  # tests switch the thread off and the comparison runs in the 
 MAX_MODELS = 4
 MAX_SESSIONS = 5
 MAX_REPEATS = 3
-MAX_ROUNDS = 12
+MAX_ROUNDS = 24  # a session can have up to 24 rounds
+WAKE_TIMEOUT_S = 180.0  # a model that hasn't woken by then is reported, not waited on
 CODES = "ABCD"
 
 _lock = threading.Lock()
 _running: set[UUID] = set()
+_rating_lock = threading.Lock()
 _stop: set[UUID] = set()
 
 
@@ -93,20 +96,27 @@ def _run(cid: UUID, db: DBSession | None = None) -> None:
     """Run the comparison's trials in order: model by model (woken first, untimed),
     repeat by repeat, session by session, round by round."""
     gen: Generator[DBSession, None, None] | None = None
-    if db is None:
-        own: Generator[DBSession, None, None] = get_session()  # type: ignore[assignment]
-        gen, db = own, next(own)
-    assert db is not None
-    c = db.get(LlmComparison, cid)
-    if c is None:
-        return
+    c: LlmComparison | None = None
+    # One event loop for the whole run: the model clients made for one trial are
+    # closed on the loop they were made on, not on a later trial's.
+    loop = asyncio.new_event_loop()
     try:
+        if db is None:
+            own: Generator[DBSession, None, None] = get_session()  # type: ignore[assignment]
+            gen, db = own, next(own)
+        c = db.get(LlmComparison, cid)
+        if c is None:
+            return
         sessions = _sessions(c)
         for m in _models(c):
             setup = llm_setups.setups().get(m["choice"])
             if setup is not None:
                 _step(db, c, f"Waking model {m['code']} (not timed)…")
-                asyncio.run(ping(setup.url, setup.api_key, m["model"]))
+                loop.run_until_complete(
+                    asyncio.wait_for(
+                        ping(setup.url, setup.api_key, m["model"]), timeout=WAKE_TIMEOUT_S
+                    )
+                )
             for rep in range(1, c.repeats + 1):
                 for k, s in enumerate(sessions, 1):
                     for rnd in range(1, int(s["rounds"]) + 1):
@@ -119,28 +129,55 @@ def _run(cid: UUID, db: DBSession | None = None) -> None:
                             f"Model {m['code']} — session {k} of {len(sessions)}, "
                             f"round {rnd} of {s['rounds']}, run {rep} of {c.repeats}",
                         )
-                        db.add(_trial(db, m, setup, UUID(s["id"]), rnd, rep, cid))
+                        db.add(_trial(db, loop, m, setup, UUID(s["id"]), rnd, rep, cid))
                         db.commit()
         c.status = "done"
     except Exception as e:  # recorded, not raised: the thread has nobody to tell
         log.exception("llm_compare.failed", extra={"_ctx_comparison": str(cid)})
-        c.status = "failed"
-        c.step = f"Failed: {e}"[:200]
+        if db is not None:
+            db.rollback()
+        if c is not None:
+            c.status = "failed"
+            c.step = _blind(f"Failed: {e}", _models(c))[:200]
     finally:
-        c.finished_at = datetime.now(UTC)
-        if c.status == "running":
-            c.status = "done"
-        db.add(c)
-        db.commit()
-        with _lock:
-            _running.discard(cid)
-            _stop.discard(cid)
-        if gen is not None:
-            gen.close()
+        try:
+            if db is not None and c is not None:
+                c.finished_at = datetime.now(UTC)
+                if c.status == "running":
+                    c.status = "done"
+                db.add(c)
+                db.commit()
+        except Exception:  # the row stays "running"; _settle stops it once it's free
+            log.exception("llm_compare.finish_failed", extra={"_ctx_comparison": str(cid)})
+            if db is not None:
+                db.rollback()
+        finally:
+            # Always free the slot — a stuck one would refuse every comparison after.
+            with _lock:
+                _running.discard(cid)
+                _stop.discard(cid)
+            loop.close()
+            if gen is not None:
+                gen.close()
+
+
+def _blind(text: str, models: list[dict[str, str]]) -> str:
+    """Error text with each model's setup and name replaced by its code, so nothing
+    shown before "Reveal names" says which model it was."""
+    for setup in llm_setups.setups().values():  # addresses first: "localhost" holds "local"
+        text = text.replace(setup.url, "the model's address")
+    for m in models:
+        for name in (m.get("model"), m.get("choice"), m.get("label")):
+            if name:
+                text = re.sub(
+                    rf"(?<![\w.:-]){re.escape(name)}(?![\w.:-])", f"model {m['code']}", text
+                )
+    return text
 
 
 def _trial(
     db: DBSession,
+    loop: asyncio.AbstractEventLoop,
     m: dict[str, str],
     setup: llm_setups.LlmSetup | None,
     session_id: UUID,
@@ -158,15 +195,15 @@ def _trial(
         repeat=rep,
     )
     if setup is None:
-        row.detail = json.dumps({"error": f"No '{m['choice']}' AI is configured any more"})
+        row.detail = json.dumps({"error": "This model's setup isn't configured any more"})
         return row
     try:
-        out = asyncio.run(run_trial(db, setup, m["model"], session_id, rnd))
+        out = loop.run_until_complete(run_trial(db, setup, m["model"], session_id, rnd))
     except HTTPException as e:
-        row.detail = json.dumps({"error": str(e.detail)})
+        row.detail = json.dumps({"error": _blind(str(e.detail), [m])})
         return row
     except Exception as e:
-        row.detail = json.dumps({"error": str(e)[:300]})
+        row.detail = json.dumps({"error": _blind(str(e), [m])[:300]})
         return row
     row.seconds = out["seconds"]
     row.answered = bool(out["answered"])
@@ -182,6 +219,7 @@ def _trial(
 def _settle(db: DBSession, c: LlmComparison) -> LlmComparison:
     """A comparison left "running" with nothing running it (the server restarted
     mid-run) is stopped — its trials so far are kept."""
+    db.refresh(c)  # the runner may have just finished it
     with _lock:
         orphan = c.status == "running" and c.id not in _running
     if orphan:
@@ -212,7 +250,11 @@ def _ratings(db: DBSession, cid: UUID) -> list[LlmRating]:
 def _summary(
     m: dict[str, str], rows: list[LlmTrialResult], ratings: list[LlmRating], revealed: bool
 ) -> dict[str, Any]:
+    # A round with no facts asks no model anything: it's in no count.
+    rows = [r for r in rows if json.loads(r.detail or "{}").get("facts", 1) != 0]
     secs = [r.seconds for r in rows if r.answered and r.seconds is not None]
+    # Slowest includes the runs that never answered (a timeout is the slowest of all).
+    every = [r.seconds for r in rows if r.seconds is not None]
     gates: Counter[str] = Counter()
     errors = 0
     for r in rows:
@@ -223,9 +265,8 @@ def _summary(
                 gates[str(v["gate"]).split(":")[0]] += 1
     # The same round run more than once: did every run pass as many cards?
     by_round: dict[tuple[UUID, int], list[int]] = defaultdict(list)
-    for r in rows:
-        if r.answered:
-            by_round[(r.session_id, r.after_round)].append(r.passed)
+    for r in rows:  # an unanswered run passed no cards
+        by_round[(r.session_id, r.after_round)].append(r.passed if r.answered else 0)
     repeated = [v for v in by_round.values() if len(v) > 1]
     ids = {r.id for r in rows}
     mine = [x for x in ratings if x.trial_id in ids]
@@ -236,7 +277,7 @@ def _summary(
         "answered": sum(r.answered for r in rows),
         "avg_seconds": round(statistics.fmean(secs), 1) if secs else None,
         "median_seconds": round(statistics.median(secs), 1) if secs else None,
-        "slowest_seconds": max(secs) if secs else None,
+        "slowest_seconds": max(every) if every else None,
         "in_time": sum(r.in_time for r in rows),
         "written": sum(r.written for r in rows),
         "passed": sum(r.passed for r in rows),
@@ -282,7 +323,7 @@ def _out(db: DBSession, c: LlmComparison, viewer: access.Viewer, *, trials: bool
         ],
     }
     if trials:
-        mine = {x.trial_id: x.score for x in ratings if x.rater_id == viewer.user.id}
+        mine = {x.trial_id: x for x in ratings if x.rater_id == viewer.user.id}
         out["trials"] = [
             {
                 "id": r.id,
@@ -297,7 +338,9 @@ def _out(db: DBSession, c: LlmComparison, viewer: access.Viewer, *, trials: bool
                 "written": r.written,
                 "passed": r.passed,
                 "detail": json.loads(r.detail or "{}"),
-                "my_score": mine.get(r.id or 0),
+                "my_score": mine[r.id].score if r.id in mine else None,
+                # Given blind: it stays as it is once the names are shown.
+                "my_blind": mine[r.id].blind if r.id in mine else None,
             }
             for r in rows
         ]
@@ -333,9 +376,6 @@ def start_comparison(
         sessions.append(
             {"id": str(sid), "rounds": rounds, "started_at": row.started_at.isoformat()}
         )
-    with _lock:
-        if _running:
-            raise HTTPException(status_code=409, detail="A comparison is running — stop it or wait")
     total = len(models) * body.repeats * sum(int(s["rounds"]) for s in sessions)
     c = LlmComparison(
         created_by=viewer.user.id,
@@ -344,11 +384,19 @@ def start_comparison(
         repeats=body.repeats,
         total=total,
     )
-    db.add(c)
-    db.commit()
-    db.refresh(c)
+    # One at a time: the slot is taken in the same step as the check, before saving.
     with _lock:
+        if _running:
+            raise HTTPException(status_code=409, detail="A comparison is running — stop it or wait")
         _running.add(c.id)
+    try:
+        db.add(c)
+        db.commit()
+        db.refresh(c)
+    except Exception:
+        with _lock:
+            _running.discard(c.id)
+        raise
     if BACKGROUND:
         threading.Thread(target=_run, args=(c.id,), daemon=True).start()
     else:
@@ -416,18 +464,25 @@ def rate(
     trial = db.get(LlmTrialResult, trial_id)
     if trial is None or trial.comparison_id != cid:
         raise HTTPException(status_code=404, detail="No such trial in this comparison")
-    row = db.exec(
-        select(LlmRating).where(
-            LlmRating.trial_id == trial_id, LlmRating.rater_id == viewer.user.id
+    with _rating_lock:  # read then write: one rating per rater and trial
+        row = db.exec(
+            select(LlmRating).where(
+                LlmRating.trial_id == trial_id, LlmRating.rater_id == viewer.user.id
+            )
+        ).first()
+        if row is not None and row.blind and c.revealed_at is not None:
+            raise HTTPException(
+                status_code=409,
+                detail="You rated this one blind — that rating is kept now that the names are shown",
+            )
+        row = row or LlmRating(
+            comparison_id=cid, trial_id=trial_id, rater_id=viewer.user.id, score=body.score
         )
-    ).first() or LlmRating(
-        comparison_id=cid, trial_id=trial_id, rater_id=viewer.user.id, score=body.score
-    )
-    row.score = body.score
-    row.blind = c.revealed_at is None
-    row.created_at = datetime.now(UTC)
-    db.add(row)
-    db.commit()
+        row.score = body.score
+        row.blind = c.revealed_at is None
+        row.created_at = datetime.now(UTC)
+        db.add(row)
+        db.commit()
     return {"trial_id": trial_id, "score": row.score, "blind": row.blind}
 
 
@@ -438,7 +493,7 @@ def export_csv(
     db: DBSession = Depends(db_session),
 ) -> Response:
     """Every trial as a row — the model's name only once revealed — with its mean
-    rating, for analysis outside Alion."""
+    rating, for analysis outside RingsideIQ."""
     c = _get(db, cid)
     revealed = c.revealed_at is not None
     ratings = _ratings(db, cid)

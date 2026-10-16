@@ -681,7 +681,9 @@ def export_events_csv(
     return Response(
         content=buf.getvalue(),
         media_type="text/csv",
-        headers={"Content-Disposition": f'attachment; filename="alion-{session_id}-events.csv"'},
+        headers={
+            "Content-Disposition": f'attachment; filename="ringsideiq-{session_id}-events.csv"'
+        },
     )
 
 

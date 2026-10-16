@@ -21,6 +21,7 @@ session (one the coach may record); a phone without a corner waits.
 from __future__ import annotations
 
 import json
+import os
 import secrets
 import threading
 import time
@@ -65,13 +66,22 @@ def _read_state(user_id: str) -> dict[str, object]:
         return {}
 
 
+_write_lock = threading.Lock()
+
+
 def _write_state(user_id: str, **fields: object) -> None:
-    data = {**_read_state(user_id), **fields}
-    try:
-        _STATE_DIR.mkdir(parents=True, exist_ok=True)
-        _state_file(user_id).write_text(json.dumps(data))
-    except OSError:
-        pass  # in-memory state still works until a restart
+    """Merge `fields` into the studio's saved state — one writer at a time, and the
+    file replaced in one step, so a reader never finds it half-written (ADR-064)."""
+    with _write_lock:
+        data = {**_read_state(user_id), **fields}
+        try:
+            _STATE_DIR.mkdir(parents=True, exist_ok=True)
+            path = _state_file(user_id)
+            tmp = path.with_name(f".{path.name}.tmp")
+            tmp.write_text(json.dumps(data))
+            os.replace(tmp, path)
+        except OSError:
+            pass  # in-memory state still works until a restart
 
 
 def _nonce(user_id: str) -> str:
@@ -192,8 +202,10 @@ def set_active(
             viewer.require(row.fighter_id, access.Level.TRAINING_WRITE)
     elif body.kind == "bout":
         corners = [s for s in bouts.participants(body.id) if s.removed_at is None]
-        if corners and not any(
-            viewer.can(s.fighter_id, access.Level.TRAINING_WRITE) for s in corners
+        sets_up = viewer.coach_id is not None or viewer.manager_gym is not None or viewer.researcher
+        if (not corners and not sets_up) or (
+            corners
+            and not any(viewer.can(s.fighter_id, access.Level.TRAINING_WRITE) for s in corners)
         ):
             raise HTTPException(
                 status_code=403, detail="Neither corner of this fight is yours to record"
@@ -230,6 +242,9 @@ def set_phone_corner(
     after, until it's changed (ADR-063)."""
     uid = str(user.id)
     corners = _corners(uid)
+    known = {str(p["phone_id"]) for p in _live_phones(uid)} | set(corners)
+    if phone_id[:40] not in known:
+        raise HTTPException(status_code=404, detail="No such phone in your studio")
     if body.corner is None:
         corners.pop(phone_id[:40], None)
     else:
@@ -288,17 +303,23 @@ def station_state(
     a = _get_active(uid)
     if not a:
         return StationState(active=None)
+    owner = db.get(User, UUID(uid))
+    if owner is None or not owner.is_active or owner.removed_at is not None:
+        return StationState(active=None)  # the studio's owner can't record any more
     if a["kind"] == "bout":
         return _fight_station(uid, UUID(a["id"]), phone_id[:40], bouts, db)
     cid = UUID(a["id"])
     row = sessions.get(cid) if a["kind"] == "session" else None
+    viewer = access.Viewer(owner, db)
     exists = (
-        row is not None and row.removed_at is None
+        row is not None
+        and row.removed_at is None
+        and viewer.can(row.fighter_id, access.Level.TRAINING_WRITE)
         if a["kind"] == "session"
-        else dataset_store.take_dir(cid) is not None
+        else dataset_store.take_dir(cid) is not None and viewer.researcher
     )
     if not exists:
-        return StationState(active=None)  # deleted since — wait for the next capture
+        return StationState(active=None)  # gone since, or no longer theirs to record
     return StationState(
         active=StationActive(
             kind=a["kind"],  # type: ignore[arg-type]

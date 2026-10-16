@@ -1,4 +1,4 @@
-"""Record a live webcam session and sync results to a remote Alion API.
+"""Record a live webcam session and sync results to a remote RingsideIQ API.
 
 Usage:
     uv run python scripts/record_api.py \\
@@ -103,7 +103,7 @@ def main() -> None:
     if args.show:
         import cv2
 
-        cv2.namedWindow("Alion — live", cv2.WINDOW_NORMAL)
+        cv2.namedWindow("RingsideIQ — live", cv2.WINDOW_NORMAL)
 
         def on_raw_frame(raw, pose) -> None:  # type: ignore[no-untyped-def]
             if pose is not None:
@@ -123,7 +123,7 @@ def main() -> None:
                         color,
                         3,
                     )
-            cv2.imshow("Alion — live", raw)
+            cv2.imshow("RingsideIQ — live", raw)
             if cv2.waitKey(1) & 0xFF == ord("q"):
                 raise KeyboardInterrupt()
 

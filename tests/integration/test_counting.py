@@ -38,6 +38,44 @@ def test_the_live_reading_counts_each_wrists_punches(
     session.commit()
     assert authed_client.get(f"/v2/sessions/{sid}/live").json()["wrist_punches"]["right"] == 4
 
+    # The capture starts over (its clock goes back to 0): the count starts over too.
+    again = _imu_rows(UUID(sid), {"right": [1000]}, {"right": 2000, "left": 2000})
+    session.add_all(again)
+    session.commit()
+    assert authed_client.get(f"/v2/sessions/{sid}/live").json()["wrist_punches"] == {
+        "left": 0,
+        "right": 1,
+    }
+
+
+def test_a_long_session_is_counted_once_not_over_and_over() -> None:
+    """Counted piece by piece as it arrives, a long stream gives the same count as
+    counting it all at once, and old samples are let go (ADR-064)."""
+    import numpy as np
+
+    from api.services import wrist_counter, wrist_live
+
+    rng = np.random.default_rng(0)
+    t = np.arange(0.0, 600_000.0, 10.0)  # 10 minutes at 100 Hz
+    punches = np.arange(1000.0, 599_000.0, 1700.0)
+    imu = np.zeros((len(t), 6))
+    imu[:, 2] = 1.0
+    for at in punches:
+        near = np.abs(t - at) <= 60
+        imu[near, 0] += 5.0 * (1 - np.abs(t[near] - at) / 60)
+    imu += rng.normal(0, 0.03, imu.shape)
+    whole = len(
+        wrist_counter.find({"right": (t, imu), "left": (t, imu * [0, 0, 1, 0, 0, 0])})["right"]
+    )
+    st = wrist_live._Stream()
+    for i in range(len(t)):
+        wrist_live._add(st, "right", float(t[i]), tuple(imu[i]))
+        wrist_live._add(st, "left", float(t[i]), (0.0, 0.0, float(imu[i, 2]), 0.0, 0.0, 0.0))
+        if i % 150 == 0:  # a poll every 1.5 s
+            wrist_live._count(st)
+    assert wrist_live._count(st) == {"left": 0, "right": whole} and whole == len(punches)
+    assert len(st.t["right"]) < 1000  # only the last few seconds are kept
+
 
 def test_a_take_is_counted_from_its_csv_as_it_grows(tmp_path: Path) -> None:
     from uuid import uuid4
@@ -115,3 +153,29 @@ def test_the_counter_learns_from_every_dataset_and_counts_the_cameras(
     assert any(e.velocity_ms > 0 for e in found)
     shown = authed_client.get("/v2/punch-counter").json()["counter"]
     assert shown["version"] == 2 and shown["dataset_name"] == "RQ2"
+
+
+def test_a_camera_counter_worse_than_the_detector_is_never_used(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """ADR-064: the newest counter by its report, and only one that beat the detector."""
+    import json
+
+    import joblib  # type: ignore[import-untyped]
+
+    from api.services import punch_counter
+
+    monkeypatch.setattr(punch_counter, "MODELS_DIR", tmp_path)
+    punch_counter._cache.clear()
+    d = tmp_path / "ds1"
+    d.mkdir()
+
+    def save(v: int, f1: float, when: str) -> None:
+        joblib.dump({"model": None, "threshold": 0.5}, d / f"v{v}.joblib")
+        report = {"created_at": when, "test": {"model": {"f1": f1}, "baseline": {"f1": 0.6}}}
+        (d / f"v{v}.json").write_text(json.dumps(report))
+
+    save(1, 0.8, "2026-10-01T00:00:00+00:00")
+    save(2, 0.5, "2026-10-02T00:00:00+00:00")  # newer, but worse than the detector
+    cur = punch_counter.current()
+    assert cur is not None and cur["version"] == 1

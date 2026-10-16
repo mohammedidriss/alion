@@ -22,7 +22,7 @@ from capture.cv.pose import PoseEstimator
 
 
 def main():
-    print("🥊 ALION ML DATA COLLECTION 🥊\n")
+    print("🥊 RINGSIDEIQ ML DATA COLLECTION 🥊\n")
     print("Stand in front of the camera.")
 
     classes = ["jab", "cross", "hook", "uppercut"]

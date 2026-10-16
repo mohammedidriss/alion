@@ -3,6 +3,7 @@
 - **Status**: Accepted
 - **Date**: 2026-10-15
 - **Phase**: 6
+- **Amended by**: ADR-064 — fixes from the full review
 
 ## Context
 

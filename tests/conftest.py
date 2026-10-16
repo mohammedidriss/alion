@@ -89,10 +89,12 @@ def authed_client(session: Session, monkeypatch: pytest.MonkeyPatch) -> Iterator
     def _override() -> Iterator[Session]:
         yield session
 
-    monkeypatch.setattr(researchers, "emails", lambda: {RESEARCHER_EMAIL})
     app.dependency_overrides[db_session] = _override
     with TestClient(app) as c:
+        # The account first, then the list: a listed address can't be signed up for
+        # (ADR-064) — a researcher's account is set up, then put on the list.
         token = _signed_in(c, RESEARCHER_EMAIL, "Test Coach", "coach")
+        monkeypatch.setattr(researchers, "emails", lambda: {RESEARCHER_EMAIL})
         c.headers.update({"Authorization": f"Bearer {token}"})
         yield c
     app.dependency_overrides.clear()

@@ -22,7 +22,7 @@ from capture.cv.pose import PoseEstimator
 
 
 def main():
-    print("🥊 ALION ML LIVE TEST 🥊\n")
+    print("🥊 RINGSIDEIQ ML LIVE TEST 🥊\n")
 
     model_path = Path("data/ml/punch_classifier_v1.pkl")
     if not model_path.exists():

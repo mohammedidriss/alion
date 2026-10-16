@@ -25,6 +25,7 @@ import { CameraNode } from "@/components/CameraNode";
 import { imuErrorText } from "@/components/ImuSensors";
 import { getPairedDevice } from "@/components/PolarH10Card";
 import { PunchDots, PunchOverlay } from "@/components/PunchDots";
+import { QUALITY_BOTH, QUALITY_FPS, QualityBadge } from "@/components/QualityBadge";
 import { RestMode } from "@/components/RestMode";
 import { RoundTimer } from "@/components/SessionRounds";
 import { StreamStrip, useStreams } from "@/components/StreamStrip";
@@ -181,12 +182,20 @@ export function MulticamPanel({
 
   // While recording with the wrists on, their punch count is the headline (ADR-059):
   // each wrist counts its own punches, so a still hand that shakes adds nothing.
+  // Only while both wrists are connected: one dead or dropped sensor isn't a count,
+  // and the cameras' estimate shows again (ADR-064).
   useEffect(() => {
     if (captureStartMs === null || !imuMine) return;
     let alive = true;
+    let inFlight = false; // a slow reply doesn't stack a second request behind it
     const poll = async () => {
+      if (inFlight) return;
+      inFlight = true;
       const r = await api.liveReading(cap).catch(() => null);
-      if (alive && r?.wrist_punches) setWrist(r.wrist_punches);
+      inFlight = false;
+      if (!alive || !r) return;
+      const both = !!r.imu.units.left?.connected && !!r.imu.units.right?.connected;
+      setWrist(both && r.wrist_punches ? r.wrist_punches : null);
     };
     poll();
     const id = setInterval(poll, 1500);
@@ -729,28 +738,6 @@ export function MulticamPanel({
         </p>
       )}
     </div>
-  );
-}
-
-const QUALITY_BOTH = 0.7;
-const QUALITY_FPS = 25;
-
-/** What a camera sees of the wrists, and how fast its pose runs (ADR-059). */
-function QualityBadge({ q }: { q: CamQuality }) {
-  const ok = q.both >= QUALITY_BOTH && q.fps >= QUALITY_FPS;
-  return (
-    <span
-      title={
-        `Both wrists in view ${Math.round(q.both * 100)}% of the last few seconds ` +
-        `(left ${Math.round(q.left * 100)}%, right ${Math.round(q.right * 100)}%); ` +
-        `pose at ${Math.round(q.fps)} frames a second`
-      }
-      className={`absolute left-1 top-1 rounded px-1.5 py-0.5 text-[10px] font-semibold ${
-        ok ? "bg-black/60 text-emerald-300" : "bg-amber-500/90 text-black"
-      }`}
-    >
-      {ok ? "✓" : "⚠"} both wrists {Math.round(q.both * 100)}% · {Math.round(q.fps)} fps
-    </span>
   );
 }
 

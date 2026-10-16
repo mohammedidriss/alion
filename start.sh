@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Start Alion backend + frontend. Run from project root.
+# Start RingsideIQ backend + frontend. Run from project root.
 set -e
 
 DIR="$(cd "$(dirname "$0")" && pwd)"
@@ -11,7 +11,7 @@ if [ -f "$PIDFILE" ]; then
   "$DIR/stop.sh" 2>/dev/null || true
 fi
 
-echo "Starting Alion..."
+echo "Starting RingsideIQ..."
 
 # Backend (FastAPI) — launched in a Terminal.app tab so the process
 # inherits Terminal's macOS camera TCC grant. Without this, the
@@ -39,7 +39,7 @@ echo "$FRONTEND_PID" >> "$PIDFILE"
 disown "$FRONTEND_PID"
 
 echo ""
-echo "Alion is running:"
+echo "RingsideIQ is running:"
 echo "  Backend:  http://localhost:8000  (PID ${BACKEND_PID:-pending})"
 echo "  Frontend: http://localhost:3000  (PID $FRONTEND_PID)"
 echo ""

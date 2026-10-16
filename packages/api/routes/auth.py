@@ -317,6 +317,8 @@ def register(
                 else ""
             ),
         )
+    if _listed(data.email):
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail=_KEPT_FOR_RESEARCHER)
     existing = repo.get_by_email(data.email)
     if existing:
         raise HTTPException(
@@ -507,6 +509,13 @@ def update_me(
         if not _EMAIL_RE.match(email):
             raise HTTPException(status_code=422, detail="Invalid email format")
         if email != user.email:
+            if _listed(email):  # research access comes with a listed address (ADR-064)
+                raise HTTPException(status_code=403, detail=_KEPT_FOR_RESEARCHER)
+            if user.role == UserRole.RESEARCHER:
+                raise HTTPException(
+                    status_code=409,
+                    detail="A researcher's account keeps its listed email — ask to change the list",
+                )
             existing = repo.get_by_email(email)
             if existing:
                 raise HTTPException(status_code=409, detail="Email already in use")
@@ -578,6 +587,41 @@ def system_admin_id(db: DBSession) -> UUID | None:
         select(User).where(User.role == UserRole.ADMIN).order_by(col(User.created_at), col(User.id))
     ).first()
     return row.id if row else None
+
+
+_KEPT_FOR_RESEARCHER = (
+    "This address is kept for a researcher's account — a researcher or the system "
+    "administrator sets it up"
+)
+
+
+def _listed(email: str | None) -> bool:
+    return bool(email) and email.strip().lower() in researchers.emails()  # type: ignore[union-attr]
+
+
+def _is_research_account(user: User) -> bool:
+    return user.role == UserRole.RESEARCHER or researchers.is_researcher(user)
+
+
+def _may_grant_research(db: DBSession, actor: User) -> bool:
+    """Who may give an account a researcher's address or role (ADR-064): a
+    researcher, or the system administrator — not any administrator."""
+    return researchers.is_researcher(actor) or actor.id == system_admin_id(db)
+
+
+def _guard_researcher(db: DBSession, actor: User, target: User, action: str) -> None:
+    """Only a researcher, the system administrator or the account itself changes a
+    researcher's account — another administrator can't reset its password, take
+    its email or disable it."""
+    if (
+        target.id != actor.id
+        and _is_research_account(target)
+        and not _may_grant_research(db, actor)
+    ):
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail=f"Only a researcher can {action} a researcher's account",
+        )
 
 
 def _guard_system_admin(db: DBSession, target: User, action: str) -> None:
@@ -712,6 +756,10 @@ def admin_create_user(
 ) -> UserRead:
     """Create a user account (admin only). Auto-creates a linked profile for all roles
     that have one (a researcher, a physician and an admin don't)."""
+    if (data.role == UserRole.RESEARCHER or _listed(data.email)) and not _may_grant_research(
+        session, _admin
+    ):
+        raise HTTPException(status_code=403, detail=_KEPT_FOR_RESEARCHER)
     if data.role == UserRole.RESEARCHER:
         _require_listed(data.email)
     if data.role == UserRole.GYM_MANAGER and data.gym_id is None:
@@ -759,6 +807,7 @@ def admin_reset_password(
     _not_removed(target)
     if target.id != _admin.id:
         _guard_system_admin(db, target, "given a new password by anyone else")
+    _guard_researcher(db, _admin, target, "reset the password of")
     new_hash = _hash_password(data.new_password)
     repo.update(user_id, {"password_hash": new_hash})
     return {"status": "ok", "message": f"Password reset for {target.email}"}
@@ -786,20 +835,33 @@ def admin_update_user(
     if target is None:
         raise HTTPException(status_code=404, detail="User not found")
     _not_removed(target)
+    _guard_researcher(db, _admin, target, "change")
     if data.is_active is False:
         _guard_system_admin(db, target, "disabled")
     if data.role is not None and data.role != UserRole.ADMIN:
         _guard_system_admin(db, target, "given another role")
+    if data.role == UserRole.ADMIN and target.role != UserRole.ADMIN:
+        _keep_system_admin(db, target)
+    email = data.email.strip().lower() if data.email is not None else None
+    if email is not None and email != target.email:
+        if target.id != _admin.id:
+            _guard_system_admin(db, target, "given a new email by anyone else")
+        if _listed(email) and not _may_grant_research(db, _admin):
+            raise HTTPException(status_code=403, detail=_KEPT_FOR_RESEARCHER)
+        if target.role == UserRole.RESEARCHER and not _listed(email):
+            raise HTTPException(
+                status_code=409, detail="A researcher's account keeps a listed email"
+            )
+        if repo.get_by_email(email) is not None:  # addresses are kept in lower case
+            raise HTTPException(status_code=409, detail="Email already in use")
     becomes_researcher = data.role == UserRole.RESEARCHER and target.role != UserRole.RESEARCHER
+    if becomes_researcher and not _may_grant_research(db, _admin):
+        raise HTTPException(status_code=403, detail=_KEPT_FOR_RESEARCHER)
     if data.role == UserRole.RESEARCHER:
-        _require_listed(data.email or target.email)
-    if (
-        data.email is not None
-        and data.email.strip().lower() != target.email
-        and target.id != _admin.id
-    ):
-        _guard_system_admin(db, target, "given a new email by anyone else")
+        _require_listed(email or target.email)
     fields = {k: v for k, v in data.model_dump().items() if v is not None}
+    if email is not None:
+        fields["email"] = email
     if not fields:
         raise HTTPException(status_code=400, detail="No fields to update")
     was_researcher = target.role == UserRole.RESEARCHER
@@ -811,16 +873,52 @@ def admin_update_user(
         updated.profile_id = None
     elif (
         updated is not None
-        and was_researcher
-        and updated.role != UserRole.RESEARCHER
-        and updated.profile_id is None
+        and data.role is not None
+        and (
+            (was_researcher and updated.role != UserRole.RESEARCHER and updated.profile_id is None)
+            or (
+                updated.role in _PROFILE_ROLES
+                and _profile_kind(db, updated.profile_id) != updated.role
+            )
+        )
     ):
-        # Back from researcher to a role with a profile: a new one, as at sign-up.
+        # A role with a profile of its own: a new one, as at sign-up — back from
+        # researcher, or a fighter made a coach (ADR-064). The old profile, with
+        # whatever it recorded, stays as it is.
         profile_id = _create_profile_for_role(updated, db)
         if profile_id:
             repo.set_profile_id(user_id, profile_id)
             updated.profile_id = profile_id
     return UserRead.model_validate(updated, from_attributes=True)
+
+
+_PROFILE_ROLES = (UserRole.FIGHTER, UserRole.COACH, UserRole.REFEREE)
+
+
+def _profile_kind(db: DBSession, profile_id: UUID | None) -> UserRole | None:
+    """Which kind of profile an id is — a fighter's, a coach's or a referee's."""
+    if profile_id is None:
+        return None
+    for role, repo in (
+        (UserRole.FIGHTER, FighterRepo(db)),
+        (UserRole.COACH, CoachRepo(db)),
+        (UserRole.REFEREE, RefereeRepo(db)),
+    ):
+        if repo.get(profile_id) is not None:
+            return role
+    return None
+
+
+def _keep_system_admin(db: DBSession, target: User) -> None:
+    """Promoting an account older than the system administrator would make it the
+    system administrator (the earliest admin) — and free the founder to be removed."""
+    founder = system_admin_id(db)
+    row = db.get(User, founder) if founder else None
+    if row is not None and (target.created_at, target.id) < (row.created_at, row.id):
+        raise HTTPException(
+            status_code=409,
+            detail="This account predates the system administrator, so it can't be made an admin",
+        )
 
 
 def _require_listed(email: str) -> None:
@@ -957,6 +1055,7 @@ def admin_deactivate_user(
         raise HTTPException(status_code=404, detail="User not found")
     _not_removed(target)
     _guard_system_admin(db, target, "disabled")
+    _guard_researcher(db, _admin, target, "disable")
     repo.update(user_id, {"is_active": False})
     return {"status": "ok", "message": f"Deactivated {target.email}"}
 
@@ -966,12 +1065,14 @@ def admin_activate_user(
     user_id: UUID,
     _admin: User = Depends(_require_admin),
     repo: UserRepo = Depends(_user_repo),
+    db: DBSession = Depends(db_session),
 ) -> dict[str, str]:
     """Re-activate a previously deactivated user."""
     target = repo.get(user_id)
     if target is None:
         raise HTTPException(status_code=404, detail="User not found")
     _not_removed(target)
+    _guard_researcher(db, _admin, target, "enable")
     repo.update(user_id, {"is_active": True})
     return {"status": "ok", "message": f"Activated {target.email}"}
 

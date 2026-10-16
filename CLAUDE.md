@@ -6,7 +6,7 @@ This file is the primary brief for any AI agent (or new human contributor) worki
 
 RingsideIQ (formerly Alion, renamed 15 Oct 2026, ADR-061) is the validation artifact for a DBA dissertation at Golden Gate University: a multi-modal AI coaching platform for combat sports (boxing as the validation domain). Three sensor streams (CV, IMU, HRV) → fusion engine → LLM coaching layer. **Not a medical device. Not diagnostic. Advisory only.** All athlete data is local-only (IRB / SDAIA compliance).
 
-The code still says `alion` on purpose — the `ALION_*` settings, `data/alion.db`, the browser's `alion.*` keys, package names and the phone app id `ai.alion.app`; what people read says RingsideIQ.
+The code still says `alion` on purpose — the `ALION_*` settings, `data/alion.db`, the browser's `alion.*` / `alion:*` keys, package names and the phone app id `ai.alion.app`; what people read says RingsideIQ.
 
 The full vision lives in `Combat_Intel_Build_Brief.md` (referenced from outside the repo).
 

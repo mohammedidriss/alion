@@ -14,8 +14,9 @@ from tests.integration.test_access import _session, _signup
 LISTED = "res@alion.test"
 
 
-@pytest.fixture(autouse=True)
-def _listed(monkeypatch: pytest.MonkeyPatch) -> None:
+def _list(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Put LISTED on the researchers list — after its account exists, as a listed
+    address can't be signed up for (ADR-064)."""
     from api.services import researchers
 
     monkeypatch.setattr(researchers, "emails", lambda: {RESEARCHER_EMAIL, LISTED})
@@ -26,9 +27,10 @@ def _user_id(admin: TestClient, email: str) -> str:
 
 
 def test_a_listed_fighter_becomes_a_researcher_and_their_profile_stays(
-    client: TestClient, admin_client: TestClient
+    client: TestClient, admin_client: TestClient, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     me = _signup(client, LISTED, "fighter")
+    _list(monkeypatch)
     sid = _session(client, me)
     uid = _user_id(admin_client, LISTED)
 
@@ -50,9 +52,10 @@ def test_a_listed_fighter_becomes_a_researcher_and_their_profile_stays(
 
 
 def test_only_a_listed_email_can_be_a_researcher(
-    client: TestClient, admin_client: TestClient
+    client: TestClient, admin_client: TestClient, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     _signup(client, "plain@alion.test", "fighter")
+    _list(monkeypatch)
     uid = _user_id(admin_client, "plain@alion.test")
     r = admin_client.patch(f"/auth/admin/users/{uid}", json={"role": "researcher"})
     assert r.status_code == 409 and "researcher" in r.json()["detail"]
@@ -87,9 +90,10 @@ def test_the_system_administrator_is_never_made_a_researcher(admin_client: TestC
 
 
 def test_back_from_researcher_gets_a_new_profile(
-    client: TestClient, admin_client: TestClient
+    client: TestClient, admin_client: TestClient, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     me = _signup(client, LISTED, "fighter")
+    _list(monkeypatch)
     uid = _user_id(admin_client, LISTED)
     admin_client.patch(f"/auth/admin/users/{uid}", json={"role": "researcher"})
     r = admin_client.patch(f"/auth/admin/users/{uid}", json={"role": "coach"})

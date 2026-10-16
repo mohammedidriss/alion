@@ -1,6 +1,6 @@
 """Render the phone apps' icons and splash screens from the RingsideIQ mark (ADR-061).
 
-    python scripts/brand_icons.py     (from apps/dashboard; needs rsvg-convert and Pillow)
+    python3 scripts/brand_icons.py    (from apps/dashboard; needs rsvg-convert and Pillow)
 
 Every existing image is replaced at its own size: the iOS app icon (full-bleed,
 no transparency — the App Store refuses it), Android's launcher icons (square,
@@ -25,7 +25,7 @@ GRADIENT = """<defs><linearGradient id="g" x1="0" y1="0" x2="1" y2="1">
 ROPES = """<rect x="12" y="13" width="5" height="38" rx="2.5" fill="#0a0a0f"/>
 <rect x="47" y="13" width="5" height="38" rx="2.5" fill="#0a0a0f"/>
 <g stroke="#0a0a0f" stroke-width="3.5" stroke-linecap="round" stroke-linejoin="round" fill="none">
-<path d="M17 21H47"/><path d="M17 32H25L28.5 24L33.5 40L37 32H47"/><path d="M17 43H47"/></g>"""
+<path d="M17 21H47"/><path d="M17 32H25L28.5 26L33.5 38L37 32H47"/><path d="M17 43H47"/></g>"""
 
 
 def _svg(body: str) -> str:
@@ -55,8 +55,11 @@ def render(svg: str, size: int) -> Image.Image:
 
 def round_icon(size: int) -> Image.Image:
     img = render(full_bleed(0.72), size)
-    mask = Image.new("L", (size, size), 0)
-    ImageDraw.Draw(mask).ellipse((0, 0, size - 1, size - 1), fill=255)
+    # The circle drawn 4× larger and scaled down: a smooth edge, not a jagged one.
+    big = size * 4
+    mask = Image.new("L", (big, big), 0)
+    ImageDraw.Draw(mask).ellipse((0, 0, big - 1, big - 1), fill=255)
+    mask = mask.resize((size, size), Image.Resampling.LANCZOS)
     out = Image.new("RGBA", (size, size), (0, 0, 0, 0))
     out.paste(img, (0, 0), mask)
     return out

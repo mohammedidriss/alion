@@ -254,13 +254,13 @@ function SessionsTabContent({ params }: { params: { id: string } }) {
                     Open detail
                   </Link>
                   {punches > 0 && (
-                    <a
-                      href={api.eventsCsvUrl(s.id)}
-                      download={`ringsideiq-${s.id}-events.csv`}
+                    <button
+                      type="button"
+                      onClick={() => void api.downloadEventsCsv(s.id).catch(() => {})}
                       className="rounded-lg border border-white/5 bg-white/[0.03] px-2.5 py-1 hover:bg-white/[0.07]"
                     >
                       Events CSV
-                    </a>
+                    </button>
                   )}
                 </div>
               </div>

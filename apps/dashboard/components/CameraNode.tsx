@@ -12,6 +12,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { MEDIAPIPE_WASM, poseModelUrl } from "@/lib/mediapipe";
 import { PunchOverlay } from "@/components/PunchDots";
+import { QualityBadge } from "@/components/QualityBadge";
 import { PunchDetector, classifyPunchType } from "@/lib/punchDetector";
 import { addPunch, emptyTally, LIVE_TYPES } from "@/lib/punchTally";
 import { api, type CamQuality, type CaptureRef, type PunchTally } from "@/lib/api";
@@ -36,7 +37,10 @@ function noteSeen(
 }
 
 /** The share of recent frames each wrist was seen in, both at once, and the frame rate. */
-function wristQuality(seen: { t: number; l: boolean; r: boolean }[]): CamQuality | null {
+function wristQuality(seenAll: { t: number; l: boolean; r: boolean }[]): CamQuality | null {
+  // Only the last few seconds: a camera whose pose stopped has no quality to report.
+  const now = performance.now();
+  const seen = seenAll.filter((s) => now - s.t <= SEEN_WINDOW_MS);
   if (seen.length < 5) return null;
   const n = seen.length;
   const span = (seen[n - 1].t - seen[0].t) / 1000;
@@ -178,6 +182,7 @@ export function CameraNode({
   // How well this camera sees the wrists (ADR-059): each pose frame's time and which
   // wrists it saw, over the last couple of seconds — sent with every heartbeat.
   const seenRef = useRef<{ t: number; l: boolean; r: boolean }[]>([]);
+  const [quality, setQuality] = useState<CamQuality | null>(null); // shown on the laptop's tile
   const tallyRef = useRef<PunchTally>(emptyTally()); // the same punches by hand and type
   const pausedRef = useRef(false); // gates the pose loop while the coach has paused
   const pauseStartRef = useRef<number | null>(null); // when the current pause began
@@ -350,6 +355,8 @@ export function CameraNode({
               : poseReadyRef.current
                 ? "ready"
                 : "loading";
+        const q = wristQuality(seenRef.current);
+        setQuality(q);
         const st = await api.multicamHeartbeat(
           cap,
           token,
@@ -358,7 +365,7 @@ export function CameraNode({
           punchCountRef.current,
           labelRef.current,
           tallyRef.current,
-          wristQuality(seenRef.current),
+          q,
         );
         offsetRef.current = st.server_now_ms - Date.now();
         setStance(st.stance ?? null);
@@ -765,6 +772,7 @@ export function CameraNode({
             {recInfo}
           </div>
         )}
+        {tile && !recInfo && quality && <QualityBadge q={quality} />}
         {showPunches && (
           <div className="absolute right-1 top-1">
             <PunchOverlay types={LIVE_TYPES} total={punchCount} tally={tally} stance={stance} />

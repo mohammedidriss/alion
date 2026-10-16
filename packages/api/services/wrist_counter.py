@@ -34,9 +34,9 @@ from typing import Any
 import numpy as np
 
 from analyze import wrist_counter as wc
-from analyze.imu_punches import ImuPunch, detect_punches
+from analyze.imu_punches import THRESHOLD_G, ImuPunch, detect_punches
 from api.services import dataset_protocol as proto
-from api.services import dataset_store
+from api.services import dataset_store, model_files
 from api.services.wrist_type_model import _imu_streams
 from common import get_logger
 
@@ -102,6 +102,16 @@ def corpus(datasets: Path | None = None) -> tuple[list[Stretch], dict[str, Any]]
         if proto.hands_swapped(data):  # imu.csv is raw; the labels are corrected
             streams = {"left": streams["right"], "right": streams["left"]}
         tid = str(take.get("take_id", folder.name))
+        # Candidates and their features from each wrist's whole stream, so one at a
+        # block's edge sees its real neighbours, as it does when a round is counted.
+        whole: dict[str, tuple[list[ImuPunch], np.ndarray, list[int]]] = {}
+        for hand in ("left", "right"):
+            t, imu = streams[hand]
+            cands_all = wc.candidates(t, imu)
+            rows_all, idx_all = wc.rows(
+                (t, imu), hand, cands_all, streams["right" if hand == "left" else "left"]
+            )
+            whole[hand] = (cands_all, rows_all, idx_all)
         for b in data["blocks"]:
             if b.get("discarded") or b.get("t_end_ms") is None or b["key"] not in proto.SPECS:
                 continue
@@ -124,10 +134,13 @@ def corpus(datasets: Path | None = None) -> tuple[list[Stretch], dict[str, Any]]
                     for lab in labels
                     if lab["hand"] == hand and t0 <= lab["t_ms"] <= t1 and hand in wanted
                 )
-                cands = wc.candidates(ti, ii)
-                rows, idx = wc.rows(
-                    (t, imu), hand, cands, streams["right" if hand == "left" else "left"]
-                )
+                cands_all, rows_all, idx_all = whole[hand]
+                pos = [k for k, c in enumerate(cands_all) if t0 <= c.t_ms <= t1]
+                local = {k: i for i, k in enumerate(pos)}
+                cands = [cands_all[k] for k in pos]
+                keep_rows = [r for r, k in enumerate(idx_all) if k in local]
+                rows = rows_all[keep_rows] if keep_rows else np.zeros((0, wc.N_FEATURES))
+                idx = [local[idx_all[r]] for r in keep_rows]
                 hit = wc.matched([c.t_ms for c in cands], truth)
                 out.append(
                     Stretch(
@@ -195,9 +208,10 @@ def _score(found: list[list[float]], stretches: list[Stretch]) -> dict[str, Any]
 
 
 def _kept(s: Stretch, probs: np.ndarray, threshold: float) -> list[float]:
-    return [
-        c.t_ms for c in wc.keep(s.cands, dict(zip(s.idx, probs.tolist(), strict=True)), threshold)
-    ]
+    # As `wc.find`: a candidate without a usable window is judged by its height.
+    p = {k: (1.0 if c.peak_g >= THRESHOLD_G else 0.0) for k, c in enumerate(s.cands)}
+    p |= dict(zip(s.idx, probs.tolist(), strict=True))
+    return [c.t_ms for c in wc.keep(s.cands, p, threshold)]
 
 
 def train(datasets: Path | None = None) -> dict[str, Any]:
@@ -211,7 +225,6 @@ def train(datasets: Path | None = None) -> dict[str, Any]:
 
 
 def _train(datasets: Path | None) -> dict[str, Any]:
-    import joblib  # type: ignore[import-untyped, import-not-found, unused-ignore]
     from sklearn.model_selection import (  # type: ignore[import-untyped, import-not-found, unused-ignore]
         GroupKFold,
     )
@@ -248,10 +261,6 @@ def _train(datasets: Path | None) -> dict[str, Any]:
     model = _fit(x, y)
     MODEL_DIR.mkdir(parents=True, exist_ok=True)
     version = 1 + max((int(p.stem[1:]) for p in MODEL_DIR.glob("v*.json")), default=0)
-    joblib.dump(
-        {"model": model, "version": version, "threshold": threshold},
-        MODEL_DIR / f"v{version}.joblib",
-    )
     report = {
         "version": version,
         "created_at": datetime.datetime.now(datetime.UTC).isoformat(),
@@ -271,7 +280,12 @@ def _train(datasets: Path | None) -> dict[str, Any]:
             "detector": _score([s.detector for s in stretches], stretches),
         },
     }
-    (MODEL_DIR / f"v{version}.json").write_text(json.dumps(report, indent=2))
+    # The report first, then the model: a version is in use once both are whole.
+    model_files.write_json(report, MODEL_DIR / f"v{version}.json")
+    model_files.dump(
+        {"model": model, "version": version, "threshold": threshold},
+        MODEL_DIR / f"v{version}.joblib",
+    )
     log.info(
         "wrist_counter.trained",
         extra={"_ctx_version": version, "_ctx_f1": scores[threshold]["f1"]},
@@ -287,8 +301,23 @@ def latest_report() -> dict[str, Any] | None:
     return data
 
 
+def _beats_detector(path: Path) -> bool:
+    """A version is used only if, held out, it counted better than the fixed settings."""
+    try:
+        held = json.loads(path.with_suffix(".json").read_text())["held_out_takes"]
+        return bool(held["counter"]["f1"] >= held["detector"]["f1"])
+    except (OSError, ValueError, KeyError, TypeError):
+        return False
+
+
 def _latest_model() -> dict[str, Any] | None:
-    files = sorted(MODEL_DIR.glob("v*.joblib"), key=lambda p: int(p.stem[1:]))
+    """The newest version that beats the fixed settings and loads — None: count with
+    the fixed settings. A file that fails to load is remembered as failed, not
+    retried (and logged) on every count, until it changes."""
+    files = sorted(
+        (p for p in MODEL_DIR.glob("v*.joblib") if _beats_detector(p)),
+        key=lambda p: int(p.stem[1:]),
+    )
     if not files:
         return None
     path = files[-1]
@@ -296,24 +325,32 @@ def _latest_model() -> dict[str, Any] | None:
     with _lock:
         hit = _cache.get(str(path))
         if hit and hit[0] == mtime:
-            payload: dict[str, Any] = hit[1]
-            return payload
+            cached: dict[str, Any] | None = hit[1]
+            return cached
     import joblib  # type: ignore[import-untyped, import-not-found, unused-ignore]
 
-    payload = joblib.load(path)
+    loaded: dict[str, Any] | None
+    try:
+        loaded = joblib.load(path)
+        float(loaded["threshold"])
+    except Exception:
+        log.exception("wrist_counter.unreadable", extra={"_ctx_path": str(path)})
+        loaded = None
     with _lock:
         _cache.clear()
-        _cache[str(path)] = (mtime, payload)
-    return payload
+        _cache[str(path)] = (mtime, loaded)
+    return loaded
 
 
 def current_version() -> int | None:
     """The version counting the wrists' punches (None: the detector's defaults)."""
-    files = [int(p.stem[1:]) for p in MODEL_DIR.glob("v*.joblib")]
-    return max(files) if files else None
+    payload = _latest_model()
+    return int(payload["version"]) if payload is not None else None
 
 
 def label() -> str:
+    """What counts the wrists — the version that actually loaded, so a cross-check
+    made while a model was unreadable doesn't carry that model's name."""
     v = current_version()
     return f"wrist-counter v{v}" if v else "detector"
 
@@ -324,12 +361,12 @@ def find(streams: dict[str, wc.Stream]) -> dict[str, list[ImuPunch]]:
     ax, ay, az, gx, gy, gz); a wrist with too few samples finds nothing."""
     usable = {h: s for h, s in streams.items() if len(s[0]) >= MIN_SAMPLES}
     out: dict[str, list[ImuPunch]] = {h: [] for h in streams}
-    try:
-        payload = _latest_model()
-        if payload is not None:
+    payload = _latest_model()
+    if payload is not None:
+        try:
             return {**out, **wc.find(payload["model"], float(payload["threshold"]), usable)}
-    except Exception:  # a broken model file mustn't stop the counting
-        log.exception("wrist_counter.failed")
+        except Exception:  # a model that fails here mustn't stop the counting
+            log.exception("wrist_counter.failed")
     for hand, (t, imu) in usable.items():
         out[hand] = detect_punches(t, imu[:, 0], imu[:, 1], imu[:, 2])
     return out

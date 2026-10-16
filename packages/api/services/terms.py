@@ -12,7 +12,8 @@ from __future__ import annotations
 
 from pathlib import Path
 
-# Raise whenever terms.md changes; anything not "draft-…" is a real version.
+# Raise whenever terms.md changes what anyone agrees to; anything not "draft-…" is a
+# real version. A new product name alone (Alion → RingsideIQ, ADR-061) kept draft-4.
 TERMS_VERSION = "draft-4"  # draft-4: study participants only, 18+, all data trains the models
 TERMS_FILE = Path(__file__).with_name("terms.md")
 

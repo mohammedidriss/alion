@@ -1240,13 +1240,13 @@ function SessionPageContent({ params }: { params: { id: string } }) {
         <section className="rounded-lg border border-neutral-800 p-4">
           <div className="flex flex-wrap items-center justify-between gap-2">
             <h2 className="font-medium">Export</h2>
-            <a
-              href={api.eventsCsvUrl(id)}
-              download={`ringsideiq-${id}-events.csv`}
+            <button
+              type="button"
+              onClick={() => void api.downloadEventsCsv(id).catch(() => {})}
               className="rounded bg-neutral-800 px-3 py-1.5 text-sm hover:bg-neutral-700"
             >
               Download events CSV
-            </a>
+            </button>
           </div>
           {session.source === "uploaded_video" && session.video_path && (
             <div className="mt-3 flex items-center gap-2">

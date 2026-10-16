@@ -20,6 +20,7 @@ import { WristCounterCard } from "@/components/WristCounterCard";
 import { WristTypesCard } from "@/components/WristTypesCard";
 import { api, type DatasetSummary, type LlmSetup, type LlmStatus, type ProtocolBlockSpec } from "@/lib/api";
 import { ModelCompare } from "@/components/ModelCompare";
+import { useAuth } from "@/lib/auth";
 
 type TestResult = { ok: boolean; seconds: number; reply?: string; error?: string };
 
@@ -196,6 +197,7 @@ function PunchModels({ initialDataset }: { initialDataset: string | null }) {
 }
 
 function LanguageModel() {
+  const { user } = useAuth();
   const [st, setSt] = useState<LlmStatus | null>(null);
   const [err, setErr] = useState<string | null>(null);
   const [busy, setBusy] = useState<string | null>(null);
@@ -369,7 +371,10 @@ function LanguageModel() {
         Check again
       </button>
 
-      {st && st.setups.some((s) => s.models.length > 0) && <ModelCompare setups={st.setups} onChosen={() => void load()} />}
+      {/* Comparisons read the sessions' facts: researchers only (ADR-058). */}
+      {user?.is_researcher && st && st.setups.some((s) => s.models.length > 0) && (
+        <ModelCompare setups={st.setups} onChosen={() => void load()} />
+      )}
     </div>
   );
 }

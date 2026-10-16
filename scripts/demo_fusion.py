@@ -34,7 +34,7 @@ def print_timeline(name: str, stream: list[dict], spike_t: float):
 
 
 def main():
-    print("🥊 ALION: SYNTHETIC IMU FUSION DEMO 🥊\n")
+    print("🥊 RINGSIDEIQ: SYNTHETIC IMU FUSION DEMO 🥊\n")
 
     # 1. Simulate the CV Stream
     # The camera started exactly at T=0.

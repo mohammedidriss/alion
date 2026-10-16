@@ -4,6 +4,7 @@ and the coach's taps (ADR-043)."""
 
 from __future__ import annotations
 
+import json
 from collections.abc import Iterator
 from pathlib import Path
 from typing import Any
@@ -414,3 +415,94 @@ def test_a_saved_comparison_runs_every_round_and_is_rated_blind(
         client.get("/v2/llm/comparisons", headers={"Authorization": f"Bearer {tok}"}).status_code
         == 403
     )
+
+
+def test_a_comparison_counts_missed_runs_keeps_blind_ratings_and_frees_its_slot(
+    authed_client: TestClient,
+    sid: str,
+    two_setups: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Review fixes to ADR-058: a run that never answered counts against consistency
+    and as the slowest; a blind rating stays once the names are shown; and a run
+    that fails part-way frees the one-at-a-time slot."""
+    import coach
+    from api.routes import llm, llm_compare
+
+    monkeypatch.setattr(llm_compare, "BACKGROUND", False)
+    monkeypatch.setattr(llm, "installed_models", lambda url, key: ["gemma3:4b", "qwen3:8b"])
+
+    async def awake(url: str, key: str, model: str) -> dict[str, Any]:
+        return {"ok": True, "seconds": 0.1}
+
+    calls = {"n": 0}
+
+    async def flaky(
+        system: str,
+        user: str,
+        schema: dict[str, Any],
+        *,
+        timeout_s: float = 12.0,
+        target: tuple[str, str, str] | None = None,
+    ) -> dict[str, Any] | None:
+        calls["n"] += 1
+        return {"cards": []} if calls["n"] % 2 else None  # answers every other time
+
+    monkeypatch.setattr(llm_compare, "ping", awake)
+    monkeypatch.setattr(coach, "generate_json", flaky)
+    body = {
+        "models": [{"choice": "local", "model": "gemma3:4b"}],
+        "session_ids": [sid],
+        "repeats": 2,
+    }
+    out = authed_client.post("/v2/llm/comparisons", json=body).json()
+    model = out["models"][0]
+    assert model["answered"] < model["trials"]
+
+    # The summary's arithmetic, on rows made up for it.
+    from uuid import uuid4
+
+    from store import LlmTrialResult
+
+    s = uuid4()
+
+    def row(rnd: int, rep: int, passed: int, answered: bool, secs: float, facts: int) -> Any:
+        return LlmTrialResult(
+            id=rnd * 10 + rep, comparison_id=uuid4(), code="A", choice="local", model="m",
+            session_id=s, after_round=rnd, repeat=rep, seconds=secs, answered=answered,
+            in_time=answered and secs <= 12, written=passed, passed=passed,
+            detail=json.dumps({"facts": facts}),
+        )  # fmt: skip
+
+    rows = [
+        row(1, 1, 3, True, 5.0, 4),
+        row(1, 2, 0, False, 90.0, 4),  # timed out: counts as 0 cards, and as the slowest
+        row(2, 1, 2, True, 6.0, 4),
+        row(2, 2, 2, True, 7.0, 4),
+        row(3, 1, 0, False, 0.0, 0),  # no facts: nothing was asked — in no count
+        row(3, 2, 0, False, 0.0, 0),
+    ]
+    summary = llm_compare._summary({"code": "A", "choice": "local", "model": "m"}, rows, [], False)
+    assert summary["trials"] == 4 and summary["slots"] == 12
+    assert summary["consistent"] == 0.5  # round 1 went 3 then 0; round 2 went 2 and 2
+    assert summary["slowest_seconds"] == 90.0 and summary["median_seconds"] == 6.0
+
+    url = f"/v2/llm/comparisons/{out['id']}"
+    trial = next(t for t in authed_client.get(url).json()["trials"] if t["answered"])
+    authed_client.put(f"{url}/ratings/{trial['id']}", json={"score": 4})
+    authed_client.post(f"{url}/reveal")
+    again = authed_client.put(f"{url}/ratings/{trial['id']}", json={"score": 1})
+    assert again.status_code == 409
+    kept = next(t for t in authed_client.get(url).json()["trials"] if t["id"] == trial["id"])
+    assert kept["my_score"] == 4 and kept["my_blind"] is True
+
+    # A failure part-way: recorded as failed, and the next comparison may start.
+    def broken(*a: Any, **k: Any) -> Any:
+        raise RuntimeError("database is locked")
+
+    real_trial = llm_compare._trial
+    monkeypatch.setattr(llm_compare, "_trial", broken)
+    failed = authed_client.post("/v2/llm/comparisons", json=body).json()
+    assert failed["status"] == "failed"
+    monkeypatch.setattr(llm_compare, "_trial", real_trial)
+    assert authed_client.post("/v2/llm/comparisons", json=body).status_code == 201

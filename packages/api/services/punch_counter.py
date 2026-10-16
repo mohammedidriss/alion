@@ -36,37 +36,53 @@ _lock = threading.Lock()
 _cache: dict[str, Any] = {}
 
 
-def _newest() -> Path | None:
-    files = [p for p in MODELS_DIR.glob("*/v*.joblib") if p.with_suffix(".json").exists()]
-    return max(files, key=lambda p: p.stat().st_mtime) if files else None
+def _ranked() -> list[tuple[Path, dict[str, Any]]]:
+    """Every saved counter that, on its own held-out test, counted better than the
+    detector — newest trained first (by its report, not the file's date, which a
+    copy or a restore changes)."""
+    out = []
+    for p in MODELS_DIR.glob("*/v*.joblib"):
+        try:
+            report = json.loads(p.with_suffix(".json").read_text())
+            test = report["test"]
+            if float(test["model"]["f1"]) < float(test["baseline"]["f1"]):
+                continue  # never worse than the detector it replaces
+        except (OSError, ValueError, KeyError, TypeError):
+            continue
+        out.append((p, report))
+    return sorted(
+        out, key=lambda x: (str(x[1].get("created_at") or ""), x[0].stat().st_mtime), reverse=True
+    )
 
 
 def current() -> dict[str, Any] | None:
-    """The trained counter in use — the most recently trained — or None:
-    {model, threshold, label, dataset_id, version, report}."""
-    path = _newest()
-    if path is None:
+    """The trained counter in use — the most recently trained that beats the
+    detector — or None: {model, threshold, label, dataset_id, version, report}. A
+    file that fails to load is remembered as failed until it changes."""
+    ranked = _ranked()
+    if not ranked:
         return None
+    path, report = ranked[0]
     key = f"{path}:{path.stat().st_mtime}"
     with _lock:
         if _cache.get("key") == key:
             return _cache["value"]  # type: ignore[no-any-return]
     import joblib  # type: ignore[import-untyped, import-not-found, unused-ignore]
 
+    value: dict[str, Any] | None
     try:
         saved = joblib.load(path)
-        report = json.loads(path.with_suffix(".json").read_text())
+        value = {
+            "model": saved["model"],
+            "threshold": float(saved["threshold"]),
+            "dataset_id": path.parent.name,
+            "version": int(path.stem[1:]),
+            "label": f"{path.parent.name[:8]}/v{path.stem[1:]}",
+            "report": report,
+        }
     except Exception:  # an unreadable file: count with the detector
         log.exception("punch_counter.unreadable", extra={"_ctx_path": str(path)})
-        return None
-    value = {
-        "model": saved["model"],
-        "threshold": float(saved["threshold"]),
-        "dataset_id": path.parent.name,
-        "version": int(path.stem[1:]),
-        "label": f"{path.parent.name[:8]}/v{path.stem[1:]}",
-        "report": report,
-    }
+        value = None
     with _lock:
         _cache.update(key=key, value=value)
     return value

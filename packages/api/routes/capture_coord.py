@@ -43,7 +43,14 @@ from sqlmodel import Session as DBSession
 from api.deps import db_session, session_repo
 from api.routes.auth import require_current_user
 from api.routes.pose import PoseFrameIn, _to_landmarks, _to_world
-from api.services import cross_check, dataset_store, imu_runner, session_analysis, signed
+from api.services import (
+    cross_check,
+    dataset_store,
+    imu_runner,
+    session_analysis,
+    signed,
+    wrist_live,
+)
 from contracts import PoseFrame
 from store import Fighter, SessionRepo, SessionStatus
 
@@ -570,6 +577,7 @@ def start_capture(session_id: UUID) -> StartOut:
         c.pauses = []
         _save_state(session_id, c)
         imu_runner.set_t0(session_id, c.start_at_ms)  # pre-connected wrists store from t = 0
+        wrist_live.forget(session_id)  # a new recording counts from zero (ADR-064)
         out = StartOut(command=c.command, start_at_ms=c.start_at_ms, devices=len(c.devices))
     folder = _take_folder(session_id)
     if folder is not None:
@@ -690,6 +698,7 @@ def complete_capture(
     # wrist sensors and the cameras cross-checked (services.cross_check, started
     # by the pose uploads). /multicam/analyze is the old single-camera detector.
     sessions.update_status(session_id, SessionStatus.COMPLETED, end=True)
+    wrist_live.forget(session_id)  # done: its live count isn't needed any more
     return {"status": "completed", "clips": len(list_clips(session_id))}
 
 
@@ -743,8 +752,7 @@ def heartbeat(
         dev.status = body.status
         dev.punches = body.punches
         dev.tally = body.tally
-        if body.quality is not None:
-            dev.quality = body.quality
+        dev.quality = body.quality  # none sent: the camera has no fresh view to report
         dev.last_seen_ms = _now_ms()
         state = CaptureState(
             command=c.command,

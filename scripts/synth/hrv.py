@@ -1,4 +1,4 @@
-"""Synthetic HRV generator for Alion development.
+"""Synthetic HRV generator for RingsideIQ development.
 
 Until the Polar H10 arrives (2026-05-16), this stands in for real
 RR-interval data. Produces a realistic boxing-session HRV trace:
