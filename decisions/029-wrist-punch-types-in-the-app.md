@@ -57,3 +57,19 @@ differently in their sensors; rotating their axes into ours (gravity + the
 straight-punch direction) only reached **52.0 %**, and a direction-free model
 33 %. So the 85 % holds for the participant it was trained on, not for other
 boxers yet. `scripts/studies/zenodo_wrist_eval.py` re-runs the test.
+
+## Update — sensors worn on swapped wrists (2026-10-17)
+
+A take whose sensors were worn on the wrong wrists (`imu_hands_swapped` in its
+protocol.json, the protocol card's Swap wrists) keeps imu.csv raw; its labels.json
+is corrected. Training read the raw file, so every label in such a take got the
+other wrist's signal — in the RQ2 dataset two takes (8c87402d, 96d051d4), 468 of
+the 1,591 typed labels. Training now reads those takes the way they were worn
+(`_imu_streams(folder, swapped=…)`, which the wrist counter of ADR-060 uses as
+well). Versions 1 and 2 were trained after both takes were marked, so their
+85.1 % includes those punches read from the wrong wrist. On the same takes
+(1,590 typed punches, 17 Oct 2026), held out, the fix alone takes the model from
+**85.3 % to 96.0 %**: straights 89 → 99.6 %, hooks 84 → 96 %, uppercuts 77 → 85 %.
+The next version is the first on the corrected signal. The camera type model needs nothing: it pairs the
+labels with the arms the cameras see, not with imu.csv. The other boxers' set
+has no swapped takes. Test: `test_a_take_worn_on_swapped_wrists_is_read_the_way_it_was_worn`.

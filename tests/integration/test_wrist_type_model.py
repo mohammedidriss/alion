@@ -18,7 +18,12 @@ from tests.conftest import _signed_in
 SHAPE = {"jab": (0, 3), "cross": (0, 3), "hook": (1, 5), "uppercut": (2, 4)}
 
 
-def _take(root: Path, n: int, rng: np.random.Generator, person: str = "F-0001") -> None:
+def _take(
+    root: Path, n: int, rng: np.random.Generator, person: str = "F-0001", *, swapped: bool = False
+) -> None:
+    """`swapped`: the sensors were worn on the wrong wrists — imu.csv files each
+    wrist's rows under the other hand; labels.json keeps the true hands and
+    protocol.json marks the swap."""
     folder = root / "ds" / "takes" / f"take{n}"
     folder.mkdir(parents=True)
     labels, rows = [], []
@@ -38,12 +43,15 @@ def _take(root: Path, n: int, rng: np.random.Generator, person: str = "F-0001") 
                     a[acc_axis] += 5.0 * (1 - abs(t - at) / 60)
                     a[rot_axis] += 900.0 * (1 - abs(t - at) / 60)
             a = [v + float(rng.normal(0, 0.05 if k < 3 else 5)) for k, v in enumerate(a)]
-            rows.append([f"{t:.1f}", hand, *[f"{v:.4f}" for v in a]])
+            on_file = {"left": "right", "right": "left"}[hand] if swapped else hand
+            rows.append([f"{t:.1f}", on_file, *[f"{v:.4f}" for v in a]])
     with (folder / "imu.csv").open("w", newline="") as f:
         w = csv.writer(f)
         w.writerow(["t_ms", "hand", "ax_g", "ay_g", "az_g", "gx_dps", "gy_dps", "gz_dps"])
         w.writerows(rows)
     (folder / "labels.json").write_text(json.dumps(labels))
+    if swapped:
+        (folder / "protocol.json").write_text(json.dumps({"imu_hands_swapped": True}))
     (folder / "take.json").write_text(
         json.dumps(
             {
@@ -95,6 +103,24 @@ def test_it_names_punches_with_the_stance(takes: Path) -> None:
     t, imu = _imu_streams(takes / "ds" / "takes" / "take0")["right"]
     assert wrist_type_model.name(t, imu, [2000.0], "right", "orthodox") == [("straight", "cross")]
     assert wrist_type_model.name(t, imu, [2000.0], "right", "switch") == [("straight", None)]
+
+
+def test_a_take_worn_on_swapped_wrists_is_read_the_way_it_was_worn(tmp_path: Path) -> None:
+    from api.services import wrist_type_model
+    from api.services.wrist_type_model import _imu_streams
+
+    root = tmp_path / "datasets"
+    _take(root, 0, np.random.default_rng(5))
+    _take(root, 1, np.random.default_rng(5), swapped=True)  # the same punches, swapped
+    # take1's raw imu.csv: the left jab at 1 s is on the "right" rows, nothing on "left".
+    raw = _imu_streams(root / "ds" / "takes" / "take1")
+    assert raw["right"][1][raw["right"][0] == 1000.0, 0][0] > 3.0
+    assert abs(raw["left"][1][raw["left"][0] == 1000.0, 0][0]) < 1.0
+    x, y, hands, groups, _ = wrist_type_model.typed_punches(root)
+    assert (groups == "take1").sum() == (groups == "take0").sum() == 24
+    assert np.array_equal(y[groups == "take1"], y[groups == "take0"])
+    assert np.array_equal(hands[groups == "take1"], hands[groups == "take0"])
+    assert np.allclose(x[groups == "take1"], x[groups == "take0"])
 
 
 def test_only_researchers_train_or_read_it(authed_client: TestClient, takes: Path) -> None:

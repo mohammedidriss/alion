@@ -98,9 +98,8 @@ def corpus(datasets: Path | None = None) -> tuple[list[Stretch], dict[str, Any]]
             continue
         data = proto.load(folder)
         labels = json.loads(labels_file.read_text())
-        streams = _imu_streams(folder)
-        if proto.hands_swapped(data):  # imu.csv is raw; the labels are corrected
-            streams = {"left": streams["right"], "right": streams["left"]}
+        # imu.csv is raw; the labels are corrected (sensors worn swapped)
+        streams = _imu_streams(folder, swapped=proto.hands_swapped(data))
         tid = str(take.get("take_id", folder.name))
         # Candidates and their features from each wrist's whole stream, so one at a
         # block's edge sees its real neighbours, as it does when a round is counted.

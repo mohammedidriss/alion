@@ -3,10 +3,12 @@
 Trained on every completed dataset take's typed labels (read-only), straight
 from the take folders — no export needed: each label (t_ms, hand, jab | cross |
 hook | uppercut) gives one row of `analyze.wrist_types` features and its motion
-(straight / hook / uppercut). Before the final fit it is scored on takes it never
-saw (5-fold, grouped by take), and that score is saved with the model. Every
-recorded training session someone labelled with punch types joins in too
-(ADR-047, `session_corpus`), its wrist samples read from the database:
+(straight / hook / uppercut). A take whose sensors were worn on swapped wrists is
+read the way they were worn: imu.csv stays raw, its labels are already corrected.
+Before the final fit it is scored on takes it never saw (5-fold, grouped by take),
+and that score is saved with the model. Every recorded training session someone
+labelled with punch types joins in too (ADR-047, `session_corpus`), its wrist
+samples read from the database:
 
     data/ml/wrist_types/v{n}.joblib   the model
     data/ml/wrist_types/v{n}.json     its report
@@ -28,7 +30,7 @@ from typing import Any
 import numpy as np
 
 from analyze import wrist_types as wt
-from api.services import dataset_store, session_corpus
+from api.services import dataset_protocol, dataset_store, session_corpus
 from common import get_logger
 
 log = get_logger(__name__)
@@ -58,7 +60,12 @@ class BusyError(RuntimeError):
     """A training run is already going."""
 
 
-def _imu_streams(folder: Path) -> dict[str, tuple[np.ndarray, np.ndarray]]:
+def _imu_streams(
+    folder: Path, *, swapped: bool = False
+) -> dict[str, tuple[np.ndarray, np.ndarray]]:
+    """{hand: (t_ms, (n, 6) ax, ay, az, gx, gy, gz)} from a take's imu.csv. `swapped`
+    reads the file's "left" as the right wrist and vice versa (the take's sensors
+    were worn on the wrong wrists — `dataset_protocol.hands_swapped`)."""
     rows: dict[str, list[list[float]]] = {"left": [], "right": []}
     with (folder / "imu.csv").open(newline="") as f:
         for r in csv.DictReader(f):
@@ -78,6 +85,8 @@ def _imu_streams(folder: Path) -> dict[str, tuple[np.ndarray, np.ndarray]]:
     for h, rr in rows.items():
         a = np.array(sorted(rr), dtype=float).reshape(-1, 7)
         out[h] = (a[:, 0], a[:, 1:])
+    if swapped:
+        out = {"left": out["right"], "right": out["left"]}
     return out
 
 
@@ -105,7 +114,10 @@ def typed_punches(
         typed = [lab for lab in labels if lab.get("punch_type") in wt.TYPE_TO_MOTION]
         if not typed:
             continue
-        streams = _imu_streams(folder)
+        # imu.csv is raw; labels.json is already corrected for swapped sensors.
+        streams = _imu_streams(
+            folder, swapped=dataset_protocol.hands_swapped(dataset_protocol.load(folder))
+        )
         kind = "combo" if str(take.get("block") or "").startswith("combo") else "single"
         before = len(ys)
         for lab in typed:
