@@ -135,7 +135,45 @@ def test_blocks_become_typed_labels_on_the_right_wrist(
     # Provenance lives in the protocol side's own file, never in take.json.
     prov = json.loads((_folder(tid) / "protocol.json").read_text())["labels"]
     assert prov["detector"]["name"] == "analyze.imu_punches" and prov["stance"] == "southpaw"
+    assert prov["detector"]["free"] == "detector"  # no wrist counter trained here
     assert "labels" not in json.loads((_folder(tid) / "take.json").read_text())
+
+
+def test_free_shadowboxing_is_labelled_by_the_wrist_counter(
+    authed_client: TestClient, clock: Clock, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """ADR-068: with a wrist counter trained, a free block's labels are its punches —
+    inside the block, either hand, no type — and the provenance names it; the
+    other blocks are labelled as before."""
+    from analyze.imu_punches import ImuPunch
+    from api.services import wrist_counter
+
+    seen: dict[str, float] = {}
+
+    def counter(streams: dict) -> dict:  # type: ignore[type-arg]
+        seen.update({h: float(t.min()) for h, (t, _imu) in streams.items() if len(t)})
+        return {
+            "left": [ImuPunch(11500.0, 3.0), ImuPunch(13200.0, 2.5)],  # before / in the block
+            "right": [ImuPunch(14000.0, 4.0), ImuPunch(15600.0, 4.0)],  # in / after it
+        }
+
+    monkeypatch.setattr(wrist_counter, "find", counter)
+    monkeypatch.setattr(wrist_counter, "label", lambda: "wrist-counter v9")
+    tid = _take(authed_client, _dataset(authed_client), "orthodox")
+    _write_imu(tid, _imu_lines("left", 17, [1000, 2000]) + _imu_lines("right", 17, [13500]))
+    _block(authed_client, clock, tid, "jab", 0, 5000)
+    _block(authed_client, clock, tid, "free", 12000, 15000)
+    labels = json.loads((_folder(tid) / "labels.json").read_text())
+    got = [(round(lab["t_ms"], -2), lab["hand"], lab["punch_type"]) for lab in labels]
+    assert got == [
+        (1000, "left", "jab"),
+        (2000, "left", "jab"),
+        (13200, "left", None),
+        (14000, "right", None),
+    ]
+    assert min(seen.values()) >= 11000  # it saw a second before the block for context
+    prov = json.loads((_folder(tid) / "protocol.json").read_text())["labels"]
+    assert prov["detector"]["free"] == "wrist-counter v9"
 
 
 def test_open_block_live_count_reads_only_rows_written_since_it_began(

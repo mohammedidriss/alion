@@ -257,9 +257,44 @@ def read_imu(folder: Path, start_byte: int = 0, *, swapped: bool = False) -> Wri
     return out
 
 
+Streams6 = dict[str, tuple[np.ndarray, np.ndarray]]  # hand → (t_ms, (n, 6) ax…gz)
+
+
+def read_imu6(folder: Path, start_byte: int = 0, *, swapped: bool = False) -> Streams6:
+    """{hand: (t_ms, (n, 6) ax, ay, az, gx, gy, gz)} from imu.csv — as `read_imu`,
+    with the rotation (zeros where the file has none): what the wrist counter
+    reads (ADR-068)."""
+    cols: dict[str, list[list[float]]] = {h: [] for h in HANDS}
+    try:
+        with (folder / "imu.csv").open("rb") as f:
+            f.seek(start_byte)
+            raw = f.read().decode("utf-8", errors="replace")
+    except OSError:
+        raw = ""
+    for line in raw.split("\n")[:-1]:
+        parts = line.split(",")
+        if len(parts) < 5 or parts[1] not in cols:
+            continue
+        try:
+            nums = [float(x) for x in (parts[0], *parts[2:8])]
+        except ValueError:
+            continue
+        cols[parts[1]].append(nums + [0.0] * (7 - len(nums)))
+    if swapped:
+        cols = {"left": cols["right"], "right": cols["left"]}
+    out: Streams6 = {}
+    for hand, rows in cols.items():
+        if rows:
+            a = np.asarray(sorted(rows))
+            out[hand] = (a[:, 0], a[:, 1:7])
+    return out
+
+
 # --------------------------------------------------------------------------
 # Labeling
 # --------------------------------------------------------------------------
+
+FREE_MARGIN_MS = 1000.0  # what the wrist counter sees past a free block's edges
 
 
 def lead_hand(stance: str | None) -> str:
@@ -375,6 +410,7 @@ def label_block(
     stance: str | None,
     *,
     until_ms: float | None = None,
+    full: Streams6 | None = None,
 ) -> BlockResult:
     """Punches inside one block, labeled with its type and hand. `until_ms` closes
     a still-running block for a live count."""
@@ -384,6 +420,8 @@ def label_block(
         return BlockResult(index, spec.key, 0, 0, [])
     if spec.kind == "combo":
         return _label_combos(wrists, index, spec, block["t_start_ms"], t_end, stance)
+    if spec.kind == "free" and full is not None:
+        return _label_free(full, index, spec, float(block["t_start_ms"]), float(t_end))
     wanted = expected_hands(spec, stance)
     detected, off_hand = 0, 0
     labels: list[dict[str, Any]] = []
@@ -403,6 +441,29 @@ def label_block(
     return BlockResult(index, spec.key, detected, off_hand, labels)
 
 
+def _label_free(full: Streams6, index: int, spec: BlockSpec, t0: float, t1: float) -> BlockResult:
+    """Free shadowboxing, whose punches are any type on either hand, labelled by the
+    wrists' trained counter (ADR-068) — the fixed settings missed gentle hooks and
+    counted an uppercut's return to guard. It sees a second past each edge for
+    context and keeps the punches inside. With no counter trained, it falls back
+    to those fixed settings."""
+    from api.services import wrist_counter  # (it reads this module)
+
+    window = {
+        h: (t[(t >= t0 - FREE_MARGIN_MS) & (t <= t1 + FREE_MARGIN_MS)],
+            imu[(t >= t0 - FREE_MARGIN_MS) & (t <= t1 + FREE_MARGIN_MS)])
+        for h, (t, imu) in full.items()
+    }  # fmt: skip
+    found = wrist_counter.find(window)
+    labels = [
+        {"t_ms": round(e.t_ms, 1), "hand": hand, "punch_type": spec.punch_type}
+        for hand in sorted(found)
+        for e in found[hand]
+        if t0 <= e.t_ms <= t1
+    ]
+    return BlockResult(index, spec.key, len(labels), 0, sorted(labels, key=lambda x: x["t_ms"]))
+
+
 def live_count(
     folder: Path, data: dict[str, Any], stance: str | None, now_ms: float
 ) -> BlockResult | None:
@@ -411,8 +472,10 @@ def live_count(
     if i is None:
         return None
     block = data["blocks"][i]
-    wrists = read_imu(folder, block.get("imu_byte", 0), swapped=hands_swapped(data))
-    return label_block(wrists, i, block, stance, until_ms=now_ms)
+    start, swapped = block.get("imu_byte", 0), hands_swapped(data)
+    wrists = read_imu(folder, start, swapped=swapped)
+    full = read_imu6(folder, start, swapped=swapped) if SPECS[block["key"]].kind == "free" else None
+    return label_block(wrists, i, block, stance, until_ms=now_ms, full=full)
 
 
 # --------------------------------------------------------------------------
@@ -490,9 +553,12 @@ def generate_labels(
             "The labels were edited after they were generated — regenerating would "
             "replace that review. Pass overwrite to do it anyway."
         )
+    from api.services import wrist_counter  # (it reads this module)
+
     wrists = read_imu(folder, swapped=hands_swapped(data))
+    full = read_imu6(folder, swapped=hands_swapped(data))
     results = [
-        label_block(wrists, i, b, stance)
+        label_block(wrists, i, b, stance, full=full)
         for i, b in enumerate(data["blocks"])
         if not b.get("discarded") and b.get("t_end_ms") is not None
     ]
@@ -514,6 +580,9 @@ def generate_labels(
             "min_gap_ms": MIN_GAP_MS,
             "smooth_ms": SMOOTH_MS,
             "profiles": PROFILES,  # per punch type, inside typed blocks
+            # Free shadowboxing: the wrists' trained counter (ADR-068), or "detector"
+            # (the fixed settings above) when none is trained.
+            "free": wrist_counter.label(),
         },
     }
     return results
