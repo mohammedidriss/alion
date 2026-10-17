@@ -328,6 +328,13 @@ class BlockResult:
 COMBO_DETECT: dict[str, Any] = {"threshold_g": 1.2, "min_gap_ms": 250.0}
 COMBO_MIN_STEP_MS = 120.0  # the next punch of a combo comes at least this much later
 COMBO_BREAK_RANGE_MS = (900.0, 2500.0)  # where the between-combos pause can sit
+# A punch's burst can follow a smaller one on the same wrist (the hand twitching
+# ~0.3 s before the jab): of the wrist's bursts within this of the first one it
+# may take, a punch takes the strongest (ADR-070).
+COMBO_LOCAL_MS = 400.0
+# A combo started just before the cue still counts (ADR-070): bursts are read
+# from this long before the block's start. Blocks are at least 5 s apart.
+COMBO_PRE_CUE_MS = 1000.0
 
 
 def combo_break_ms(gaps_ms: Sequence[float], expected: int | None) -> float:
@@ -350,56 +357,77 @@ def combo_break_ms(gaps_ms: Sequence[float], expected: int | None) -> float:
     return float(np.clip((asc[j] + asc[j + 1]) / 2, lo, hi))
 
 
+Burst = tuple[float, str, float]  # time (ms), wrist, peak (g)
+
+
+def _combo_picks(
+    group: Sequence[Burst],
+    hands: Sequence[str],
+    prev: float = float("-inf"),
+    taken: frozenset[int] = frozenset(),
+) -> list[int] | None:
+    """The bursts a combo's punches take, in order (None: it can't complete).
+    Each punch takes the strongest of its wrist's bursts within COMBO_LOCAL_MS of
+    the first one it may take, as long as the rest of the combo can still follow."""
+    if not hands:
+        return []
+    eligible = [
+        k
+        for k, (tk, hk, _) in enumerate(group)
+        if hk == hands[0] and k not in taken and tk >= prev + COMBO_MIN_STEP_MS
+    ]
+    if not eligible:
+        return None
+    first = group[eligible[0]][0]
+    near = [k for k in eligible if group[k][0] <= first + COMBO_LOCAL_MS]
+    for k in sorted(near, key=lambda k: (-group[k][2], k)):
+        rest = _combo_picks(group, hands[1:], group[k][0], taken | {k})
+        if rest is not None:
+            return [k, *rest]
+    return None
+
+
 def _label_combos(
     wrists: Wrists, index: int, spec: BlockSpec, t0: float, t1: float, stance: str | None
 ) -> BlockResult:
     """Group the block's bursts (both wrists) into combos and walk each combo's
-    sequence in order: every punch takes the next burst on its own wrist. Only
-    complete combos are labeled; `detected` counts them, `off_hand` counts the
-    incomplete ones for review."""
+    sequence in order: every punch takes the strongest of the next few bursts on
+    its own wrist (`_combo_picks`). A combo started up to COMBO_PRE_CUE_MS before
+    the cue counts. Only complete combos are labeled; `detected` counts them,
+    `off_hand` counts the incomplete ones for review."""
     lead = lead_hand(stance)
     rear = "right" if lead == "left" else "left"
-    bursts: list[tuple[float, str]] = []
+    bursts: list[Burst] = []
     for hand, (t, ax, ay, az) in wrists.items():
-        inside = (t >= t0) & (t <= t1)
+        inside = (t >= t0 - COMBO_PRE_CUE_MS) & (t <= t1)
         bursts += [
-            (e.t_ms, hand)
+            (e.t_ms, hand, e.peak_g)
             for e in detect_punches(t[inside], ax[inside], ay[inside], az[inside], **COMBO_DETECT)
         ]
     bursts.sort()
     brk = combo_break_ms([b[0] - a[0] for a, b in itertools.pairwise(bursts)], spec.reps)
-    groups: list[list[tuple[float, str]]] = []
+    groups: list[list[Burst]] = []
     for b in bursts:
         if groups and b[0] - groups[-1][-1][0] < brk:
             groups[-1].append(b)
         else:
             groups.append([b])
+    sequence = spec.sequence or ()
+    hands = [lead if side == "lead" else rear for _, side in sequence]
     complete, incomplete = 0, 0
     labels: list[dict[str, Any]] = []
     for group in groups:
-        combo: list[dict[str, Any]] = []
-        used: set[int] = set()
-        prev = float("-inf")
-        for punch_type, side in spec.sequence or ():
-            hand = lead if side == "lead" else rear
-            pick = next(
-                (
-                    k
-                    for k, (tk, hk) in enumerate(group)
-                    if hk == hand and k not in used and tk >= prev + COMBO_MIN_STEP_MS
-                ),
-                None,
-            )
-            if pick is None:
-                break
-            used.add(pick)
-            prev = group[pick][0]
-            combo.append({"t_ms": round(prev, 1), "hand": hand, "punch_type": punch_type})
-        if len(combo) == len(spec.sequence or ()):
-            complete += 1
-            labels += combo
-        else:
+        if group[-1][0] < t0:
+            continue  # all of it before the cue: not this block's
+        picks = _combo_picks(group, hands)
+        if picks is None:
             incomplete += 1
+            continue
+        complete += 1
+        labels += [
+            {"t_ms": round(group[k][0], 1), "hand": group[k][1], "punch_type": punch_type}
+            for k, (punch_type, _) in zip(picks, sequence, strict=True)
+        ]
     return BlockResult(index, spec.key, complete, incomplete, labels)
 
 
@@ -580,6 +608,12 @@ def generate_labels(
             "min_gap_ms": MIN_GAP_MS,
             "smooth_ms": SMOOTH_MS,
             "profiles": PROFILES,  # per punch type, inside typed blocks
+            # Combos: each punch the strongest burst near its turn (ADR-070).
+            "combo": {
+                **COMBO_DETECT,
+                "local_ms": COMBO_LOCAL_MS,
+                "pre_cue_ms": COMBO_PRE_CUE_MS,
+            },
             # Free shadowboxing: the wrists' trained counter (ADR-068), or "detector"
             # (the fixed settings above) when none is trained.
             "free": wrist_counter.label(),

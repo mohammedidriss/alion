@@ -59,13 +59,18 @@ def _folder(take_id: str) -> Path:
     return folder
 
 
-def _imu_lines(hand: str, seconds: float, punches_ms: list[float]) -> list[str]:
-    """100 Hz of a resting wrist with a launch / lock-out / retraction burst per punch."""
+def _imu_lines(
+    hand: str, seconds: float, punches_ms: list[float], small_ms: tuple[float, ...] = ()
+) -> list[str]:
+    """100 Hz of a resting wrist with a launch / lock-out / retraction burst per punch,
+    and a single smaller bump (a twitch, ~2 g) at each of `small_ms`."""
     t = np.arange(0.0, seconds * 1000.0, 10.0)
     ax = np.zeros(t.size)
     for p in punches_ms:
         for offset, g, width in ((-120.0, 3.6, 25.0), (0.0, 6.0, 30.0), (180.0, 2.4, 40.0)):
             ax += g * np.exp(-0.5 * ((t - (p + offset)) / width) ** 2)
+    for p in small_ms:
+        ax += 3.0 * np.exp(-0.5 * ((t - p) / 30.0) ** 2)
     return [
         f"{ti:.2f},{hand},{a:.4f},0.0000,1.0000,0.00,0.00,0.00" for ti, a in zip(t, ax, strict=True)
     ]
@@ -513,6 +518,78 @@ def test_a_slow_three_two_stays_one_combo(authed_client: TestClient, clock: Cloc
         if b - 100 <= lab["t_ms"] < b + 2000
     ]
     assert got == [(0.0, "hook"), (1150.0, "cross")] * 4
+
+
+def test_a_twitch_before_the_jab_doesnt_take_its_label(
+    authed_client: TestClient, clock: Clock
+) -> None:
+    """ADR-070: the hand twitched ~0.3 s before the jab (81c32f76). The jab is the
+    stronger burst; the twitch used to take the label, 0.3 s early."""
+    tid = _take(authed_client, _dataset(authed_client), "orthodox")
+    bases = [1000.0 + 3000.0 * i for i in range(3)]
+    _write_imu(
+        tid,
+        _imu_lines("left", 12, bases, small_ms=tuple(b - 300.0 for b in bases))
+        + _imu_lines("right", 12, [b + 450.0 for b in bases]),
+    )
+    body = _block(authed_client, clock, tid, "combo_12", 0, 10000)
+    labels = json.loads((_folder(tid) / "labels.json").read_text())
+    assert [(round(lab["t_ms"], -1), lab["punch_type"]) for lab in labels] == [
+        x for b in bases for x in ((b, "jab"), (b + 450.0, "cross"))
+    ]
+    assert body["blocks"][0]["detected"] == 3 and body["blocks"][0]["off_hand"] == 0
+    prov = json.loads((_folder(tid) / "protocol.json").read_text())["labels"]
+    assert prov["detector"]["combo"] == {
+        "threshold_g": 1.2,
+        "min_gap_ms": 250.0,
+        "local_ms": 400.0,
+        "pre_cue_ms": 1000.0,
+    }
+
+
+def test_a_soft_first_jab_of_a_double_jab_is_kept(authed_client: TestClient, clock: Clock) -> None:
+    """The stronger second jab can't take the first jab's label: the combo needs both."""
+    tid = _take(authed_client, _dataset(authed_client), "orthodox")
+    _write_imu(
+        tid,
+        _imu_lines("left", 6, [1350.0], small_ms=(1000.0,)) + _imu_lines("right", 6, [1700.0]),
+    )
+    _block(authed_client, clock, tid, "combo_112", 0, 5000)
+    labels = json.loads((_folder(tid) / "labels.json").read_text())
+    assert [(round(lab["t_ms"], -1), lab["punch_type"]) for lab in labels] == [
+        (1000.0, "jab"),
+        (1350.0, "jab"),
+        (1700.0, "cross"),
+    ]
+
+
+def test_a_combo_started_just_before_the_cue_counts(
+    authed_client: TestClient, clock: Clock
+) -> None:
+    """ADR-070: the jab came 0.4 s before the block began (81c32f76). The whole
+    combo used to be dropped, its cross with it."""
+    tid = _take(authed_client, _dataset(authed_client), "orthodox")
+    _write_imu(
+        tid, _imu_lines("left", 12, [600, 4000, 7000]) + _imu_lines("right", 12, [1100, 4400, 7400])
+    )
+    body = _block(authed_client, clock, tid, "combo_12", 1000, 10000)
+    labels = json.loads((_folder(tid) / "labels.json").read_text())
+    assert [round(lab["t_ms"], -2) for lab in labels] == [600, 1100, 4000, 4400, 7000, 7400]
+    assert body["blocks"][0]["detected"] == 3 and body["blocks"][0]["off_hand"] == 0
+
+
+def test_a_combo_finished_before_the_cue_isnt_the_blocks(
+    authed_client: TestClient, clock: Clock
+) -> None:
+    tid = _take(authed_client, _dataset(authed_client), "orthodox")
+    _write_imu(
+        tid,
+        _imu_lines("left", 12, [1100, 4000, 7000]) + _imu_lines("right", 12, [1500, 4400, 7400]),
+    )
+    body = _block(authed_client, clock, tid, "combo_12", 2000, 10000)
+    labels = json.loads((_folder(tid) / "labels.json").read_text())
+    assert [round(lab["t_ms"], -2) for lab in labels] == [4000, 4400, 7000, 7400]
+    assert body["blocks"][0]["detected"] == 2 and body["blocks"][0]["off_hand"] == 0
 
 
 def test_combo_break_uses_the_expected_number_of_long_pauses() -> None:
