@@ -46,6 +46,8 @@ def train(
         raise HTTPException(status_code=404, detail="dataset not found")
     if not training.manifest_path(dataset_id).exists():
         raise HTTPException(status_code=409, detail="Export the dataset for training first")
+    if not training.has_test_stretches(dataset_id):
+        raise HTTPException(status_code=409, detail=training.NOTHING_TO_TEST)
     if not training.start(dataset_id, include_others):
         raise HTTPException(status_code=409, detail="Already training — wait for it to finish")
     return training.status(dataset_id)

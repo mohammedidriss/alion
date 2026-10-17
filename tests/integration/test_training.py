@@ -120,3 +120,23 @@ def test_training_scores_the_new_counter_against_the_current_one(
             "type_accuracy": report["types"]["test"]["model"]["accuracy"],
         }
     ]
+
+
+def test_a_dataset_with_nothing_to_test_on_isnt_trained(
+    authed_client: TestClient, stores: Path
+) -> None:
+    """ADR-067: single-punch takes only train — a counter from them would be scored on
+    nothing, so training refuses and says where to train instead."""
+    did = authed_client.post("/v2/datasets", json={"name": "Single", "protocol": "rq2-v1"}).json()[
+        "id"
+    ]
+    _export(did)
+    from api.services import dataset_store
+
+    manifest = dataset_store.dataset_dir(UUID(did)) / "export" / "manifest.json"
+    m = json.loads(manifest.read_text())
+    m["splits"]["train"] += m["splits"]["test"]
+    m["splits"]["test"] = []
+    manifest.write_text(json.dumps(m))
+    r = authed_client.post(f"/v2/datasets/{did}/train")
+    assert r.status_code == 409 and "nothing to test" in r.json()["detail"]

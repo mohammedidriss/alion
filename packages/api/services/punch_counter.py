@@ -45,6 +45,8 @@ def _ranked() -> list[tuple[Path, dict[str, Any]]]:
         try:
             report = json.loads(p.with_suffix(".json").read_text())
             test = report["test"]
+            if not report["data"].get("test_punches"):
+                continue  # scored on nothing: no way to know it beats the detector (ADR-067)
             if float(test["model"]["f1"]) < float(test["baseline"]["f1"]):
                 continue  # never worse than the detector it replaces
         except (OSError, ValueError, KeyError, TypeError):

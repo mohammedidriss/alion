@@ -172,10 +172,25 @@ def test_a_camera_counter_worse_than_the_detector_is_never_used(
 
     def save(v: int, f1: float, when: str) -> None:
         joblib.dump({"model": None, "threshold": 0.5}, d / f"v{v}.joblib")
-        report = {"created_at": when, "test": {"model": {"f1": f1}, "baseline": {"f1": 0.6}}}
+        report = {
+            "created_at": when,
+            "data": {"test_punches": 100},
+            "test": {"model": {"f1": f1}, "baseline": {"f1": 0.6}},
+        }
         (d / f"v{v}.json").write_text(json.dumps(report))
 
     save(1, 0.8, "2026-10-01T00:00:00+00:00")
     save(2, 0.5, "2026-10-02T00:00:00+00:00")  # newer, but worse than the detector
+    cur = punch_counter.current()
+    assert cur is not None and cur["version"] == 1
+    # Newer still, but scored on nothing (0 vs 0): not used either (ADR-067).
+    joblib.dump({"model": None, "threshold": 0.5}, d / "v3.joblib")
+    unscored = {
+        "created_at": "2026-10-03T00:00:00+00:00",
+        "data": {"test_punches": 0},
+        "test": {"model": {"f1": 0.0}, "baseline": {"f1": 0.0}},
+    }
+    (d / "v3.json").write_text(json.dumps(unscored))
+    punch_counter._cache.clear()
     cur = punch_counter.current()
     assert cur is not None and cur["version"] == 1

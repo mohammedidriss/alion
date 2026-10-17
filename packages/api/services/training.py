@@ -432,6 +432,18 @@ def _others_stretches(dataset_id: UUID) -> tuple[list[Stretch], list[dict[str, A
     return out, used
 
 
+NOTHING_TO_TEST = 'This dataset has nothing to test a counter on — its takes are all single-punch blocks, which only train. Train from a dataset with combo or free blocks (RQ2), with "also learn from the other datasets" on: this one\'s takes join the training.'
+
+
+def has_test_stretches(dataset_id: UUID) -> bool:
+    """The export has test stretches to score a counter on (ADR-067)."""
+    try:
+        manifest = json.loads(manifest_path(dataset_id).read_text())
+    except (OSError, ValueError):
+        return False
+    return bool((manifest.get("splits") or {}).get("test"))
+
+
 def run(dataset_id: UUID, include_others: bool = True) -> dict[str, Any]:
     """Train and score; returns (and saves) the report. With `include_others`, the
     other exported datasets' takes join the training stretches (ADR-059)."""
@@ -441,6 +453,9 @@ def run(dataset_id: UUID, include_others: bool = True) -> dict[str, Any]:
     test = _stretches(dataset_id, manifest, "test")
     if not train or not any(s.labels for s in train):
         raise ValueError("the export has no labelled training stretches")
+    if not test or not any(s.labels for s in test):
+        # A counter scored on nothing can't be compared with the detector (ADR-067).
+        raise ValueError(NOTHING_TO_TEST)
     others, others_used = _others_stretches(dataset_id) if include_others else ([], [])
     train += others
     sessions = _session_stretches(dataset_id)  # for training only (ADR-047)
