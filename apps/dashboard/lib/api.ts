@@ -834,17 +834,48 @@ export interface Session {
 export type Corner = "red" | "blue";
 export type BoutOutcome = "red" | "blue" | "draw";
 
-export interface Bout {
-  id: string;
+// The fight card (ADR-069): what a broadcast shows about a fight.
+export type FightType = "pro_title" | "pro" | "amateur" | "exhibition" | "sparring";
+
+export interface BeltOnTheLine {
+  body: string; // WBA / WBC / IBF / WBO / The Ring / IBO / Regional / Other
+  kind: string; // world / super / regular / interim / eliminator / regional / other
+}
+
+export interface FightCard {
   label: string | null;
+  venue: string | null; // the arena
+  fight_type: FightType;
+  titles: BeltOnTheLine[];
+  event_name: string | null;
+  city: string | null;
+  country: string | null;
+  weight_class: string | null;
+  weight_limit_kg: number | null; // the division's, or a catchweight
+  red_weigh_in_kg: number | null; // official weigh-in
+  blue_weigh_in_kg: number | null;
+  referee: string | null;
+  judges: string[];
+  promoter: string | null;
+  broadcaster: string | null;
+}
+
+export interface Bout extends FightCard {
+  id: string;
   scheduled_at: string;
-  venue: string | null;
   round_count: number;
   round_duration_s: number;
   rest_duration_s: number;
   winner_corner: BoutOutcome | null;
   result_method: string | null;
   created_at: string;
+}
+
+export interface FightOptions {
+  fight_types: { key: FightType; label: string; rounds: number; round_s: number; rest_s: number }[];
+  sanctioning_bodies: string[];
+  title_kinds: string[];
+  weight_classes: { key: string; limit_lb: number | null; limit_kg: number | null }[];
 }
 
 export type AttachmentKind = "video" | "image" | "audio" | "document" | "other";
@@ -2091,18 +2122,28 @@ export const api = {
   // Two-fighter bouts (ADR-011).
   listBouts: () => req<Bout[]>("/bouts"),
   getBout: (id: string) => req<Bout>(`/bouts/${id}`),
-  createBout: (body: {
-    label?: string | null;
-    venue?: string | null;
-    round_count?: number;
-    round_duration_s?: number;
-    rest_duration_s?: number;
-  }) =>
+  createBout: (
+    body: Partial<FightCard> & {
+      scheduled_at?: string | null;
+      round_count?: number;
+      round_duration_s?: number;
+      rest_duration_s?: number;
+    },
+  ) =>
     req<Bout>("/bouts", {
       method: "POST",
       headers: { "content-type": "application/json" },
       body: JSON.stringify(body),
     }),
+  updateBout: (id: string, patch: Partial<Omit<Bout, "id" | "created_at">>) =>
+    req<Bout>(`/bouts/${id}`, {
+      method: "PATCH",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify(patch),
+    }),
+  // Deleted from view: the fight and its corners' sessions are hidden, recordings kept.
+  deleteBout: (id: string) => req<void>(`/bouts/${id}`, { method: "DELETE" }),
+  fightOptions: () => req<FightOptions>("/bouts/options"),
   boutParticipants: (id: string) => req<Session[]>(`/bouts/${id}/participants`),
   assignBoutCorner: (id: string, session_id: string, corner: Corner) =>
     req<Session>(`/bouts/${id}/participants`, {

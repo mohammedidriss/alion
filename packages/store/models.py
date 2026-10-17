@@ -174,6 +174,28 @@ WEIGHT_CLASSES = (
     "heavyweight",  # ≤200+ lb
 )
 
+# Upper weight limit of each professional division, in pounds (heavyweight has none).
+WEIGHT_CLASS_LIMITS_LB: dict[str, float | None] = {
+    "minimumweight": 105,
+    "light_flyweight": 108,
+    "flyweight": 112,
+    "super_flyweight": 115,
+    "bantamweight": 118,
+    "super_bantamweight": 122,
+    "featherweight": 126,
+    "super_featherweight": 130,
+    "lightweight": 135,
+    "super_lightweight": 140,
+    "welterweight": 147,
+    "super_welterweight": 154,
+    "middleweight": 160,
+    "super_middleweight": 168,
+    "light_heavyweight": 175,
+    "cruiserweight": 200,
+    "heavyweight": None,
+}
+LB_PER_KG = 2.20462
+
 
 # ----------------------------------------------------------------------
 # User — authentication identity (email + hashed password).
@@ -668,6 +690,25 @@ class BoutOutcomeEnum(StrEnum):
     DRAW = "draw"
 
 
+class FightTypeEnum(StrEnum):
+    """What kind of fight a bout is (ADR-069)."""
+
+    PRO_TITLE = "pro_title"  # professional, with one or more belts on the line
+    PRO = "pro"  # professional, non-title
+    AMATEUR = "amateur"
+    EXHIBITION = "exhibition"
+    SPARRING = "sparring"  # a friendly — nothing at stake
+
+
+# Who sanctions the belts a title fight is for. The four major bodies, The Ring
+# (a magazine's lineal belt), the IBO, and regional / other titles.
+SANCTIONING_BODIES = ("WBA", "WBC", "IBF", "WBO", "The Ring", "IBO", "Regional", "Other")
+# Which version of a belt: the WBA keeps "super" and "regular" champions; an
+# interim belt stands in while the champion can't defend; an eliminator decides
+# the mandatory challenger.
+TITLE_KINDS = ("world", "super", "regular", "interim", "eliminator", "regional", "other")
+
+
 class BellEventKindEnum(StrEnum):
     """A marker on a bout's shared round timeline."""
 
@@ -778,7 +819,29 @@ class Bout(SQLModel, table=True):
     id: UUID = Field(default_factory=uuid4, primary_key=True)
     label: str | None = None
     scheduled_at: datetime = Field(default_factory=lambda: datetime.now(UTC))
-    venue: str | None = None
+    venue: str | None = None  # the arena
+    # The fight card (ADR-069): what kind of fight, what's on the line, where, at
+    # what weight, and who officiates — what a broadcast shows about each fight.
+    fight_type: FightTypeEnum = Field(
+        default=FightTypeEnum.PRO,
+        sa_column=sa.Column(sa.String, nullable=False, server_default="pro"),
+    )
+    titles: list[dict[str, str]] = Field(  # [{"body": "WBC", "kind": "world"}, …]
+        default_factory=list, sa_column=sa.Column(sa.JSON, nullable=False, server_default="[]")
+    )
+    event_name: str | None = Field(default=None, max_length=120)
+    city: str | None = Field(default=None, max_length=80)
+    country: str | None = Field(default=None, max_length=80)
+    weight_class: str | None = Field(default=None, max_length=40)  # WEIGHT_CLASSES
+    weight_limit_kg: float | None = Field(default=None, gt=0.0, le=400.0)  # catchweight too
+    red_weigh_in_kg: float | None = Field(default=None, gt=0.0, le=400.0)  # official weigh-in
+    blue_weigh_in_kg: float | None = Field(default=None, gt=0.0, le=400.0)
+    referee: str | None = Field(default=None, max_length=120)
+    judges: list[str] = Field(
+        default_factory=list, sa_column=sa.Column(sa.JSON, nullable=False, server_default="[]")
+    )
+    promoter: str | None = Field(default=None, max_length=120)
+    broadcaster: str | None = Field(default=None, max_length=120)
     # Shared round config — authoritative for the bout; participant sessions defer.
     round_count: int = Field(default=3, ge=1, le=24)
     round_duration_s: int = Field(default=180, ge=1, le=900)
@@ -790,14 +853,61 @@ class Bout(SQLModel, table=True):
     )
     result_method: str | None = None  # KO / TKO / decision / …
     created_at: datetime = Field(default_factory=lambda: datetime.now(UTC))
+    # Deleted from view (ADR-056): the fight and its corners' recordings are kept.
+    removed_at: datetime | None = None
+    removed_by: UUID | None = None
 
 
-class BoutCreate(SQLModel):
-    label: str | None = None
-    venue: str | None = None
+class BoutDetails(SQLModel):
+    """The fight-card fields a bout is created with and can be edited by (ADR-069)."""
+
+    label: str | None = Field(default=None, max_length=160)
+    venue: str | None = Field(default=None, max_length=120)
+    fight_type: FightTypeEnum = FightTypeEnum.PRO
+    titles: list[dict[str, str]] = Field(default_factory=list)
+    event_name: str | None = Field(default=None, max_length=120)
+    city: str | None = Field(default=None, max_length=80)
+    country: str | None = Field(default=None, max_length=80)
+    weight_class: str | None = Field(default=None, max_length=40)
+    weight_limit_kg: float | None = Field(default=None, gt=0.0, le=400.0)
+    red_weigh_in_kg: float | None = Field(default=None, gt=0.0, le=400.0)
+    blue_weigh_in_kg: float | None = Field(default=None, gt=0.0, le=400.0)
+    referee: str | None = Field(default=None, max_length=120)
+    judges: list[str] = Field(default_factory=list, max_length=3)
+    promoter: str | None = Field(default=None, max_length=120)
+    broadcaster: str | None = Field(default=None, max_length=120)
+
+
+class BoutCreate(BoutDetails):
+    scheduled_at: datetime | None = None  # now if not given
     round_count: int = Field(default=3, ge=1, le=24)
     round_duration_s: int = Field(default=180, ge=1, le=900)
     rest_duration_s: int = Field(default=60, ge=0, le=600)
+
+
+class BoutUpdate(SQLModel):
+    """Every field optional: only what's sent changes (weigh-ins are usually added
+    the day before; officials are often named late)."""
+
+    label: str | None = None
+    venue: str | None = None
+    fight_type: FightTypeEnum | None = None
+    titles: list[dict[str, str]] | None = None
+    event_name: str | None = None
+    city: str | None = None
+    country: str | None = None
+    weight_class: str | None = None
+    weight_limit_kg: float | None = Field(default=None, gt=0.0, le=400.0)
+    red_weigh_in_kg: float | None = Field(default=None, gt=0.0, le=400.0)
+    blue_weigh_in_kg: float | None = Field(default=None, gt=0.0, le=400.0)
+    referee: str | None = None
+    judges: list[str] | None = Field(default=None, max_length=3)
+    promoter: str | None = None
+    broadcaster: str | None = None
+    scheduled_at: datetime | None = None
+    round_count: int | None = Field(default=None, ge=1, le=24)
+    round_duration_s: int | None = Field(default=None, ge=1, le=900)
+    rest_duration_s: int | None = Field(default=None, ge=0, le=600)
 
 
 class BoutRead(SQLModel):
@@ -805,6 +915,19 @@ class BoutRead(SQLModel):
     label: str | None
     scheduled_at: UtcDatetime
     venue: str | None
+    fight_type: FightTypeEnum = FightTypeEnum.PRO
+    titles: list[dict[str, str]] = []
+    event_name: str | None = None
+    city: str | None = None
+    country: str | None = None
+    weight_class: str | None = None
+    weight_limit_kg: float | None = None
+    red_weigh_in_kg: float | None = None
+    blue_weigh_in_kg: float | None = None
+    referee: str | None = None
+    judges: list[str] = []
+    promoter: str | None = None
+    broadcaster: str | None = None
     round_count: int
     round_duration_s: int
     rest_duration_s: int

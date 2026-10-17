@@ -5,13 +5,26 @@
  * and round timer, one Start fight / Pause / Stop driving both corners together, and
  * a live punch count per fighter — via <BoutCapture>. Each corner is still its own
  * single-fighter session underneath. Set the result when the fight is done.
+ *
+ * Above it, the fight card (ADR-069): what's at stake, the event, division and
+ * officials, and the two fighters' tale of the tape — where the official
+ * weigh-ins are entered, and missing profile facts can be filled in.
  */
 
 import Link from "next/link";
 import { useParams } from "next/navigation";
 import { useEffect, useState } from "react";
 import { BoutCapture } from "@/components/BoutCapture";
-import { api, type Bout, type BoutOutcome, type Fighter, type Session } from "@/lib/api";
+import { TaleOfTheTape } from "@/components/TaleOfTheTape";
+import {
+  api,
+  type Bout,
+  type BoutOutcome,
+  type Fighter,
+  type FighterTitle,
+  type Session,
+} from "@/lib/api";
+import { kgLb, weightClassLabel, whatsAtStake } from "@/lib/fight";
 
 export default function BoutDetailPage() {
   const params = useParams();
@@ -19,6 +32,7 @@ export default function BoutDetailPage() {
   const [bout, setBout] = useState<Bout | null>(null);
   const [parts, setParts] = useState<Session[]>([]);
   const [fighters, setFighters] = useState<Fighter[]>([]);
+  const [titles, setTitles] = useState<Record<string, FighterTitle[]>>({});
   const [err, setErr] = useState<string | null>(null);
 
   useEffect(() => {
@@ -27,6 +41,15 @@ export default function BoutDetailPage() {
     api.listFighters().then(setFighters).catch(() => {});
   }, [id]);
 
+  useEffect(() => {
+    for (const s of parts) {
+      api
+        .listTitles(s.fighter_id)
+        .then((ts) => setTitles((m) => ({ ...m, [s.fighter_id]: ts })))
+        .catch(() => {});
+    }
+  }, [parts]);
+
   if (err) return <div className="p-6 text-sm text-red-300">{err}</div>;
   if (!bout) return <div className="p-6 text-sm text-neutral-500">Loading…</div>;
 
@@ -34,6 +57,16 @@ export default function BoutDetailPage() {
   const blue = parts.find((s) => s.corner === "blue");
   const nameOf = (fid?: string) =>
     fighters.find((f) => f.id === fid)?.name ?? (fid ? fid.slice(0, 8) : "—");
+  const fighterOf = (fid?: string) => fighters.find((f) => f.id === fid) ?? null;
+  const saveWeighIn = async (corner: "red" | "blue", kg: number | null) => {
+    const updated = await api
+      .updateBout(id, corner === "red" ? { red_weigh_in_kg: kg } : { blue_weigh_in_kg: kg })
+      .catch(() => null);
+    if (updated) setBout(updated);
+  };
+  const place = [bout.event_name, bout.venue, [bout.city, bout.country].filter(Boolean).join(", ")]
+    .filter(Boolean)
+    .join(" · ");
 
   const setResult = async (winner: BoutOutcome) => {
     const method =
@@ -53,11 +86,38 @@ export default function BoutDetailPage() {
       </div>
 
       <header>
-        <h1 className="text-2xl font-semibold">{bout.label || "Untitled bout"}</h1>
+        <div className="flex flex-wrap items-center gap-2">
+          <h1 className="text-2xl font-semibold">{bout.label || "Untitled bout"}</h1>
+          <span
+            className={`rounded-full px-2.5 py-0.5 text-xs font-medium ${
+              bout.fight_type === "pro_title" ? "bg-amber-500/15 text-amber-200" : "bg-white/5 text-neutral-300"
+            }`}
+          >
+            {whatsAtStake(bout)}
+          </span>
+        </div>
+        {place && <p className="text-sm text-neutral-300">{place}</p>}
         <p className="text-sm text-neutral-400">
           {new Date(bout.scheduled_at).toLocaleString()} · {bout.round_count}×
-          {Math.round(bout.round_duration_s / 60)}min · rest {bout.rest_duration_s}s
+          {bout.round_duration_s / 60} min · rest {bout.rest_duration_s}s
+          {bout.weight_class
+            ? ` · ${weightClassLabel(bout.weight_class)}${bout.weight_limit_kg ? ` (${kgLb(bout.weight_limit_kg)})` : ""}`
+            : bout.weight_limit_kg
+              ? ` · catchweight ${kgLb(bout.weight_limit_kg)}`
+              : ""}
         </p>
+        {(bout.referee || bout.judges.length > 0 || bout.promoter || bout.broadcaster) && (
+          <p className="text-xs text-neutral-500">
+            {[
+              bout.referee && `Referee ${bout.referee}`,
+              bout.judges.length > 0 && `Judges ${bout.judges.join(", ")}`,
+              bout.promoter && `Promoter ${bout.promoter}`,
+              bout.broadcaster && `On ${bout.broadcaster}`,
+            ]
+              .filter(Boolean)
+              .join(" · ")}
+          </p>
+        )}
         {bout.winner_corner && (
           <p className="mt-1 text-sm font-medium text-neutral-200">
             Result: {bout.winner_corner === "draw" ? "Draw" : `${bout.winner_corner} corner`}
@@ -65,6 +125,19 @@ export default function BoutDetailPage() {
           </p>
         )}
       </header>
+
+      {(red || blue) && (
+        <TaleOfTheTape
+          red={fighterOf(red?.fighter_id)}
+          blue={fighterOf(blue?.fighter_id)}
+          redTitles={red ? (titles[red.fighter_id] ?? []) : []}
+          blueTitles={blue ? (titles[blue.fighter_id] ?? []) : []}
+          weighIn={{ red: bout.red_weigh_in_kg, blue: bout.blue_weigh_in_kg }}
+          limitKg={bout.weight_limit_kg}
+          onWeighIn={saveWeighIn}
+          onFighterSaved={(f) => setFighters((list) => list.map((x) => (x.id === f.id ? f : x)))}
+        />
+      )}
 
       {red && blue ? (
         <BoutCapture

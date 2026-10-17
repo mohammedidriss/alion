@@ -260,17 +260,25 @@ class BoutRepo:
         self._session = session
 
     def create(self, data: BoutCreate) -> Bout:
-        row = Bout(**data.model_dump())
+        row = Bout(**data.model_dump(exclude_none=True))  # unset → the column's default
         self._session.add(row)
         self._session.commit()
         self._session.refresh(row)
         return row
 
-    def get(self, bout_id: UUID) -> Bout | None:
-        return self._session.get(Bout, bout_id)
+    def get(self, bout_id: UUID, *, include_removed: bool = False) -> Bout | None:
+        """A deleted bout (ADR-056) looks absent unless `include_removed`."""
+        bout = self._session.get(Bout, bout_id)
+        if bout is not None and bout.removed_at is not None and not include_removed:
+            return None
+        return bout
 
     def list_all(self) -> list[Bout]:
-        stmt = select(Bout).order_by(Bout.scheduled_at)  # type: ignore[arg-type]
+        stmt = (
+            select(Bout)
+            .where(Bout.removed_at == None)  # noqa: E711
+            .order_by(Bout.scheduled_at)  # type: ignore[arg-type]
+        )
         return list(self._session.exec(stmt).all())
 
     def participants(self, bout_id: UUID) -> list[Session]:
@@ -311,6 +319,17 @@ class BoutRepo:
         self._session.commit()
         self._session.refresh(sess)
         return sess
+
+    def update(self, bout_id: UUID, fields: dict[str, object]) -> Bout | None:
+        bout = self.get(bout_id)
+        if bout is None:
+            return None
+        for key, value in fields.items():
+            setattr(bout, key, value)
+        self._session.add(bout)
+        self._session.commit()
+        self._session.refresh(bout)
+        return bout
 
     def set_result(
         self,
